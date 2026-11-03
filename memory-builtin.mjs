@@ -121,6 +121,27 @@ function withDb(dbPath, fn, fallback) {
   }
 }
 
+/**
+ * 读类操作（listPending / listHeads / search）：库不存在就按 schema 建一个空库再读。
+ * 单子 §1 第 6 步要求「只装插件、只配 soulPath」时 soul_recall 能自动建库并返回空结果，
+ * 而不是回一句「记忆库打不开」；建库失败（如安装目录只读）仍按 fallback 降级，不抛错。
+ */
+function withDbCreating(dbPath, fn, fallback) {
+  const db = ensureDb(dbPath)
+  if (!db) return fallback
+  try {
+    return fn(db)
+  } catch {
+    return fallback
+  } finally {
+    try {
+      db.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /** 写入/更新一条记忆。O4 的「写入并读回」就走它，也给未来的 import 工具留口子。 */
 export function putMemory(dbPath, memory = {}) {
   const db = ensureDb(dbPath)
@@ -192,7 +213,7 @@ export function countResident(dbPath) {
 /** 「手头未结」：level=project 且没标完成（builtin 没有 subcategory，用 project/关键词里的 todo 代替）。 */
 export function listPending(dbPath, limit = 3) {
   if (limit <= 0) return []
-  return withDb(
+  return withDbCreating(
     dbPath,
     (db) =>
       db
@@ -212,7 +233,7 @@ export function listPending(dbPath, limit = 3) {
 /** 「我记得」：rules + lesson 里 importance>=3 的摘头，按重要性倒序、去重、每条 60 字。 */
 export function listHeads(dbPath, limit = 3) {
   if (limit <= 0) return []
-  return withDb(
+  return withDbCreating(
     dbPath,
     (db) => {
       const rows = db
@@ -265,7 +286,7 @@ function snippet(text, words, size = 90) {
 export function search(dbPath, words, limit) {
   const list = (Array.isArray(words) ? words : [words]).map((word) => String(word ?? '').toLowerCase()).filter(Boolean)
   if (list.length === 0) return { entries: [], note: '查询为空' }
-  return withDb(
+  return withDbCreating(
     dbPath,
     (db) => {
       const rows = db

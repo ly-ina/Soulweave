@@ -1,0 +1,10 @@
+﻿# 本地文件：不进包（files 白名单之外仍可能被 npm 自动收录 README*）
+README.local.md
+*.bak*
+*.log
+state/
+.state/
+memory/
+soul.md
+*.db
+*.tgz

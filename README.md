@@ -85,7 +85,7 @@
 
 单个源抛错只写 note，不拖累其余源。结果里 `sources` 给各源命中数，`active` 给本轮真正启用的源 id。
 
-## 配置项
+## 完整配置表
 
 | 配置项 | 默认值 | 说明 |
 |---|---|---|
@@ -103,7 +103,7 @@
 | `sealedModule` | 空 | 旧名，仍兼容 |
 | `soulIndexDir` | 空 | 原文库目录（含 `query.py`） |
 | `soulIndexPython` | `python` | 跑 `query.py` 的解释器 |
-| `soulMaxTokens` | 220（本机配置 1000；硬上限 1100） | 魂引 token 上限 |
+| `soulMaxTokens` | 220（可调到 1000；硬上限 1100） | 魂引 token 上限 |
 | `totalMaxTokens` | 950 | 四类注入合计上限 |
 | `fixedMaxTokens` | 2500 | 快照超这个值才在末行申报 |
 | `enforceBudget` | `false` | true 才真把目录型注入从本轮剔掉 |
@@ -142,13 +142,26 @@
 <soulRoot>/index.jsonl      一行一区（不是一条记忆一行）
 ```
 
-- **魂引**：`【分区】work 330 · intimacy 17 · relations 3 · rules 22 · misc 23` + 一行命令示例；full 与 reload 档都一样，不出现任何区正文。
+- **魂引**：`【分区】work 42 · intimacy 8 · relations 3 · rules 12 · misc 5` + 一行命令示例；full 与 reload 档都一样，不出现任何区正文。
 - **条数**：每次现扫 `memory/*.md` 算，手改文件后不用重建索引也不会报错数；`index.jsonl` 只定顺序与标题。
 - **条目格式**：`## 标题` + 空一行 + `tags: 场景, 类型` + 正文。标签只有两个维度：场景（工作/亲密/群聊/日常）、类型（规则/事实/偏好/教训），每条最多三个，区名不写进 tags。
 - **检索**：`soul_recall({zone:"work", tags:["工作","工具"]})` 先按区与标签过滤再打分，返回项带 `zone` 与 `tags`。
 - **迁移**：`node scripts/migrate-zones.mjs --db <memory.db> --root <soulRoot>`（只追加、按 id 去重；映射不确定的一律进 `misc.md`；结尾会报各区文件大小）。
-- **什么时候拆子区**：不看条数，看可测判据——单文件 > 1 MB，或 `soul_recall({zone:"work"})` 实测 > 500 ms。现在 work 218 KB / 330 条、实测 4–6 ms，不拆（拆了会让索引从一行变四行）。
-## 边界与已知限制
+- **什么时候拆子区**：不看条数，看可测判据——单文件 > 1 MB，或 `soul_recall({zone:"work"})` 实测 > 500 ms。没到线就别拆（拆了会让索引从一行变四行）。
+## 权限边界
+
+装之前先看清这三条，它们都是**默认就会发生**的：
+
+| 能力 | 默认行为 | 边界 |
+|---|---|---|
+| 注入 | 每轮往上下文里放一段 ≤ `soulMaxTokens` 的魂引 | 只读 `soul.md`，不改它；认不出的内容不注入 |
+| `soul_persist` | **会写 `soul.md`**：把 corrected lesson 追加到「## 反哺记录」一节 | 只追加、不重写前三节；默认 `preview`，落盘前先备份 |
+| `soul_surface` | **能折叠会话历史**：把旧注入从模型视图里遮掉（surface replace，只遮不删，日志原文一条不动） | 需要宿主提供会话对象；拿不到就报错，不直接改 `.zstd` |
+| 记忆库 | 默认后端是 `builtin`：自带 SQLite，落在 `<stateDir>/soul-memory.db`，首次读取自动建库 | 不联网、不外发；`memoryBackend: "none"` 可整个关掉 |
+
+其余工具（`soul_tier` / `soul_cue` / `soul_toolout`）都是显式 preview 优先，apply 需要 `confirm: true`。
+
+## 已知限制
 
 - 只读 `soul.md`，唯一写入通道是 `soul_persist`（只追加「## 反哺记录」一节，落盘前备份）。
 - 不引任何 npm 依赖；SQLite 用 Node 自带 `node:sqlite`。
@@ -158,14 +171,15 @@
 
 ## 自测
 
-`check.mjs`、`gamedev-golden.json` 属于**本机测试物**，不进 npm 包（见 `files` 白名单）。源码目录里可以直接跑：
+`check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs
+node check.mjs          # 单元/集成：期望最后一行 61/61 通过（含 11 条 O* 观测断言）
+node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
 ```
 
-期望最后一行 `61/61 通过`（含 11 条 `O*` 观测断言）。
+`clean-install.mjs` 不读、不写本机任何真实目录（`DSH_HOME` 也临时指到空目录），跑完自删。
 
-## 开源化改造记录
+## 变更记录
 
-见 `REPORT.md` 的「开源化改造」一节。
+见 `CHANGELOG.md`。
