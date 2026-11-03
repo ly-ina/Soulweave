@@ -40,10 +40,21 @@ export const inject = ['tools']
 export const MESSAGE_KIND = 'soul'
 
 /** soul.md 里插件只读的三节（§3.1）。 */
-export const SOUL_SECTIONS = Object.freeze(['我是谁', '我怎么想', '我不做什么', '在群里'])
+export const SOUL_SECTIONS = Object.freeze(['身份', '认知', '禁令', '外交'])
+
+/** 旧节名兼容映射：v0.1.1 起渲染用通用名，旧文件仍可读。 */
+export const SECTION_ALIASES = Object.freeze({
+  身份: ['我是谁'],
+  认知: ['我怎么想'],
+  禁令: ['我不做什么'],
+  外交: ['在群里'],
+})
 
 /** 唯一允许追加的一节；模板内容禁止写入（§9.10）。 */
-export const FEEDBACK_SECTION = '反哺记录'
+export const FEEDBACK_SECTION = '反哺'
+
+/** 旧名兼容。 */
+export const FEEDBACK_ALIASES = Object.freeze(['反哺记录'])
 
 /** 魂引硬上限（§5）。 */
 export const HARD_SOUL_TOKENS = 1100
@@ -393,6 +404,11 @@ export function readRouterLines(path) {
   }
 }
 
+const ALIAS_TO_STANDARD = Object.freeze({
+  ...Object.fromEntries(Object.entries(SECTION_ALIASES).flatMap(([std, list]) => list.map((a) => [a, std]))),
+  ...Object.fromEntries(FEEDBACK_ALIASES.map((a) => [a, FEEDBACK_SECTION])),
+})
+
 export function parseSoul(text) {
   const raw = typeof text === 'string' ? text : ''
   const sections = {}
@@ -405,7 +421,8 @@ export function parseSoul(text) {
     if (heading) {
       sawHeading = true
       const title = heading[1].trim()
-      current = Object.prototype.hasOwnProperty.call(sections, title) ? title : '__other__'
+      const mapped = ALIAS_TO_STANDARD[title] ?? title
+      current = Object.prototype.hasOwnProperty.call(sections, mapped) ? mapped : '__other__'
       continue
     }
     const bullet = /^\s*(?:[-*+]|\d+[.)])\s+(.*\S)\s*$/.exec(line)
@@ -513,10 +530,10 @@ export function composeSoul(input = {}) {
   // 条目和记忆摘要压缩后就再也看不见，所以在压缩后第一轮把三节全量渲染一次。
   const reload = input.reload === true
 
-  const identityAll = bulletsOf(soul, '我是谁')
-  const mindAll = bulletsOf(soul, '我怎么想')
-  const boundaryAll = bulletsOf(soul, '我不做什么')
-  const groupAll = bulletsOf(soul, '在群里')
+  const identityAll = bulletsOf(soul, '身份')
+  const mindAll = bulletsOf(soul, '认知')
+  const boundaryAll = bulletsOf(soul, '禁令')
+  const groupAll = bulletsOf(soul, '外交')
   // 记忆联动（2026-10-31）：由 pre-step 从 memory.db 读出，这里只负责渲染。
   const memoryHeads = (Array.isArray(input.memoryHeads) ? input.memoryHeads : [])
     .map((item) => asText(item))
@@ -530,10 +547,10 @@ export function composeSoul(input = {}) {
   // 2026-10-28：三节超 3 条时以前是静默 slice 掉，现在攒成 warning 由 pre-step 写 soul.log。
   const warnings = []
   for (const [label, list] of [
-    ['我是谁', identityAll],
-    ['我怎么想', mindAll],
-    ['我不做什么', boundaryAll],
-    ['在群里', groupAll],
+    ['身份', identityAll],
+    ['认知', mindAll],
+    ['禁令', boundaryAll],
+    ['外交', groupAll],
   ]) {
     if (list.length > SOUL_SECTION_CAP) {
       warnings.push(
@@ -559,10 +576,10 @@ export function composeSoul(input = {}) {
   // reload 档 take=99 不触发。
   const fullTake = stages[0].take
   for (const [label, list, cap] of [
-    ['我是谁', identityAll, fullTake.identity],
-    ['我怎么想', mindAll, fullTake.mind],
-    ['我不做什么', boundaryAll, fullTake.boundary],
-    ['在群里', groupAll, fullTake.group],
+    ['身份', identityAll, fullTake.identity],
+    ['认知', mindAll, fullTake.mind],
+    ['禁令', boundaryAll, fullTake.boundary],
+    ['外交', groupAll, fullTake.group],
   ]) {
     if (list.length > cap && list.length <= SOUL_SECTION_CAP) {
       warnings.push(`dsh-soul: soul.md「${label}」有 ${list.length} 条，只注入前 ${cap} 条（第 ${cap + 1} 条起被丢弃）`)
@@ -572,7 +589,7 @@ export function composeSoul(input = {}) {
   // 2026-11-01：单条软上限。条数早就有上限，但单条长度没有——有人手滑写长一条就能撑爆。
   // full 阶段裁到 80 字并记一条 warn；降档时仍按 coreMax 裁更短。
   const SOFT_BULLET_MAX = 140
-  for (const [label, list] of [['我是谁', identityAll], ['我怎么想', mindAll], ['我不做什么', boundaryAll], ['在群里', groupAll]]) {
+  for (const [label, list] of [['身份', identityAll], ['认知', mindAll], ['禁令', boundaryAll], ['外交', groupAll]]) {
     for (const item of list) {
       if (item.length > SOFT_BULLET_MAX) warnings.push(`dsh-soul: 【${label}】单条 ${item.length} 字 > ${SOFT_BULLET_MAX}，魂引里已截断：${clip(item, 20)}…`)
     }
@@ -594,10 +611,10 @@ export function composeSoul(input = {}) {
     const shownGroup = input.inGroup ? take(group, stage.take.group ?? 0) : []
     const shownMem = take(memoryHeads, stage.take.mem ?? 0)
     const lines = ['【魂引 · 人格】']
-    if (shownIdentity.length > 0) lines.push(`我是谁：${shownIdentity.join(' · ')}${overflow(identityAll, shownIdentity)}`)
-    if (shownMind.length > 0) lines.push(`我怎么想：${shownMind.join(' · ')}${overflow(mindAll, shownMind)}`)
-    if (shownBoundary.length > 0) lines.push(`我不做什么：${shownBoundary.join(' · ')}${overflow(boundaryAll, shownBoundary)}`)
-    if (shownGroup.length > 0) lines.push(`在群里：${shownGroup.join(' · ')}${overflow(groupAll, shownGroup)}`)
+    if (shownIdentity.length > 0) lines.push(`身份：${shownIdentity.join(' · ')}${overflow(identityAll, shownIdentity)}`)
+    if (shownMind.length > 0) lines.push(`认知：${shownMind.join(' · ')}${overflow(mindAll, shownMind)}`)
+    if (shownBoundary.length > 0) lines.push(`禁令：${shownBoundary.join(' · ')}${overflow(boundaryAll, shownBoundary)}`)
+    if (shownGroup.length > 0) lines.push(`外交：${shownGroup.join(' · ')}${overflow(groupAll, shownGroup)}`)
     if (shownMem.length > 0) lines.push(`我记得：${shownMem.join(' · ')}`)
     lines.push('【现在在哪】')
     lines.push(`${stampOf(at, timeZone)} ${weekdayOf(at, timeZone)} · ${workspace}`.trim())
@@ -2188,8 +2205,8 @@ export function createPersist(config) {
     const mode = args?.mode === 'append' ? 'append' : 'preview'
     const limit = Math.min(Math.max(Number(args?.limit ?? 10) || 10, 1), 20)
     const md = readFileSync(config.soulPath, 'utf8')
-    if (!md.includes('## 反哺记录')) {
-      return { ok: false, mode, added: 0, pending: 0, text: 'soul.md 缺少「## 反哺记录」节，未写入' }
+    if (!md.includes('## 反哺') && !md.includes('## 反哺记录')) {
+      return { ok: false, mode, added: 0, pending: 0, text: 'soul.md 缺少「## 反哺」节（旧名「反哺记录」也认），未写入' }
     }
     const seen = new Set()
     for (const m of md.matchAll(/（([0-9a-z]{8})/g)) seen.add(m[1])
@@ -2501,7 +2518,7 @@ const TOOLOUT_TOOL = Object.freeze({
 const PERSIST_TOOL = Object.freeze({
   name: 'soul_persist',
   description:
-    '把「被用户明确纠正过」的 lesson（记忆库 corrected=1 且 active）追加到 soul.md 的「反哺记录」节。只追加不重写，默认 preview 预览；落盘前自动备份。反哺记录不进魂引，不涨每轮预算。',
+    '把「被用户明确纠正过」的 lesson（记忆库 corrected=1 且 active）追加到 soul.md 的「反哺」节。只追加不重写，默认 preview 预览；落盘前自动备份。反哺记录不进魂引，不涨每轮预算。',
   parameters: {
     type: 'object',
     properties: {
