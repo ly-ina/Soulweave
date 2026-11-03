@@ -174,7 +174,7 @@
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 63/63 通过（含 11 条 O* 观测断言）
+node check.mjs          # 单元/集成：期望最后一行 64/64 通过（含 11 条 O* 观测断言）
 node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
 ```
 
