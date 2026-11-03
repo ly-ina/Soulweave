@@ -608,12 +608,16 @@ export function composeSoul(input = {}) {
     return lines.join('\n')
   }
 
+  const downgradeNote = (stage) => `\n【魂引】已降档 ${stage.id}`
   let text = render(stages[0])
   let used = stages[0]
   for (const stage of stages) {
     text = render(stage)
     used = stage
-    if (estimateTokens(text) <= maxTokens) break
+    // 降档档位要给末行申报留位置：预算刚好被正文占满时，申报行会被挤掉，
+    // 结果只剩日志、正文里不说（2026-11-03 长工作区路径踩到）。留够再判「装得下」。
+    const reserve = stage.hints === 'short' ? estimateTokens(downgradeNote(stage)) : 0
+    if (estimateTokens(text) + reserve <= maxTokens) break
   }
   // 绝对兜底：仍然超限就硬裁，并在尾巴注明，绝不静默放大（§8.1）。
   if (estimateTokens(text) > maxTokens) {

@@ -1524,9 +1524,9 @@ await test('T8', '降档必须说出来：上限 200 + 超长 soul.md → 魂引
     now: () => new Date('2026-10-28T13:12:00+08:00'),
     pendingLoader: () => [],
   })
-  // 固定一个短工作区：申报行要装得下。测试若跟着 tmpdir 长度走，会在 200tok 边界上
-  // 只剩日志、没有末行申报（那是「装不下就只报日志」的既有设计，见 REPORT §15 缺口）。
-  const decision = await handler({ ...fakePayload(1), agent: { session: { id: 'check-session', cwd: 'D:\\ws' } } }, async () => ({ kind: 'enter', messages: [] }))
+  // 用默认 fakePayload（tmpdir 派生、较长的工作区路径）：2026-11-03 就是这样把 200tok
+  // 预算占满、末行申报被挤掉的，改 composition 里给申报留位后这条才算真回归。
+  const decision = await handler(fakePayload(1), async () => ({ kind: 'enter', messages: [] }))
   const soulText = decision.messages.filter((m) => m?.source?.kind === 'soul').map((m) => m.content[0].text).join('')
   assert.match(soulText, /【魂引】已降档 [\w-]+/, `魂引里没有降档申报：${soulText.slice(-160)}`)
   assert.ok(estimateTokens(soulText) <= 200, `申报后超了 200：${estimateTokens(soulText)}`)
