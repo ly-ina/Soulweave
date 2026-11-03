@@ -9,7 +9,7 @@
  *   intimacy  关键词/项目里出现 亲密、身体、偏好、放置、项圈、绑
  *   relations 出现 关系层、relations
  *   rules     level = rules
- *   work      project 以 dsh/plugins/meow/lanxi 开头，或带 工具/流程/部署/代码/插件
+ *   work      project 以 dsh/plugins/meow 开头，或带 工具/流程/部署/代码/插件
  *   misc      其余
  *
  * 只追加：已有 `<!-- id:… -->` 标记的条目不会重复写；手改过的正文不动。
@@ -43,7 +43,7 @@ function pickZone(row) {
   if (/亲密|身体|偏好|放置|项圈|绑|intimacy/.test(blob)) return 'intimacy'
   if (/关系层|relations/.test(blob)) return 'relations'
   if (row.level === 'rules') return 'rules'
-  if (/^(dsh|plugins|meow|lanxi|全局)/.test(blob) || /工具|流程|部署|代码|插件/.test(blob)) return 'work'
+  if (/^(dsh|plugins|meow|全局)/.test(blob) || /工具|流程|部署|代码|插件/.test(blob)) return 'work'
   return 'misc'
 }
 

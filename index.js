@@ -143,7 +143,7 @@ function dsHome() {
 export const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------------------
-// 十二期：关系层 / 情绪（都**只读**、都住在 lanxi/，不进记忆库）
+// 十二期：关系层 / 情绪（都**只读**、默认住在 <stateDir>/ 下，不进记忆库）
 // ---------------------------------------------------------------------------
 
 /** 关系层最多返回几条（单子 §3.1：≤8 条）。 */
@@ -2452,7 +2452,7 @@ const CUE_TOOL = Object.freeze({
 const TOOLOUT_TOOL = Object.freeze({
   name: 'soul_toolout',
   description:
-    '工具输出归档（二期模块 B，只归档不删除）。preview 只报「将归档 N 段 / X 字符 / 预计省 Y tok」；apply 必须带 confirm:true，先整库 VACUUM INTO 备份、把原文导出到 lanxi\\archive\\toolout\\，再把该条消息换成一行指针；restore 按导出文件把原文塞回去。',
+    '工具输出归档（二期模块 B，只归档不删除）。preview 只报「将归档 N 段 / X 字符 / 预计省 Y tok」；apply 必须带 confirm:true，先整库 VACUUM INTO 备份、把原文导出到 <stateDir>\\archive\\toolout\\，再把该条消息换成一行指针；restore 按导出文件把原文塞回去。',
   parameters: {
     type: 'object',
     properties: {
@@ -2564,7 +2564,7 @@ const RECALL_TOOL = Object.freeze({
 const RELATIONS_TOOL = Object.freeze({
   name: 'soul_relations',
   description:
-    '十二期：读「关系层」——`lanxi/relations/*.md` 按文件名倒序取最新一份里的全部条目（≤8 条，第一人称、否定式/阈值、带日期）。只读，不写文件、不进记忆库；魂引里只有入口，正文要自己调这个工具拿。',
+    '十二期：读「关系层」——`<stateDir>/relations/*.md` 按文件名倒序取最新一份里的全部条目（≤8 条，第一人称、否定式/阈值、带日期）。只读，不写文件、不进记忆库；魂引里只有入口，正文要自己调这个工具拿。',
   parameters: {
     type: 'object',
     properties: {
@@ -2590,7 +2590,7 @@ const RELATIONS_TOOL = Object.freeze({
 const MOOD_TOOL = Object.freeze({
   name: 'soul_mood',
   description:
-    '十二期：读「情绪状态」`lanxi/mood.md`（at / mood / carry 三个键，整文件 ≤600 字）。只读，v1 不写；没有文件就回「未记录」。',
+    '十二期：读「情绪状态」`<stateDir>/mood.md`（at / mood / carry 三个键，整文件 ≤600 字）。只读，v1 不写；没有文件就回「未记录」。',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
   result: {
     type: 'object',

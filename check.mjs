@@ -3,7 +3,7 @@
  * dsh-soul 自测（MVP）。对应交办单 §8 的断言 1–4、11，另加三条本地加固。
  * 全部用自建靶子（%TEMP% 下一次性目录 + 临时 SQLite 库），不碰真实会话与真实库（§9.8）。
  *
- * 复跑：node E:\dsh_work\plugins\dsh-soul\check.mjs
+ * 复跑：node check.mjs（夹具路径一律 os.tmpdir() 派生，不指向任何本机目录）
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -12,6 +12,9 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdir
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+/** 一次性夹具工作区：从 tmpdir 派生，绝不写本机真实目录。 */
+const FIXTURE_WS = join(tmpdir(), 'dsh-soul-check-ws')
 
 import {
   TOTAL_TOKENS,
@@ -168,7 +171,7 @@ const memoryDbPath = join(root, 'memory.db')
   )
   db.prepare('insert into fact (id, content, status, title, keywords, project) values (?,?,?,?,?,?)').run(
     'f00001',
-    '封存段原文在 lanxi/archive 下',
+    '封存段原文在 archive 目录下',
     'active',
     '封存位置',
     '封存 路径',
@@ -204,9 +207,9 @@ const words = ['封存', 'manifest']
 
 await test('§8.1', '魂引硬上限：超量 soul.md 截断后 ≤400 且 ≤200 起步值', () => {
   const soul = parseSoul(readFileSync(soulBloated, 'utf8'))
-  const big = composeSoul({ soul, at: new Date('2026-10-24T22:00:00+08:00'), workspace: 'E:\\dsh_work', maxTokens: HARD_SOUL_TOKENS })
+  const big = composeSoul({ soul, at: new Date('2026-10-24T22:00:00+08:00'), workspace: FIXTURE_WS, maxTokens: HARD_SOUL_TOKENS })
   assert.ok(big.tokens <= HARD_SOUL_TOKENS, `400 上限被突破：${big.tokens}`)
-  const small = composeSoul({ soul, at: new Date('2026-10-24T22:00:00+08:00'), workspace: 'E:\\dsh_work', maxTokens: 200 })
+  const small = composeSoul({ soul, at: new Date('2026-10-24T22:00:00+08:00'), workspace: FIXTURE_WS, maxTokens: 200 })
   assert.ok(small.tokens <= 200, `200 起步值被突破：${small.tokens}`)
   assert.ok(small.text.includes('我是谁'), '超量时「我是谁」整条丢了')
   return `400→${big.tokens}tok(${big.stage}) / 200→${small.tokens}tok(${small.stage})`
@@ -246,7 +249,7 @@ function fakePayload(turn) {
   return {
     turn,
     step: 1,
-    agent: { session: { id: 'check-session', cwd: 'E:\\dsh_work' } },
+    agent: { session: { id: 'check-session', cwd: FIXTURE_WS } },
     messages: [],
     signal: undefined,
   }
@@ -352,7 +355,7 @@ await test('L1', 'soul.md 缺失：不崩，仍注入「现在在哪 / 怎么查
 
 await test('L2', '极端小预算仍保留「我是谁」（只裁内容，不整条删）', () => {
   const soul = parseSoul(readFileSync(soulBloated, 'utf8'))
-  const out = composeSoul({ soul, at: new Date(), workspace: 'E:\\dsh_work', maxTokens: 40 })
+  const out = composeSoul({ soul, at: new Date(), workspace: FIXTURE_WS, maxTokens: 40 })
   assert.ok(out.tokens <= 40, `${out.tokens} > 40`)
   assert.ok(out.text.includes('我是谁'), '小预算下「我是谁」丢了')
   return `${out.tokens}tok stage=${out.stage}`
@@ -365,7 +368,7 @@ await test('L3', '现在在哪：记忆库 todo 进魂引，且只取上限条�
   const out = composeSoul({
     soul,
     at: new Date('2026-10-24T22:08:00+08:00'),
-    workspace: 'E:\\dsh_work',
+    workspace: FIXTURE_WS,
     pending: ['把 dsh-soul 的 MVP 跑通', '第二条', '第三条', '第四条'],
     maxTokens: 200,
     pendingMode: 'full',
@@ -376,7 +379,7 @@ await test('L3', '现在在哪：记忆库 todo 进魂引，且只取上限条�
   const compact = composeSoul({
     soul,
     at: new Date('2026-10-24T22:08:00+08:00'),
-    workspace: 'E:\\dsh_work',
+    workspace: FIXTURE_WS,
     pending: ['把 dsh-soul 的 MVP 跑通', '第二条', '第三条', '第四条'],
     maxTokens: 200,
     pendingMode: 'count',
@@ -387,11 +390,11 @@ await test('L3', '现在在哪：记忆库 todo 进魂引，且只取上限条�
 
 
 await test('L4', '工作区取会话头 cwd（不落到宿主 profile 目录）', () => {
-  const header = resolveWorkspace({ agent: { session: { id: 's', header: { cwd: 'E:\\dsh_work' } } } })
-  assert.equal(header, 'E:\\dsh_work', `header.cwd 没被采纳：${header}`)
+  const header = resolveWorkspace({ agent: { session: { id: 's', header: { cwd: FIXTURE_WS } } } })
+  assert.equal(header, FIXTURE_WS, `header.cwd 没被采纳：${header}`)
   const legacy = resolveWorkspace({ agent: { session: { id: 's', cwd: 'D:\\project' } } })
   assert.equal(legacy, 'D:\\project', `session.cwd 兜底失效：${legacy}`)
-  const override = resolveWorkspace({ agent: { session: { header: { cwd: 'E:\\dsh_work' } } } }, { workspace: 'F:\\x' })
+  const override = resolveWorkspace({ agent: { session: { header: { cwd: FIXTURE_WS } } } }, { workspace: 'F:\\x' })
   assert.equal(override, 'F:\\x', '显式 workspace 没优先')
   return `${header} / ${legacy} / ${override}`
 })
@@ -1472,7 +1475,7 @@ await test('T4', 'R2 端到端：历史已有 2 条 hit，本轮新 hit 被丢�
   ]
   const payload = {
     ...fakePayload(1),
-    agent: { session: { id: 'check-session', cwd: 'E:\\dsh_work', ownEvents: () => history } },
+    agent: { session: { id: 'check-session', cwd: FIXTURE_WS, ownEvents: () => history } },
   }
   const handler = createPreStepHandler({
     config: normalizeConfig({ ...config, logPath }),
@@ -1521,7 +1524,9 @@ await test('T8', '降档必须说出来：上限 200 + 超长 soul.md → 魂引
     now: () => new Date('2026-10-28T13:12:00+08:00'),
     pendingLoader: () => [],
   })
-  const decision = await handler(fakePayload(1), async () => ({ kind: 'enter', messages: [] }))
+  // 固定一个短工作区：申报行要装得下。测试若跟着 tmpdir 长度走，会在 200tok 边界上
+  // 只剩日志、没有末行申报（那是「装不下就只报日志」的既有设计，见 REPORT §15 缺口）。
+  const decision = await handler({ ...fakePayload(1), agent: { session: { id: 'check-session', cwd: 'D:\\ws' } } }, async () => ({ kind: 'enter', messages: [] }))
   const soulText = decision.messages.filter((m) => m?.source?.kind === 'soul').map((m) => m.content[0].text).join('')
   assert.match(soulText, /【魂引】已降档 [\w-]+/, `魂引里没有降档申报：${soulText.slice(-160)}`)
   assert.ok(estimateTokens(soulText) <= 200, `申报后超了 200：${estimateTokens(soulText)}`)
