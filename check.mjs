@@ -1536,6 +1536,50 @@ await test('T8', '降档必须说出来：上限 200 + 超长 soul.md → 魂引
   return soulText.slice(soulText.indexOf('【魂引】已降档'))
 })
 
+await test('T9', '降档确实少了内容、但不砍人格核心：申报带 stage / 总条目变少 / 三节首条都在', () => {
+  const soul = parseSoul(readFileSync(soulOk, 'utf8'))
+  const base = { soul, at: new Date('2026-10-28T13:12:00+08:00'), workspace: FIXTURE_WS }
+  const full = composeSoul({ ...base, maxTokens: HARD_SOUL_TOKENS })
+  /** 条目 = 人格行的 bullet（用 · 分隔）+ 【怎么查】的行 + 【路由】的行。
+   *  不写死「少的是哪一条」：降档策略改了也只在条目数上体现。 */
+  const entries = (text) => {
+    const lines = text.split('\n')
+    let count = 0
+    for (const line of lines) {
+      if (/^(我是谁|我怎么想|我不做什么|在群里|我记得)：/.test(line)) count += line.split(' · ').length
+    }
+    let zone = ''
+    for (const line of lines) {
+      if (line === '【怎么查】' || line === '【路由】') { zone = line; continue }
+      if (zone !== '' && line.trim() !== '' && !line.startsWith('【')) count += 1
+    }
+    return count
+  }
+  const firstBullet = (text, label) => {
+    const line = text.split('\n').find((l) => l.startsWith(`${label}：`))
+    return line ? line.slice(label.length + 1).split(' · ')[0] : ''
+  }
+  // 从 full 的预算往下找：第一个会申报降档的预算
+  let tight = null
+  for (let m = full.tokens - 1; m >= 40; m -= 1) {
+    const out = composeSoul({ ...base, maxTokens: m })
+    if (/【魂引】已降档 [\w-]+/.test(out.text)) { tight = out; break }
+  }
+  assert.ok(tight, '扫完 40..full 都没有降档申报')
+  assert.ok(tight.tokens <= full.tokens, `${tight.tokens} > ${full.tokens}`)
+  const note = tight.text.match(/【魂引】已降档 ([\w-]+)/)
+  assert.equal(note[1], tight.stage, `申报的 stage ${note[1]} 与实际档位 ${tight.stage} 不一致`)
+  assert.ok(entries(tight.text) < entries(full.text), `降档后条目没减少：${entries(tight.text)} vs ${entries(full.text)}`)
+  for (const label of ['我是谁', '我怎么想', '我不做什么']) {
+    const head = firstBullet(full.text, label)
+    assert.ok(head !== '', `full 档里没有「${label}」`)
+    const line = tight.text.split('\n').find((l) => l.startsWith(`${label}：`))
+    assert.ok(line, `降档后整节「${label}」丢了`)
+    assert.ok(line.includes(head.slice(0, 8)), `降档后「${label}」首条被砍：${line.slice(0, 60)}`)
+  }
+  return `${full.tokens}tok(${full.stage}) → ${tight.tokens}tok(${tight.stage})，条目 ${entries(full.text)} → ${entries(tight.text)}`
+})
+
 await test('T7', '三节超 3 条不再静默：soul.md 某节 4 条时 soul.log 出现 soul-warn 且点名第 4 条起被丢弃', async () => {
   const logPath = join(root, 'logs/section-warn.log')
   rmSync(logPath, { force: true })
