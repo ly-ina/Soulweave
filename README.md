@@ -36,6 +36,30 @@
 
 `<插件目录>/soul.md` 也可以直接当人格文件——把 `soul.example.md` 复制成 `soul.md` 改内容即可。
 
+## 让 AI 帮你装
+
+上面三步对不熟 DSH 的人是硬门槛。更省事的方式：把下面这段整段复制给你 DSH 里的 AI，它需要文件读写权限。
+
+```
+请帮我在本机安装 DSH 插件 Soulweave（https://github.com/ly-ina/Soulweave）。
+
+1. 先找到当前 DSH 的 profile 目录：通常是 ~/.dsh/profiles/<名字>，以其中 package.json 含 dsh.profile.bundles 的那份为准。找不到就问我，不要猜。
+2. 把仓库 clone 到本地固定目录，比如 ~/.dsh/plugins/dsh-soulweave。
+3. 在 profile 的 package.json 里改两处：
+   - dependencies 里加 "@ly-ina/dsh-soulweave": "link:<clone 路径>"
+   - dsh.profile.bundles 数组里追加 "@ly-ina/dsh-soulweave"
+   改之前先备份 package.json。
+4. 在 profile 的 node_modules 下建链接：Windows 用 junction，macOS/Linux 用 symlink，指向 clone 目录。
+5. 把 <clone 目录>/soul.example.md 复制成 <clone 目录>/soul.md。内容先别写死，过来问我希望它记住什么。
+6. 整进程重启 DSH，不是热重载。
+7. 重启后验证两件事：
+   - ~/.dsh/soul/soul.log 在重启后有新的 inject 行；
+   - 九个 soul_* 工具（soul_recall / soul_persist / soul_toolout / soul_cue / soul_capabilities / soul_tier / soul_surface / soul_relations / soul_mood）都在。
+任何一步失败，把报错原文贴出来，不要猜着改。
+```
+
+这条路走完，人格文件在 `<clone 目录>/soul.md`，随时可以自己改。等插件发布到 npm 之后，也可以直接用 `dsh plugin add @ly-ina/dsh-soulweave` 一行装完。
+
 ## soul.md 长什么样
 
 只认 `## 标题` 分节 + 每行一条 bullet（`-` / `*` / `+` / `1.`）：
