@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-soul —— 「人格 / 记忆 / 能力」三层契约的最小实现（MVP）。
  *
  * 本文件只实现最初交办单 §12 的 MVP 范围：
@@ -285,6 +285,14 @@ export function normalizeConfig(config = {}) {
     : 'builtin'
   const notesDir = asText(config.notesDir) || join(stateDir, 'notes')
   const soulPath = asText(config.soulPath) || join(PLUGIN_DIR, 'soul.md')
+  /**
+   * v0.1.2 P1：多文件常驻。主 soul.md 之后按数组顺序读，原文拼在一起再 parse 一次
+   * （不是各 parse 各渲染），所以多份文件和 soul.md 共用同一份预算、同一条降档链。
+   * 不配置时为空数组，行为与 v0.1.1 逐字节一致。
+   */
+  const extraSoulPaths = (Array.isArray(config.extraSoulPaths) ? config.extraSoulPaths : [])
+    .map((item) => asText(item))
+    .filter((item) => item !== '')
   /** 分区（待办 A）：memory/*.md 与 index.jsonl 默认挂在 soul.md 同一目录下。 */
   const soulRoot = dirname(soulPath)
   const memoryRoot = asText(config.memoryRoot) || join(soulRoot, 'memory')
@@ -295,6 +303,8 @@ export function normalizeConfig(config = {}) {
   const workspaceRoot = asText(config.memoryDbPath) ? resolve(dirname(memoryDbPath), '..') : dirname(PLUGIN_DIR)
   return Object.freeze({
     soulPath,
+    /** v0.1.2 P1：额外常驻文件（按顺序拼在 soul.md 之后；空数组 = 只读 soul.md）。 */
+    extraSoulPaths,
     /** 分区索引与标签（待办 A）。 */
     memoryRoot,
     zoneIndexPath,
@@ -451,6 +461,31 @@ export function readSoul(path) {
   }
 }
 
+/**
+ * v0.1.2 P1：读「主 soul.md + extraSoulPaths」。
+ *
+ * 做法是**先拼原文、再 parse 一次**：多份文件里的 `## 身份` 会落进同一个 section 数组，
+ * 预算、三节条数上限、降档与截断全部沿用原有那一条链，不需要第二套规则。
+ * 单文件时 `texts.join('\n')` 就是原文本身，渲染结果与 v0.1.1 逐字节一致。
+ *
+ * 文件缺失**跳过并回报**（`missing`），由调用方写 soul-warn；不抛错、不中断本轮。
+ */
+export function readSoulSources(paths = []) {
+  const texts = []
+  const missing = []
+  for (const item of Array.isArray(paths) ? paths : []) {
+    const path = asText(item)
+    if (path === '') continue
+    try {
+      texts.push(readFileSync(path, 'utf8'))
+    } catch {
+      missing.push(path)
+    }
+  }
+  if (texts.length === 0) return { soul: null, missing }
+  return { soul: parseSoul(texts.join('\n')), missing }
+}
+
 const EMPTY_SOUL = Object.freeze({
   raw: '',
   sha256: '',
@@ -515,6 +550,22 @@ export const SOUL_STAGES = Object.freeze([
   { id: 'clip-core-20', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 20 },
   { id: 'clip-core-12', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 12 },
 ])
+
+/**
+ * 压缩后重载判定：状态按 session 分键，避免压缩代理会话覆盖主会话的 lastInject。
+ * 返回 { reload, previousInject, sessionStates, previousState }，调用方负责写回。
+ */
+export function decideReload(reloadState, sessionKey, currentInject) {
+  const sessionStates =
+    reloadState && typeof reloadState.sessions === 'object' && reloadState.sessions !== null
+      ? reloadState.sessions
+      : {}
+  const previousState =
+    sessionStates[sessionKey] && typeof sessionStates[sessionKey] === 'object' ? sessionStates[sessionKey] : {}
+  const previousInject = Number(previousState.lastInject ?? 0)
+  const reload = previousInject > 20000 && currentInject > 0 && currentInject < previousInject * 0.5
+  return { reload, previousInject, sessionStates, previousState }
+}
 
 export function composeSoul(input = {}) {
   const soul = input.soul ?? EMPTY_SOUL
@@ -1429,8 +1480,17 @@ export function createPreStepHandler(options = {}) {
     if (payload?.signal?.aborted === true) return decision
 
     const at = now()
-    const soul = readSoul(config.soulPath)
+    const soulSources = readSoulSources([config.soulPath, ...config.extraSoulPaths])
+    const soul = soulSources.soul
     if (!soul && logger?.warn) logger.warn(`dsh-soul: 读不到 ${config.soulPath}，本轮只注入「现在在哪 / 怎么查」`)
+    // v0.1.2 P1 R4：extraSoulPaths 里某个文件缺失时不报错，写一条 soul-warn 后继续用剩下的。
+    // 主文件缺失已有上面那条更长的提示，这里不重复记第二遍。
+    for (const missingPath of soulSources.missing) {
+      if (missingPath === config.soulPath) continue
+      const warning = `dsh-soul: 魂引文件缺失，已跳过：${missingPath}`
+      appendLog(config.logPath, logLine(at, 'soul-warn', warning))
+      logger?.warn?.(warning)
+    }
 
     if (at.getTime() - pendingCache.at > 60_000) {
       pendingCache = { at: at.getTime(), items: pendingLoader() }
@@ -1470,6 +1530,8 @@ export function createPreStepHandler(options = {}) {
     // 2026-11-03：压缩后重载。压缩那一轮会把整段重述灌进 decision.messages（体量骤增），
     // 下一轮骤降。用上一轮体量对比判定「压缩后第一轮」，把三节全量渲染一次，
     // 让被 slice 截掉的条目和记忆摘要重新回到上下文里。
+    // 2026-11-03 修：状态按 session 分键。原先是全局单文件，压缩代理会话会把 lastInject
+    // 覆盖成自己的小值，主会话下一轮判不出「上轮很大」，reload 永远轮不到主会话。
     const reloadStateFile = join(config.stateDir, 'reload-state.json')
     let reloadState = {}
     try {
@@ -1477,28 +1539,32 @@ export function createPreStepHandler(options = {}) {
     } catch {
       reloadState = {}
     }
+    const sessionKey = asText(session?.id) || 'unknown'
     const currentInject = measureRequestBudget(decision.messages ?? []).total
-    const previousInject = Number(reloadState.lastInject ?? 0)
-    const reload = previousInject > 20000 && currentInject > 0 && currentInject < previousInject * 0.5
+    const { reload, previousInject, sessionStates, previousState } = decideReload(
+      reloadState,
+      sessionKey,
+      currentInject,
+    )
+    sessionStates[sessionKey] = {
+      lastInject: currentInject,
+      at: at.toISOString(),
+      lastReloadAt: reload ? at.toISOString() : previousState.lastReloadAt ?? null,
+    }
+    // 只保留最近 12 个会话，防止状态文件无限增长。
+    const recentStates = Object.fromEntries(
+      Object.entries(sessionStates)
+        .filter(([, value]) => value && typeof value === 'object')
+        .sort((a, b) => String(b[1].at ?? '').localeCompare(String(a[1].at ?? '')))
+        .slice(0, 12),
+    )
     try {
       mkdirSync(config.stateDir, { recursive: true })
-      writeFileSync(
-        reloadStateFile,
-        JSON.stringify(
-          {
-            lastInject: currentInject,
-            at: at.toISOString(),
-            lastReloadAt: reload ? at.toISOString() : reloadState.lastReloadAt ?? null,
-          },
-          null,
-          2,
-        ),
-        'utf8',
-      )
+      writeFileSync(reloadStateFile, JSON.stringify({ version: 2, sessions: recentStates }, null, 2), 'utf8')
     } catch {
       // 状态写不了不影响注入
     }
-    if (reload) appendLog(config.logPath, logLine(at, 'reload', `压缩后重载 previous=${previousInject}tok current=${currentInject}tok`))
+    if (reload) appendLog(config.logPath, logLine(at, 'reload', `压缩后重载 session=${sessionKey} previous=${previousInject}tok current=${currentInject}tok`))
 
     const composed = composeSoul({
       soul: soul ?? EMPTY_SOUL,

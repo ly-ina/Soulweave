@@ -1,4 +1,4 @@
-﻿# Soulweave · 魂引
+# Soulweave · 魂引
 
 > 给 DeepSeek Harness 加一层「人格 / 记忆 / 能力」的最小实现：每轮往上下文里放一小段「魂引」（我是谁、现在在哪、怎么查），再提供几个只读的检索工具。
 >
@@ -35,6 +35,8 @@
 3. 重启 DSH。如果 `soul.md` 不存在，魂引里只有「现在在哪 / 怎么查」两节，不报错。
 
 `<插件目录>/soul.md` 也可以直接当人格文件——把 `soul.example.md` 复制成 `soul.md` 改内容即可。
+
+npm 发布后（v0.1.2 起）：`dsh plugin add @ly-ina/dsh-soulweave`（发布前这一行装不上，别以为是命令写错了）。
 
 ## 让 AI 帮你装
 
@@ -93,6 +95,34 @@
 
 `soul.md` 应该越写越短，不是越写越长。它每轮整份进上下文，分区只在魂引里占一行索引。往 `soul.md` 加一条之前先问：这是「我是谁」，还是「我该怎么干活」。
 
+外交那节也不必挤在主文件里：`extraSoulPaths: ["E:/.../diplomacy.md"]` 会把额外文件按数组顺序拼在 `soul.md` 之后，**共用同一份预算、同一条降档链**；某个文件缺失只写一条 `soul-warn` 然后跳过，不影响其余。
+
+## 三处数据写哪里
+
+同一条内容只许存在一处。三个位置装的是三种东西：
+
+| 位置 | 装什么 | 判据 |
+|---|---|---|
+| `soul.md` | 人格：身份 / 认知 / 禁令 / 外交 / 反哺 | 缺了它，「我是谁」就变了 |
+| `memory/<zone>.md` | 分区经验：work / intimacy / relations / rules / misc | 只影响活干得好不好；有对应记忆时条目里用 `<!-- id:... -->` 留锚点 |
+| `memory.db`（meow） | 需要被 `soul_recall` 跨会话命中的原子事实 / 教训 | 一句话能说完、要能被检索到 |
+
+规则：
+
+- 只影响「我是谁」的 → `soul.md`，别的都不写。
+- 工作方法、项目知识、踩坑 → `memory/<zone>.md`。
+- 需要跨会话被 `soul_recall` 命中的原子事实 / 教训 → `memory.db`。
+- **同一条内容不许两处都写。** 迁移时先写新处，再在旧处标 `deprecated`，不直接删。
+
+上面三条是约定，靠人守；`soul_lint.mjs` 只负责把明显违背的那部分指出来（只读，不改任何文件）：
+
+```bash
+node soul_lint.mjs            # 用本机 profile 里的 soulPath / memoryRoot / memoryDbPath
+node soul_lint.mjs --json     # 机读
+```
+
+它扫 `memory/*.md` 与 `memory.db`（只取 `active` 条目），把「标题 + 正文」算成字符 bigram 求 Jaccard，`≥ 0.8` 的列成「可能双写」，报条目数、可疑对数与清单，**不自动改**。不传参数时先找本机 profile 的 soulweave 配置，找不到才回落插件目录；也可以用 `--soul-path` / `--memory-root` / `--db` / `--threshold` 显式指定。阈值刻意收紧到 0.8：只抓几乎逐字重复的，改写过的近义条目抓不到——宁可漏报，不拿一堆「像但不同」的条目让人一条条看。
+
 ## 记忆后端
 
 `config.memoryBackend` 三档：
@@ -127,6 +157,7 @@
 | 配置项 | 默认值 | 说明 |
 |---|---|---|
 | `soulPath` | `<插件目录>/soul.md` | 人格文件（只读；只有 `soul_persist` 追加第四节） |
+| `extraSoulPaths` | `[]` | 额外常驻文件，按数组顺序拼在 `soul.md` 之后；共用预算与降档，缺失时跳过并写 `soul-warn` |
 | `notesDir` | `<stateDir>/notes` | 笔记根目录 |
 | `stateDir` | `<插件目录>/.state` | 运行态目录（日志、cue 状态、`soul-memory.db`） |
 | `logPath` | `<stateDir>/soul.log` | 只追加的 UTF-8 日志 |
@@ -211,8 +242,9 @@
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 64/64 通过（含 11 条 O* 观测断言）
+node check.mjs          # 单元/集成：期望最后一行 71/71 通过（v0.1.2 新增 V1–V3 / X1–X3 共 6 条）
 node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
+node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报可疑对与总数（不进 npm 包）
 ```
 
 `clean-install.mjs` 不读、不写本机任何真实目录（`DSH_HOME` 也临时指到空目录），跑完自删。
@@ -220,7 +252,7 @@ node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harne
 ## 本机实测环境
 
 Windows 11（NT 10.0.26200）、Node v24.22.1、DSH 0.1.0-rc.7；
-`check.mjs` 64/64、`clean-install.mjs` R1..R8、`npm pack --dry-run` 16 文件 / 90.2 kB。
+`check.mjs` 71/71（v0.1.1 为 64/64）、`clean-install.mjs` R1..R8、`npm pack --dry-run` 17 文件（v0.1.2 起；v0.1.1 为 16 文件 / 90.2 kB）。
 
 其他系统与 DSH 版本未实测，见 REPORT 的「未验证」一节。
 
