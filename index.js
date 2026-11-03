@@ -63,7 +63,7 @@ export const TOTAL_TOKENS = 950
 /**
  * 魂引默认预算（2026-10-28 由 200 调到 220）。
  *
- * 原因：【怎么查】按伊纳要求加了「能力：soul_capabilities(query)」一行（≈20 tok，不是 12），
+ * 原因：【怎么查】按要求加了「能力：soul_capabilities(query)」一行（≈20 tok，不是 12），
  * 真实 soul.md 渲染从 183 → 203 tok；200 的上限会让渲染器降档到 `short-hints`，
  * 那一档只有一行提示，**新加的能力行会被静默丢掉**。220 留出余量，档位回到 `full`。
  */
@@ -187,7 +187,7 @@ export function readRelations(dir) {
   return { ok: true, file: '', date: '', items: [], note: '关系层为空' }
 }
 
-/** 读 mood.md（整文件，最多 600 字）。v1 只读，写入由伊纳手动。 */
+/** 读 mood.md（整文件，最多 600 字）。v1 只读，写入由使用者手动。 */
 export function readMood(path) {
   const file = asText(path)
   if (!file || !existsSync(file)) return { ok: true, file: '', text: '', note: '未记录' }
@@ -310,7 +310,7 @@ export function normalizeConfig(config = {}) {
     totalMaxTokens: asInt(config.totalMaxTokens, TOTAL_TOKENS, 200, 4000),
     /** 二期 B R1：固定注入申报阈值（2026-10-28 改口径：报常驻快照 tok，默认 2500；超了才申报、不裁剪）。 */
     fixedMaxTokens: asInt(config.fixedMaxTokens, 2500, 200, 20000),
-    /** 二期 B R5：周检主探针周期（天）。伊纳要求 7 天，可调短不可默认变长。 */
+    /** 二期 B R5：周检主探针周期（天）。要求 7 天，可调短不可默认变长。 */
     probeIntervalDays: asInt(config.probeIntervalDays, 7, 1, 90),
     /** 二期 B R5：dream 收尾后附带的快检条数。 */
     probeQuickCount: asInt(config.probeQuickCount, 3, 1, 10),
@@ -2166,7 +2166,7 @@ export function createRecall(options = {}) {
 }
 
 /**
- * §7 soul_persist：把「被伊纳明确纠正过」的 lesson 追加到 soul.md 第四节。
+ * §7 soul_persist：把「被使用者明确纠正过」的 lesson 追加到 soul.md 第四节。
  * 只追加、不重写前三节；默认 preview，append 时才落盘并先备份。
  */
 export function createPersist(config) {

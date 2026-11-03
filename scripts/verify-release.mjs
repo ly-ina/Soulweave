@@ -22,7 +22,7 @@ const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8'
 // 1) 隐私扫描：运行时代码 + 测试文件里不得出现本机路径 / 交办方目录名
 // 本脚本自身要写这些字面量来扫它们，扫描时跳过自己（单子 §2 允许的例外）。
 const SCAN_SELF = 'scripts/verify-release.mjs'
-const PRIVATE = /E:[\\/]dsh_work|C:[\\/]Users[\\/]Lenovo|(^|[^a-z])lanxi([^a-z]|$)/
+const PRIVATE = /E:[\\/]dsh_work|C:[\\/]Users[\\/]Lenovo|(^|[^a-z])lanxi([^a-z]|$)|蓝汐|伊纳|小汐/
 const files = git('ls-files').split('\n').filter(Boolean)
 const hits = []
 for (const file of files) {
