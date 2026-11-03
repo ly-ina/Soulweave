@@ -180,6 +180,13 @@ node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harne
 
 `clean-install.mjs` 不读、不写本机任何真实目录（`DSH_HOME` 也临时指到空目录），跑完自删。
 
+## 本机实测环境
+
+Windows 11（NT 10.0.26200）、Node v24.22.1、DSH 0.1.0-rc.7；
+`check.mjs` 64/64、`clean-install.mjs` R1..R8、`npm pack --dry-run` 16 文件 / 90.2 kB。
+
+其他系统与 DSH 版本未实测，见 REPORT 的「未验证」一节。
+
 ## 变更记录
 
 见 `CHANGELOG.md`。
