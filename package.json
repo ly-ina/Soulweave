@@ -1,0 +1,34 @@
+{
+  "name": "@ly-ina/dsh-soulweave",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Soulweave · 魂引：a small soul layer for DeepSeek Harness. Injects a <=950-token persona/now/how-to-look-up preamble via agent/pre-step, exposes soul_recall over an optional memory backend (builtin SQLite / meow-memory / none) plus notes, sealed segments and an optional text index, and never trims the persona core. Read-only towards soul.md; only soul_persist appends to its fourth section.",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "memory-builtin.mjs",
+    "zones.mjs",
+    "cue.mjs",
+    "tier.mjs",
+    "toolout.mjs",
+    "surface.mjs",
+    "capabilities.mjs",
+    "gamedev.mjs",
+    "scripts/migrate-zones.mjs",
+    "cordis.patch.yml",
+    "soul.example.md",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

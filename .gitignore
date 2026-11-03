@@ -1,0 +1,22 @@
+# 依赖与运行产物
+node_modules/
+state/
+.state/
+*.log
+reload-state.json
+*.db
+*.tgz
+
+# 个人数据：人格文件、记忆分区、索引、笔记
+soul.md
+memory/
+index.jsonl
+notes/
+
+# 备份与本地工作文档（不进仓库）
+*.bak*
+REPORT.md
+.pnpm-debug.log*
+
+# ��������ڵĸ�����
+*.lock
