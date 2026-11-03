@@ -1617,6 +1617,19 @@ await test('T10', '任何档位三节各至少 1 条；极端装不下时申报�
   return `${seen.size} 个档位三节全在场；装不下时申报「核心已压到极限」`
 })
 
+await test('T11', '没有技能库的机器：soul_capabilities(source:"gamedev") 给「技能库未安装」，不抛错', async () => {
+  const missing = join(root, 'no-skills')
+  const cfg = normalizeConfig({ ...config, gamedevSkillsDir: missing })
+  const cap = createTools(cfg, { getSessions: () => null }).find((tool) => tool.name === 'soul_capabilities')
+  assert.ok(cap, 'soul_capabilities 没注册')
+  const out = await cap.execute({ source: 'gamedev', query: '做游戏' })
+  assert.equal(out?.ok, true, `不是 ok=true：${JSON.stringify(out).slice(0, 200)}`)
+  assert.match(String(out?.text ?? ''), /技能库未安装/, `没给降级文案：${out?.text}`)
+  const noQuery = await cap.execute({ source: 'gamedev' })
+  assert.match(String(noQuery?.text ?? ''), /技能库未安装/, `不带 query 时没降级：${noQuery?.text}`)
+  return String(out.text).split('\n')[0].slice(0, 50)
+})
+
 await test('T7', '三节超 3 条不再静默：soul.md 某节 4 条时 soul.log 出现 soul-warn 且点名第 4 条起被丢弃', async () => {
   const logPath = join(root, 'logs/section-warn.log')
   rmSync(logPath, { force: true })
