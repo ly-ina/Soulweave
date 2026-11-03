@@ -2181,6 +2181,16 @@ await test('R6', '压缩后重载状态按 session 隔离：代理会话写小�
   return 'agent=114 后 main 仍 reload；旧格式不误触发'
 })
 
+await test('R7', 'soul_toolout 只在目标库存在时注册（库不在时不白占工具表）', () => {
+  const missing = normalizeConfig({ ...config, biliDbPath: join(root, 'bili/missing.db') })
+  const namesMissing = createTools(missing).map((t) => t.name)
+  assert.ok(!namesMissing.includes('soul_toolout'), '库不存在时仍注册了 soul_toolout')
+  const present = normalizeConfig({ ...config, biliDbPath: tooloutDb })
+  const namesPresent = createTools(present).map((t) => t.name)
+  assert.ok(namesPresent.includes('soul_toolout'), '库存在时没注册 soul_toolout')
+  return `\u5e93\u4e0d\u5b58\u5728 ${namesMissing.length} \u4e2a\u5de5\u5177\uff1b\u5e93\u5b58\u5728 ${namesPresent.length} \u4e2a`
+})
+
 const width = Math.max(...results.map((r) => r.title.length))
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'

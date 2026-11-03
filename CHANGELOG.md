@@ -9,6 +9,8 @@
 
 ## 未发布
 
+- 改：`soul_toolout` 改为按 `biliDbPath` 存在与否注册。目标库不存在时不再注册该工具，避免每次调用都返回「库不存在」、并白占一张工具 schema。`check.mjs` 增至 72 条断言（新增 R7）。
+
 - 修：`reload-state.json` 改为按 session 分键（`{ version: 2, sessions: { <id>: { lastInject, at, lastReloadAt } } }`）。原先是全局单文件，压缩代理会话会把 `lastInject` 覆盖成自己的小值，主会话下一轮误判为「上轮不大」，压缩后重载永远轮不到主会话。状态只保留最近 12 个会话，旧格式自动视为空。
 
 ## 0.1.1 — 2026-11-03
