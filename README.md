@@ -1,4 +1,4 @@
-# Soulweave · 魂引
+﻿# Soulweave · 魂引
 
 > 给 DeepSeek Harness 加一层「人格 / 记忆 / 能力」的最小实现：每轮往上下文里放一小段「魂引」（我是谁、现在在哪、怎么查），再提供几个只读的检索工具。
 >
@@ -174,7 +174,7 @@
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 61/61 通过（含 11 条 O* 观测断言）
+node check.mjs          # 单元/集成：期望最后一行 62/62 通过（含 11 条 O* 观测断言）
 node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
 ```
 
