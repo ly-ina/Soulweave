@@ -20,6 +20,7 @@ import {
   TOTAL_TOKENS,
   HARD_SOUL_TOKENS,
   composeSoul,
+  decideReload,
   SOUL_STAGES,
   createPreStepHandler,
   createRecall,
@@ -48,11 +49,14 @@ import {
   readMood,
   readRelations,
   readSoul,
+  readSoulSources,
   createMemoryBackend,
 } from './index.js'
 
 import { putMemory } from './memory-builtin.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './zones.mjs'
+
+import { bigramsOf, findDuplicatePairs, jaccardOf, lint, readDbEntries, readZoneEntries, soulweaveBlockOf, withTokens } from './soul_lint.mjs'
 
 import { cueStats, readCueMap, runCue } from './cue.mjs'
 import { createCapabilities } from './index.js'
@@ -2048,7 +2052,134 @@ await test('O16', '往 work.md 追加 20 条后，魂引长度变化 ≤ 20 字�
   return `before=${before.text.length} after=${after.text.length} delta=${delta}`
 })
 
+// ---------------------------------------------------------------------------
+// v0.1.2 P0：soul_lint（只读查双写）
+// ---------------------------------------------------------------------------
 
+function writeLintDb(dbPath, rows) {
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new DatabaseSync(dbPath)
+  db.exec('CREATE TABLE fact (id TEXT PRIMARY KEY, title TEXT, content TEXT, status TEXT)')
+  const insert = db.prepare('INSERT INTO fact (id, title, content, status) VALUES (?, ?, ?, ?)')
+  for (const row of rows) insert.run(row.id, row.title, row.content, row.status ?? 'active')
+  db.close()
+  return dbPath
+}
+
+const lintRoot = join(root, 'lint')
+function writeLintZone(body) {
+  mkdirSync(join(lintRoot, 'memory'), { recursive: true })
+  writeFileSync(join(lintRoot, 'memory', 'work.md'), `## 部署顺序\n\ntags: 工作, 规则\n\n${body}\n`, 'utf8')
+}
+
+await test('V1', 'P0 R2-a：memory/*.md 与 memory.db 各有一条近似条目时，soul_lint 报出跨库可疑对', () => {
+  writeLintZone('先装依赖再重启，最后才验证端口是否通。')
+  const dbPath = writeLintDb(join(lintRoot, 'hit.db'), [
+    { id: 'f1', title: '部署顺序', content: '先装依赖再重启，最后才验证端口。' },
+  ])
+  const report = lint({ memoryRoot: join(lintRoot, 'memory'), memoryDbPath: dbPath })
+  assert.equal(report.pairs.length, 1, `可疑对数应为 1，实际 ${report.pairs.length}`)
+  const pair = report.pairs[0]
+  assert.ok(pair.score >= 0.8, `相似度 ${pair.score} 没过阈值`)
+  assert.notEqual(pair.a.source, pair.b.source, `不是跨库对：${pair.a.source}/${pair.b.source}`)
+  assert.match(pair.b.where, /^db:fact:f1$/, `B 侧定位不对：${pair.b.where}`)
+  return `pairs=${report.pairs.length} score=${pair.score.toFixed(3)} ${pair.a.where} ↔ ${pair.b.where}`
+})
+
+await test('V2', 'P0 R2-b：两条内容不相似时 soul_lint 不误报', () => {
+  writeLintZone('先装依赖再重启，最后才验证端口是否通。')
+  const dbPath = writeLintDb(join(lintRoot, 'miss.db'), [
+    { id: 'f2', title: '被放置', content: '长时间等待时注意力反而全在对方身上。' },
+  ])
+  const report = lint({ memoryRoot: join(lintRoot, 'memory'), memoryDbPath: dbPath })
+  assert.equal(report.pairs.length, 0, `误报 ${report.pairs.length} 对：${JSON.stringify(report.pairs.map((p) => p.score))}`)
+  assert.equal(report.zoneCount, 1, 'md 条目数不对')
+  assert.equal(report.dbCount, 1, 'db 条目数不对')
+  return `pairs=0 条目 md=${report.zoneCount} db=${report.dbCount}`
+})
+
+await test('V3', 'P0：soul_lint 的 Jaccard 口径可复算（逐字相同=1，标点差异不影响），短条目不参与比对', () => {
+  const a = bigramsOf('部署顺序', '先装依赖再重启')
+  const b = bigramsOf('部署顺序', '先装依赖，再重启！')
+  assert.equal(jaccardOf(a, b), 1, '只差标点时相似度应为 1')
+  assert.equal(jaccardOf(bigramsOf('A', '完全不同的内容'), a) < 0.3, true, '无关条目相似度不该高')
+  const short = withTokens([{ title: '部署', body: '重启' }, { title: '部署', body: '重启' }])
+  assert.equal(findDuplicatePairs(short).length, 0, '短条目不该进候选（会刷屏）')
+  return `jaccard(仅标点差)=1 短条目对数=0`
+})
+
+// ---------------------------------------------------------------------------
+// v0.1.2 P1：extraSoulPaths 多文件常驻
+// ---------------------------------------------------------------------------
+
+const extraRoot = join(root, 'extra')
+mkdirSync(extraRoot, { recursive: true })
+const extraMain = write('extra/main.md', '# T\n\n## 身份\n- 主文件身份\n\n## 认知\n- 主机认知\n')
+const extraOne = write('extra/one.md', '## 认知\n- 扩展一认知\n')
+const extraTwo = write('extra/two.md', '## 认知\n- 扩展二认知\n')
+
+await test('X1', 'P1 R3：extraSoulPaths 按数组顺序拼进同一节，主文件在前', () => {
+  const sources = readSoulSources([extraMain, extraOne, extraTwo])
+  assert.deepEqual(sources.missing, [], `不该有缺失：${sources.missing.join(',')}`)
+  assert.deepEqual(sources.soul.sections['认知'], ['主机认知', '扩展一认知', '扩展二认知'], '三份文件的认知条目顺序不对')
+  const out = composeSoul({ soul: sources.soul, at: new Date('2026-11-03T20:00:00+08:00'), workspace: 'tmp', maxTokens: 900 })
+  assert.ok(out.text.indexOf('扩展一认知') < out.text.indexOf('扩展二认知'), '魂引里没有按顺序出现')
+  return `认知=${sources.soul.sections['认知'].join('|')}`
+})
+
+await test('X2', 'P1 R4：extraSoulPaths 里缺一个文件时不报错，另一个照常注入且日志有 soul-warn', async () => {
+  const missing = join(extraRoot, '缺失.md')
+  const logPath = join(extraRoot, 'extra.log')
+  rmSync(logPath, { force: true })
+  const config = normalizeConfig({
+    soulPath: extraMain,
+    extraSoulPaths: [extraOne, missing, extraTwo],
+    stateDir: join(extraRoot, 'state'),
+    logPath,
+    memoryRoot: join(extraRoot, 'nope-memory'),
+    memoryBackend: 'none',
+    notesDir: join(extraRoot, 'nope-notes'),
+  })
+  assert.deepEqual([...config.extraSoulPaths], [extraOne, missing, extraTwo], '配置里的 extraSoulPaths 没保留顺序')
+  const handler = createPreStepHandler({ config, now: () => new Date('2026-11-03T20:00:00+08:00'), pendingLoader: () => [] })
+  const decision = await handler(fakePayload(1), async () => ({ kind: 'enter', messages: [] }))
+  const soulText = decision.messages.filter((message) => message?.source?.kind === 'soul').map((message) => message.content[0].text).join('')
+  assert.ok(soulText.includes('扩展一认知'), '缺失文件前面的那一份没进魂引')
+  assert.ok(soulText.includes('扩展二认知'), '缺失文件后面的那一份没进魂引')
+  const log = readFileSync(logPath, 'utf8')
+  assert.match(log, /soul-warn/, '日志里没有 soul-warn')
+  assert.ok(log.includes('缺失.md'), `warn 没点缺失文件名：${log.slice(-300)}`)
+  return `missing=${basename(missing)} 其余两份照常注入，日志有 soul-warn`
+})
+
+await test('X3', 'P1 R5：不配置 extraSoulPaths 时渲染结果与 v0.1.1 的单文件路径逐字节一致', () => {
+  const config = normalizeConfig({ soulPath: extraMain, stateDir: join(extraRoot, 'state-x3'), memoryBackend: 'none' })
+  assert.equal(config.extraSoulPaths.length, 0, '不配置时 extraSoulPaths 必须是空数组')
+  const legacy = readSoul(extraMain)
+  const viaSources = readSoulSources([extraMain]).soul
+  const at = new Date('2026-11-03T20:00:00+08:00')
+  const legacyText = composeSoul({ soul: legacy, at, workspace: 'tmp', maxTokens: 900 }).text
+  const newText = composeSoul({ soul: viaSources, at, workspace: 'tmp', maxTokens: 900 }).text
+  const sha = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
+  assert.equal(sha(newText), sha(legacyText), '单文件路径的渲染结果变了')
+  assert.equal(viaSources.sha256, legacy.sha256, '成对的 sha256 不一致')
+  return `sha256=${sha(newText).slice(0, 16)}… 两路一致`
+})
+
+
+
+await test('R6', '压缩后重载状态按 session 隔离：代理会话写小值不影响主会话判定', () => {
+  const state = { version: 2, sessions: { main: { lastInject: 26776, at: '2026-11-03T13:18:00.000Z' } } }
+  const agent = decideReload(state, 'agent', 114)
+  assert.equal(agent.reload, false, '代理会话首轮不该 reload')
+  state.sessions.agent = { lastInject: 114, at: '2026-11-03T13:19:56.000Z' }
+  const main = decideReload(state, 'main', 114)
+  assert.equal(main.reload, true, '主会话压缩后应 reload')
+  assert.equal(main.previousInject, 26776, '主会话读到的 previous 被代理覆盖了')
+  const legacy = decideReload({ lastInject: 26776 }, 'main', 114)
+  assert.equal(legacy.reload, false, '旧格式无法区分会话，应视为空')
+  return 'agent=114 后 main 仍 reload；旧格式不误触发'
+})
 
 const width = Math.max(...results.map((r) => r.title.length))
 for (const r of results) {
