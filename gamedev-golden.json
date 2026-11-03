@@ -1,0 +1,32 @@
+{
+  "dsh:记忆检索": {
+    "ok": true,
+    "text": "【soul_capabilities · 建议】记忆检索\n候选 3 个：soul_recall（未归属；命中「记忆」） / memory_search（未归属；命中「记忆」） / memory_project（未归属；命中「记忆」）",
+    "rows": 24,
+    "file": ""
+  },
+  "dsh:封存 归档": {
+    "ok": true,
+    "text": "【soul_capabilities · 建议】封存 归档\n候选 3 个：soul_toolout（未归属；命中「封存/归档」） / archive_search（未归属；命中「封存/归档」） / archive_open（未归属；命中「封存/归档」）",
+    "rows": 24,
+    "file": ""
+  },
+  "dsh:无query": {
+    "ok": true,
+    "text": "【soul_capabilities · 建议】（自动取自最近 2 条 user 消息）zzz qwerty 没有关键词\n无相关能力\n可以先用 glob/grep 定位，再决定装什么；也可以直接给 query。",
+    "rows": 24,
+    "file": ""
+  },
+  "tool:记忆检索": {
+    "ok": true,
+    "text": "【soul_capabilities · 建议】记忆检索\n候选 3 个：soul_recall（未归属；命中「记忆」） / memory_search（未归属；命中「记忆」） / memory_project（未归属；命中「记忆」）",
+    "rows": 24,
+    "file": ""
+  },
+  "tool:封存 归档": {
+    "ok": true,
+    "text": "【soul_capabilities · 建议】封存 归档\n候选 3 个：soul_toolout（未归属；命中「封存/归档」） / archive_search（未归属；命中「封存/归档」） / archive_open（未归属；命中「封存/归档」）",
+    "rows": 24,
+    "file": ""
+  }
+}

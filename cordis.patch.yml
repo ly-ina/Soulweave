@@ -1,0 +1,33 @@
+# Soulweave · 魂引 —— 插件自带的 bundle patch（开源版默认值，不含任何本机路径）
+#
+# 本文件是**插件自带**的 patch，不是宿主 profile 的 cordis.patch.yml。
+# 安装本插件 = 在 profile 的 `dsh.profile.bundles` 里加一个包，或者直接把这里的 insert 抄进 profile 的 patch。
+#
+# 路径类配置（soulPath / notesDir / stateDir / memoryDbPath / sealedSegmentsModule / soulIndexDir）
+# 在这里**故意留空**：空 = 用 normalizeConfig 的相对默认（`<插件目录>/soul.md`、`<stateDir>/...`），
+# 只有你本机要接自己的文件时才在 profile 的 cordis.patch.yml 里显式写（见 README「最小安装」）。
+#
+# §13.1：不要在 `dsh.profile.bundles` 里再加本插件，否则会有第二个实例。
+#
+- insert:
+    - id: soulweave
+      name: '@ly-ina/dsh-soulweave'
+      config:
+        # 记忆后端：builtin（默认，自带最小 schema）｜meow（meow-memory 七层库）｜none（关闭记忆）
+        memoryBackend: builtin
+
+        # 魂引上限：1000（2026-11-03 由 950 上调；硬上限 HARD_SOUL_TOKENS=1100）。「我记得」同时从 3 条降到 2 条。
+        soulMaxTokens: 1000
+        # 四类注入合计上限（§5）
+        totalMaxTokens: 1000
+        # 默认 false：不静默裁掉别人的注入；超预算时在魂引末行申报
+        enforceBudget: false
+        # 「现在在哪 → 手头未结」条数上限（§5 超限只留 3 条）
+        pendingLimit: 3
+        # soul_recall 默认条数（上限 5）
+        recallLimit: 3
+        # 未结只报条数（count）；要旧行为改 full。
+        pendingMode: count
+        # 检索源：留空 = 不注册（sealed 默认不注册；index 默认不注册）
+        # sealedSegmentsModule: dsh-sealed-segments
+        # soulIndexDir: <你的 soul-index 目录>
