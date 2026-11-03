@@ -90,18 +90,18 @@ const soulOk = write(
   [
     '# 示例人格',
     '',
-    '## 我是谁',
+    '## 身份',
     '- 我叫示例助手，用户叫我小助手',
     '- 说话直接，不用敬语',
     '- 简体中文',
     '',
-    '## 我怎么想',
+    '## 认知',
     '- 先取证再动手',
     '',
-    '## 我不做什么',
+    '## 禁令',
     '- 不物理注入鼠标键盘',
     '',
-    '## 反哺记录',
+    '## 反哺',
     '- 2026-10-24 被纠正：别把未验证写成已修复',
     '',
   ].join('\n'),
@@ -110,13 +110,13 @@ const soulOk = write(
 const soulBloated = write(
   'soul/big.md',
   [
-    '## 我是谁',
+    '## 身份',
     `- ${'称呼很多字'.repeat(40)}`,
     `- ${'语气三档很多字'.repeat(40)}`,
     `- ${'界线很多字'.repeat(40)}`,
-    '## 我怎么想',
+    '## 认知',
     `- ${'认知倾向很多字'.repeat(40)}`,
-    '## 我不做什么',
+    '## 禁令',
     `- ${'硬界线很多字'.repeat(40)}`,
   ].join('\n'),
 )
@@ -212,7 +212,7 @@ await test('§8.1', '魂引硬上限：超量 soul.md 截断后 ≤400 且 ≤20
   assert.ok(big.tokens <= HARD_SOUL_TOKENS, `400 上限被突破：${big.tokens}`)
   const small = composeSoul({ soul, at: new Date('2026-10-24T22:00:00+08:00'), workspace: FIXTURE_WS, maxTokens: 200 })
   assert.ok(small.tokens <= 200, `200 起步值被突破：${small.tokens}`)
-  assert.ok(small.text.includes('我是谁'), '超量时「我是谁」整条丢了')
+  assert.ok(small.text.includes('身份'), '超量时「身份」整条丢了')
   return `400→${big.tokens}tok(${big.stage}) / 200→${small.tokens}tok(${small.stage})`
 })
 
@@ -260,7 +260,7 @@ async function runHandler(handler, turn) {
   return handler(fakePayload(turn), async () => fakeDecision)
 }
 
-await test('§8.2', '全部注入 ≤700，且魂引核心（我是谁 / 我不做什么）未被砍', async () => {
+await test('§8.2', '全部注入 ≤700，且魂引核心（身份 / 禁令）未被砍', async () => {
   const handler = createPreStepHandler({ config, now: () => new Date('2026-10-24T22:05:00+08:00'), pendingLoader: () => [] })
   const decision = await runHandler(handler, 1)
   const measured = measureInjections(decision.messages)
@@ -284,13 +284,13 @@ await test('§8.2', '全部注入 ≤700，且魂引核心（我是谁 / 我不�
   // 这条守的是**新契约**：别人的账不进魂引，只报自己的常驻快照；核心两节仍不许被砍。
   assert.ok(!/【预算】\d+\/700/.test(offSoul), `四类合计的老红字又回来了：${offSoul.slice(-80)}`)
   assert.ok(!offSoul.includes('固定注入'), `作废的「固定注入 N/800」又回来了：${offSoul.slice(-80)}`)
-  assert.ok(offSoul.includes('我是谁') && offSoul.includes('我不做什么'), '魂引核心两节不许被砍')
+  assert.ok(offSoul.includes('身份') && offSoul.includes('禁令'), '魂引核心两节不许被砍')
   const soulText = decision.messages
     .filter((m) => m?.source?.kind === 'soul')
     .map((m) => m.content.map((part) => part.text).join(''))
     .join('')
-  assert.ok(soulText.includes('我是谁'), '魂引里没有「我是谁」')
-  assert.ok(soulText.includes('我不做什么'), '魂引里没有「我不做什么」')
+  assert.ok(soulText.includes('身份'), '魂引里没有「身份」')
+  assert.ok(soulText.includes('禁令'), '魂引里没有「禁令」')
   return `after=${measured.total}tok per=${JSON.stringify(measured.perClass)}`
 })
 
@@ -354,11 +354,11 @@ await test('L1', 'soul.md 缺失：不崩，仍注入「现在在哪 / 怎么查
   return `${estimateTokens(soulText)}tok`
 })
 
-await test('L2', '极端小预算仍保留「我是谁」（只裁内容，不整条删）', () => {
+await test('L2', '极端小预算仍保留「身份」（只裁内容，不整条删）', () => {
   const soul = parseSoul(readFileSync(soulBloated, 'utf8'))
   const out = composeSoul({ soul, at: new Date(), workspace: FIXTURE_WS, maxTokens: 40 })
   assert.ok(out.tokens <= 40, `${out.tokens} > 40`)
-  assert.ok(out.text.includes('我是谁'), '小预算下「我是谁」丢了')
+  assert.ok(out.text.includes('身份'), '小预算下「身份」丢了')
   return `${out.tokens}tok stage=${out.stage}`
 })
 
@@ -544,7 +544,7 @@ await test('§7.1', 'soul_persist：只追加第四节、先预览、落盘留�
   db.close()
 
   const soulPath = join(root, 'soul-persist.md')
-  const head = '# T\n\n## 我是谁\n- a\n\n## 反哺记录\n'
+  const head = '# T\n\n## 身份\n- a\n\n## 反哺\n'
   writeFileSync(soulPath, head, 'utf8')
   const persist = createPersist({ soulPath, memoryDbPath: dbPath })
 
@@ -1127,7 +1127,7 @@ import {
 const surfDir = join(root, 'surface')
 mkdirSync(surfDir, { recursive: true })
 
-const soulText = (tag) => `【魂引 · 人格】\n我是谁：示例助手（${tag}）\n${'人格行。'.repeat(30)}`
+const soulText = (tag) => `【魂引 · 人格】\n身份：示例助手（${tag}）\n${'人格行。'.repeat(30)}`
 const memText = (tag) => `===== 长期记忆 =====\n${tag}\n${'记忆正文。'.repeat(60)}`
 
 /** 造一份最小会话日志：多帧 zstd，一条事件一帧（和 DSH 的追加写法一致）。 */
@@ -1547,7 +1547,7 @@ await test('T9', '降档确实少了内容、但不砍人格核心：申报带 s
     const lines = text.split('\n')
     let count = 0
     for (const line of lines) {
-      if (/^(我是谁|我怎么想|我不做什么|在群里|我记得)：/.test(line)) count += line.split(' · ').length
+      if (/^(身份|认知|禁令|外交|我记得)：/.test(line)) count += line.split(' · ').length
     }
     let zone = ''
     for (const line of lines) {
@@ -1571,7 +1571,7 @@ await test('T9', '降档确实少了内容、但不砍人格核心：申报带 s
   const note = tight.text.match(/【魂引】已降档 ([\w-]+)/)
   assert.equal(note[1], tight.stage, `申报的 stage ${note[1]} 与实际档位 ${tight.stage} 不一致`)
   assert.ok(entries(tight.text) < entries(full.text), `降档后条目没减少：${entries(tight.text)} vs ${entries(full.text)}`)
-  for (const label of ['我是谁', '我怎么想', '我不做什么']) {
+  for (const label of ['身份', '认知', '禁令']) {
     const head = firstBullet(full.text, label)
     assert.ok(head !== '', `full 档里没有「${label}」`)
     const line = tight.text.split('\n').find((l) => l.startsWith(`${label}：`))
@@ -1597,7 +1597,7 @@ await test('T10', '任何档位三节各至少 1 条；极端装不下时申报�
     seen.add(out.stage)
     // 物理上装不下（硬裁）时只要求申报「核心已压到极限」，不再要求三节都在
     if (out.text.includes('核心已压到极限')) continue
-    for (const label of ['我是谁', '我怎么想', '我不做什么']) {
+    for (const label of ['身份', '认知', '禁令']) {
       const line = out.text.split('\n').find((l) => l.startsWith(`${label}：`))
       assert.ok(line, `预算 ${m}（档位 ${out.stage}）缺「${label}」整节`)
       const body = line.slice(label.length + 1).split('（另有')[0].trim()
@@ -1607,9 +1607,9 @@ await test('T10', '任何档位三节各至少 1 条；极端装不下时申报�
   assert.ok(seen.has('clip-core-12') || seen.has('clip-core-20'), `扫描没落到极端档：${[...seen].join(',')}`)
   // ③ 物理上装不下：硬裁时必须写明核心已压到极限，不许静默
   const huge = parseSoul([
-    '## 我是谁', `- ${'很长的自称'.repeat(400)}`,
-    '## 我怎么想', `- ${'很长的想法'.repeat(400)}`,
-    '## 我不做什么', `- ${'很长的红线'.repeat(400)}`,
+    '## 身份', `- ${'很长的自称'.repeat(400)}`,
+    '## 认知', `- ${'很长的想法'.repeat(400)}`,
+    '## 禁令', `- ${'很长的红线'.repeat(400)}`,
   ].join('\n'))
   const squeezed = composeSoul({ soul: huge, at: new Date(), workspace: longWs, maxTokens: 40 })
   assert.ok(squeezed.tokens <= 40, `${squeezed.tokens} > 40`)
@@ -1636,13 +1636,13 @@ await test('T7', '三节超 3 条不再静默：soul.md 某节 4 条时 soul.log
   const warnSoul = write(
     'soul/warn-soul.md',
     [
-      '## 我是谁',
+      '## 身份',
       '- 第一条',
       '- 第二条',
       '- 第三条',
-      '## 我怎么想',
+      '## 认知',
       '- 想法一',
-      '## 我不做什么',
+      '## 禁令',
       '- 红线一',
       '- 红线二',
       '- 红线三',
@@ -1664,11 +1664,11 @@ await test('T7', '三节超 3 条不再静默：soul.md 某节 4 条时 soul.log
   assert.match(log, /soul-warn/, `日志里没有 soul-warn：${log.slice(-200)}`)
   assert.match(
     log,
-    /dsh-soul: soul\.md「我不做什么」有 4 条，只注入前 3 条（第 4 条起被丢弃）/,
+    /dsh-soul: soul\.md「禁令」有 4 条，只注入前 3 条（第 4 条起被丢弃）/,
     `warn 文案不对：${log.slice(-200)}`,
   )
-  // 「我是谁」3 条不该产生 warn（上限内）
-  assert.doesNotMatch(log, /「我是谁」有/, '未超限的节不该报 warn')
+  // 「身份」3 条不该产生 warn（上限内）
+  assert.doesNotMatch(log, /「身份」有/, '未超限的节不该报 warn')
   return `warn 1 行、文案与条数正确；被丢弃的第 4 条没进魂引`
 })
 
@@ -1954,13 +1954,13 @@ await test('O5', 'spec O5：未配置 sealedSegmentsModule / soulIndexDir 时只
 
 await test('O6', 'spec O6：soulPath 指向临时文件时，readSoul + composeSoul 能读到并生成魂引', () => {
   const tmp = join(root, 'o6-soul.md')
-  writeFileSync(tmp, '# T\n\n## 我是谁\n- 开源化测试人格\n\n## 我怎么想\n- 先取证\n', 'utf8')
+  writeFileSync(tmp, '# T\n\n## 身份\n- 开源化测试人格\n\n## 认知\n- 先取证\n', 'utf8')
   const cfg = normalizeConfig({ soulPath: tmp, stateDir: join(root, 'state-o6') })
   assert.equal(cfg.soulPath, tmp)
   const soul = readSoul(cfg.soulPath)
   assert.ok(soul, 'readSoul 读不到临时 soul.md')
   const out = composeSoul({ soul, at: new Date('2026-11-03T20:00:00+08:00'), workspace: 'tmp', maxTokens: 300 })
-  assert.match(out.text, /我是谁/, '魂引里没有「我是谁」')
+  assert.match(out.text, /身份/, '魂引里没有「身份」')
   assert.match(out.text, /开源化测试人格/, '魂引没读到临时文件内容')
   return `tokens=${out.tokens} 首节来自 ${tmp}`
 })
@@ -2001,7 +2001,7 @@ await test('O13', '分区索引只有区级行，总行数 ≤ 10', () => {
 })
 
 await test('O14', '魂引 full 与 reload 档都只出现一行【分区】，不出现任何区正文', () => {
-  const soul = parseSoul('# T\n\n## 我是谁\n- a\n\n## 我怎么想\n- b\n')
+  const soul = parseSoul('# T\n\n## 身份\n- a\n\n## 认知\n- b\n')
   const zones = buildZoneIndex(scanZones(join(zoneRoot, 'memory')))
   for (const reload of [false, true]) {
     const out = composeSoul({ soul, at: new Date('2026-11-03T20:00:00+08:00'), workspace: 'tmp', maxTokens: 900, zones, reload })
@@ -2037,7 +2037,7 @@ await test('O15', 'soul_recall({zone, tags}) 先过滤再打分，返回项带 z
 })
 
 await test('O16', '往 work.md 追加 20 条后，魂引长度变化 ≤ 20 字（只许计数变）', () => {
-  const soul = parseSoul('# T\n\n## 我是谁\n- a\n')
+  const soul = parseSoul('# T\n\n## 身份\n- a\n')
   const before = composeSoul({ soul, at: new Date('2026-11-03T20:00:00+08:00'), workspace: 'tmp', maxTokens: 900, zones: buildZoneIndex(scanZones(join(zoneRoot, 'memory'))) })
   const extra = Array.from({ length: 20 }, (_, index) => `## 追加条目 ${index + 1}\n\ntags: 工作, 事实\n\n第 ${index + 1} 条长正文，不许进魂引。\n`).join('\n')
   appendFileSync(join(zoneRoot, 'memory', 'work.md'), `\n${extra}`, 'utf8')
