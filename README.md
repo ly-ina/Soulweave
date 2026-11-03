@@ -56,7 +56,7 @@ npm 发布后（v0.1.2 起）：`dsh plugin add @ly-ina/dsh-soulweave`（发布�
 6. 整进程重启 DSH，不是热重载。
 7. 重启后验证两件事：
    - ~/.dsh/soul/soul.log 在重启后有新的 inject 行；
-   - 九个 soul_* 工具（soul_recall / soul_persist / soul_toolout / soul_cue / soul_capabilities / soul_tier / soul_surface / soul_relations / soul_mood）都在。
+   - 八个 soul_* 工具（soul_recall / soul_persist / soul_cue / soul_capabilities / soul_tier / soul_surface / soul_relations / soul_mood）都在；`soul_toolout` 只在 `biliDbPath` 指向的库存在时注册。
 任何一步失败，把报错原文贴出来，不要猜着改。
 ```
 
@@ -192,7 +192,7 @@ node soul_lint.mjs --json     # 机读
 | `soul_persist` | 把 corrected lesson 追加到 `soul.md` 的「反哺记录」；默认 preview |
 | `soul_tier` | 常驻名单审计（preview 只读；apply 仅 meow） |
 | `soul_cue` | cue 刷新（仅 meow） |
-| `soul_toolout` | 工具输出归档（只归档不删；需 `biliDbPath`） |
+| `soul_toolout` | 工具输出归档（只归档不删；`biliDbPath` 指向的库不存在时不注册） |
 | `soul_capabilities` | 能力清单 / 按需建议；可选 `source:'gamedev'` |
 | `soul_surface` | 把旧注入从模型视图里遮掉（走会话 API） |
 | `soul_relations` | 读关系层 |
@@ -235,7 +235,7 @@ node soul_lint.mjs --json     # 机读
 - 不引任何 npm 依赖；SQLite 用 Node 自带 `node:sqlite`。
 - `soul_tier --apply`、`soul_cue` 依赖 meow 的表结构。
 - `soul_surface` 需要宿主提供会话对象；拿不到就明说，不直接改 `.zstd`。
-- `soul_toolout` 依赖外部 billion-context 库存在，否则返回「库不存在」。
+- `soul_toolout` 依赖外部 billion-context 的 `index.db`。库不存在时**不注册该工具**（不占工具表、不会在调用时报错），库回来后重启即恢复。
 
 ## 自测
 

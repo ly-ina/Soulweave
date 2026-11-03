@@ -2851,7 +2851,7 @@ export function createTools(config, deps = {}) {
     return { ok: true, text: `【soul_mood】${found.file}\n${found.text}`, file: found.file }
   }
 
-  return [
+  const tools = [
     {
       name: RECALL_TOOL.name,
       description: RECALL_TOOL.description,
@@ -2925,6 +2925,15 @@ export function createTools(config, deps = {}) {
       output: { schema: MOOD_TOOL.result, render: RENDER },
     },
   ]
+
+  // 模块 B（soul_toolout）只服务 billion-context 的 index.db。库不存在时注册它，
+  // 每次调用只会返回「库不存在」，还白占一张工具 schema；这里按库存在与否决定注册。
+  if (!existsSync(normalized.biliDbPath)) {
+    deps.logger?.warn?.(`dsh-soul: soul_toolout 未注册（目标库不存在：${normalized.biliDbPath}）`)
+    return tools.filter((tool) => tool.name !== TOOLOUT_TOOL.name)
+  }
+
+  return tools
 }
 
 /** 宿主入口 */
@@ -2953,7 +2962,7 @@ export function apply(ctx, config = {}) {
     logger.warn?.(`dsh-soul: sessions 服务拿不到（soul_surface 会不可用）：${String(error?.message ?? error)}`)
   }
   if (typeof ctx.tools?.register === 'function') {
-    for (const tool of createTools(normalized, { getSessions: () => sessionsRef })) disposers.push(ctx.tools.register(tool))
+    for (const tool of createTools(normalized, { getSessions: () => sessionsRef, logger })) disposers.push(ctx.tools.register(tool))
   } else {
     logger.warn?.('dsh-soul: tools 服务不可用，soul_recall / soul_persist / soul_cue / soul_toolout / soul_capabilities / soul_surface 未注册')
   }
