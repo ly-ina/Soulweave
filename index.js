@@ -1,4 +1,4 @@
-/**
+﻿/**
  * dsh-soul —— 「人格 / 记忆 / 能力」三层契约的最小实现（MVP）。
  *
  * 本文件只实现最初交办单 §12 的 MVP 范围：
@@ -479,6 +479,26 @@ function stampOf(date, timeZone) {
  * 降级顺序（§5）：先削「现在在哪」的未结列表 → 再削「我怎么想」→ 再省「怎么查」；
  * **「我是谁」与「我不做什么」永不整条删除**，最后手段只是逐字收窄。
  */
+/**
+ * 降档档位表（2026-11-03 定稿）。
+ * 顺序即降档顺序：full → 砍待办 → 砍路由/怎么查/我记得 → 削每节条数 → clip 单条字数。
+ * 不变式：除 reload 外，任何档位 take.identity / mind / boundary 都 ≥ 1。
+ */
+export const SOUL_STAGES = Object.freeze([
+  { id: 'full', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 6 }, pendingLimit: 3, hints: 'full', coreMax: 0 },
+  { id: 'pending-1', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 6 }, pendingLimit: 1, hints: 'full', coreMax: 0 },
+  { id: 'no-pending', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 6 }, pendingLimit: 0, hints: 'full', coreMax: 0 },
+  { id: 'no-router', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 0, router: 0 }, pendingLimit: 0, hints: 'full', coreMax: 0 },
+  { id: 'short-hints', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
+  { id: 'take-3', take: { identity: 3, mind: 3, boundary: 3, group: 2, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
+  { id: 'take-2', take: { identity: 2, mind: 2, boundary: 2, group: 1, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
+  { id: 'take-1', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
+  { id: 'clip-core-48', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 48 },
+  { id: 'clip-core-32', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 32 },
+  { id: 'clip-core-20', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 20 },
+  { id: 'clip-core-12', take: { identity: 1, mind: 1, boundary: 1, group: 0, mem: 0, router: 0 }, pendingLimit: 0, hints: 'short', coreMax: 12 },
+])
+
 export function composeSoul(input = {}) {
   const soul = input.soul ?? EMPTY_SOUL
   const timeZone = asText(input.timeZone) || 'Asia/Shanghai'
@@ -524,20 +544,14 @@ export function composeSoul(input = {}) {
 
   // 降档先减「条数」（留几条完整的话），再减「字数」（每条收窄）—— 顺序反了会得到
   // 九条 12 字的残句，读起来比没有更糟（2026-10-24 用真实 soul.md 探针发现）。
+  // 2026-11-03（拍板）：顺序定死——先砍【路由】【怎么查】与「我记得」，再削每节条数
+  // （5→3→2→1），最后才 clip 单条字数。**任何档位三节各至少留 1 条**：缺一节就不是完整的我，
+  // 这条比省 token 优先。所以 two-two / one-one 把【我怎么想】置 0 的旧档位已删除。
   const stages = [
     ...(reload
-      ? [{ id: 'reload', take: { identity: 99, mind: 99, boundary: 99, group: 99, mem: 3, router: 6 }, pendingLimit: Math.min(3, pending.length), hints: 'full', coreMax: 0 }]
+      ? [{ id: 'reload', take: { identity: 99, mind: 99, boundary: 99, group: 99, mem: 3, router: 6 }, pendingLimit: 3, hints: 'full', coreMax: 0 }]
       : []),
-    { id: 'full', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 6 }, pendingLimit: Math.min(3, pending.length), hints: 'full', coreMax: 0 },
-    { id: 'pending-1', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 6 }, pendingLimit: Math.min(1, pending.length), hints: 'full', coreMax: 0 },
-    { id: 'no-pending', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 6 }, pendingLimit: 0, hints: 'full', coreMax: 0 },
-    { id: 'short-hints', take: { identity: 5, mind: 5, boundary: 3, group: 3, mem: 3, router: 3 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
-    { id: 'two-two', take: { identity: 2, mind: 0, boundary: 3, group: 2, mem: 2 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
-    { id: 'one-one', take: { identity: 2, mind: 0, boundary: 2, group: 1, mem: 1 }, pendingLimit: 0, hints: 'short', coreMax: 0 },
-    { id: 'clip-core-48', take: { identity: 2, mind: 0, boundary: 2, group: 1, mem: 0 }, pendingLimit: 0, hints: 'short', coreMax: 48 },
-    { id: 'clip-core-32', take: { identity: 2, mind: 0, boundary: 2, group: 1, mem: 0 }, pendingLimit: 0, hints: 'short', coreMax: 32 },
-    { id: 'clip-core-20', take: { identity: 1, mind: 0, boundary: 1, group: 0, mem: 0 }, pendingLimit: 0, hints: 'short', coreMax: 20 },
-    { id: 'clip-core-12', take: { identity: 1, mind: 0, boundary: 1, group: 0, mem: 0 }, pendingLimit: 0, hints: 'short', coreMax: 12 },
+    ...SOUL_STAGES,
   ]
 
   // 2026-11-03：full 档每节的展示条数比 SOUL_SECTION_CAP 更紧（boundary=3），
@@ -621,7 +635,7 @@ export function composeSoul(input = {}) {
   }
   // 绝对兜底：仍然超限就硬裁，并在尾巴注明，绝不静默放大（§8.1）。
   if (estimateTokens(text) > maxTokens) {
-    const note = '（魂引超限，已截断）'
+    const note = '（魂引超限，已截断；核心已压到极限）'
     const keep = Math.max(0, maxTokens)
     let out = ''
     for (const ch of text) {

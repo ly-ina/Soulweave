@@ -20,6 +20,7 @@ import {
   TOTAL_TOKENS,
   HARD_SOUL_TOKENS,
   composeSoul,
+  SOUL_STAGES,
   createPreStepHandler,
   createRecall,
   createPersist,
@@ -1578,6 +1579,42 @@ await test('T9', '降档确实少了内容、但不砍人格核心：申报带 s
     assert.ok(line.includes(head.slice(0, 8)), `降档后「${label}」首条被砍：${line.slice(0, 60)}`)
   }
   return `${full.tokens}tok(${full.stage}) → ${tight.tokens}tok(${tight.stage})，条目 ${entries(full.text)} → ${entries(tight.text)}`
+})
+
+await test('T10', '任何档位三节各至少 1 条；极端装不下时申报「核心已压到极限」', () => {
+  // ① 档位表本身的不变式
+  for (const stage of SOUL_STAGES) {
+    for (const key of ['identity', 'mind', 'boundary']) {
+      assert.ok(stage.take[key] >= 1, `档位 ${stage.id} 的 ${key} = ${stage.take[key]}，违反「三节各至少 1 条」`)
+    }
+  }
+  // ② 逐 tok 扫全预算区间，每一档渲染出来的三节都必须有内容
+  const soul = parseSoul(readFileSync(soulOk, 'utf8'))
+  const longWs = join(FIXTURE_WS, 'x'.repeat(160))
+  const seen = new Set()
+  for (let m = 40; m <= HARD_SOUL_TOKENS; m += 1) {
+    const out = composeSoul({ soul, at: new Date('2026-10-28T13:12:00+08:00'), workspace: longWs, maxTokens: m })
+    seen.add(out.stage)
+    // 物理上装不下（硬裁）时只要求申报「核心已压到极限」，不再要求三节都在
+    if (out.text.includes('核心已压到极限')) continue
+    for (const label of ['我是谁', '我怎么想', '我不做什么']) {
+      const line = out.text.split('\n').find((l) => l.startsWith(`${label}：`))
+      assert.ok(line, `预算 ${m}（档位 ${out.stage}）缺「${label}」整节`)
+      const body = line.slice(label.length + 1).split('（另有')[0].trim()
+      assert.ok(body.length > 0, `预算 ${m}（档位 ${out.stage}）的「${label}」是空条`)
+    }
+  }
+  assert.ok(seen.has('clip-core-12') || seen.has('clip-core-20'), `扫描没落到极端档：${[...seen].join(',')}`)
+  // ③ 物理上装不下：硬裁时必须写明核心已压到极限，不许静默
+  const huge = parseSoul([
+    '## 我是谁', `- ${'很长的自称'.repeat(400)}`,
+    '## 我怎么想', `- ${'很长的想法'.repeat(400)}`,
+    '## 我不做什么', `- ${'很长的红线'.repeat(400)}`,
+  ].join('\n'))
+  const squeezed = composeSoul({ soul: huge, at: new Date(), workspace: longWs, maxTokens: 40 })
+  assert.ok(squeezed.tokens <= 40, `${squeezed.tokens} > 40`)
+  assert.match(squeezed.text, /核心已压到极限/, `硬裁没有申报：${squeezed.text.slice(-80)}`)
+  return `${seen.size} 个档位三节全在场；装不下时申报「核心已压到极限」`
 })
 
 await test('T7', '三节超 3 条不再静默：soul.md 某节 4 条时 soul.log 出现 soul-warn 且点名第 4 条起被丢弃', async () => {
