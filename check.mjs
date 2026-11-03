@@ -87,10 +87,10 @@ function write(relPath, text) {
 const soulOk = write(
   'soul/soul.md',
   [
-    '# 蓝汐',
+    '# 示例人格',
     '',
     '## 我是谁',
-    '- 我叫蓝汐，用户叫我小汐',
+    '- 我叫示例助手，用户叫我小助手',
     '- 说话直接，不用敬语',
     '- 简体中文',
     '',
@@ -753,7 +753,7 @@ await test('C4', '10 个真实任务词：命中 ≥7，且不许出现不相关
     { q: '写日记，记一下今天的事', want: 'write', ban: 'schedule_create' },
     { q: '装个插件，看看 plugin_manager 能用吗', want: 'plugin_manager', ban: 'read_image' },
     { q: '这张截图你看了吗', want: 'read_image', ban: 'memory_search' },
-    { q: '在 QQ 上跟伊纳说一声', want: 'qq-say', ban: 'archive_search' },
+    { q: '在 QQ 上跟朋友说一声', want: 'qq-say', ban: 'archive_search' },
     { q: '把之前的会话找出来', want: 'session_search', ban: 'send_sticker' },
     { q: '这个网页讲什么，抓一下', want: 'read_url', ban: 'soul_tier' },
     { q: '搜一下记忆里有没有这条', want: 'soul_recall', ban: 'plugin_manager' },
@@ -802,7 +802,7 @@ mkdirSync(tierDir, { recursive: true })
       `insert into ${table} (id, content, importance, keywords, hit_count, created_at, updated_at, last_accessed_at) values (?,?,?,?,?,?,?,?)`,
     ).run(row.id, row.content, row.importance, keywords, hitCount, createdAt, updatedAt, lastAccessed)
   }
-  insert('soul', { id: 's1', content: '我是蓝汐，喊我小汐', importance: 3 })
+  insert('soul', { id: 's1', content: '我是示例助手，喊我小助手', importance: 3 })
   insert('user', { id: 'u1', content: '直接执行，别铺垫，结论在前', importance: 4, hit_count: 6, last_accessed_at: now - 3 * day })
   insert('user', { id: 'u2', content: '很久以前的一条老规矩', importance: 1, last_accessed_at: now - 200 * day })
   insert('user', { id: 'u3', content: `长偏好：${'要多写细节。'.repeat(120)}`, importance: 1 })
@@ -1126,7 +1126,7 @@ import {
 const surfDir = join(root, 'surface')
 mkdirSync(surfDir, { recursive: true })
 
-const soulText = (tag) => `【魂引 · 人格】\n我是谁：蓝汐（${tag}）\n${'人格行。'.repeat(30)}`
+const soulText = (tag) => `【魂引 · 人格】\n我是谁：示例助手（${tag}）\n${'人格行。'.repeat(30)}`
 const memText = (tag) => `===== 长期记忆 =====\n${tag}\n${'记忆正文。'.repeat(60)}`
 
 /** 造一份最小会话日志：多帧 zstd，一条事件一帧（和 DSH 的追加写法一致）。 */
