@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — 2026-11-05
+
+- **魂引拆分注入正式上线**（`soulSplitInjection`）：稳定段（人格/认知/禁令）每会话只进一次，动态段（时间/未结/分区）只在 turn 的首个 step 进；`agent/pre-step` 每 step 触发的重复整块注入随之消失。日志新增 `mode=split-active stable= why= state= stateWhy= stateNodes=`。
+- 修压缩后人格段消失：`stableSent` 是进程内记账，压缩不会清；`decideReload` 的 `lastInject` 又只是本步增量。现监听宿主 `session/event` 的 `compaction/end`（`data.error` 为空才算成功），清该会话记账，下一轮补发稳定段。
+- `package.json` 增加 `engines.node >=22.5`（`node:sqlite`）；README 补运行环境与自测计数。
+- `check.mjs` 71 → 87 条断言（新增 SP8–SP13：稳定段/动态段、pinned 归属、压缩后补发等）。
+
 ## 0.1.2 — 2026-11-03（待发布：npm publish 由交办方执行）
 
 - 新增只读脚本 `soul_lint.mjs`：扫 `memory/*.md` 与 `memory.db`，按「标题 + 正文」的字符 bigram Jaccard ≥ 0.8 列出「可能双写」，只报告不修改；不传参数时自动读本机 profile 的 soulweave 配置。
@@ -12,6 +19,16 @@
 - 改：`soul_toolout` 改为按 `biliDbPath` 存在与否注册。目标库不存在时不再注册该工具，避免每次调用都返回「库不存在」、并白占一张工具 schema。`check.mjs` 增至 72 条断言（新增 R7）。
 
 - 修：`reload-state.json` 改为按 session 分键（`{ version: 2, sessions: { <id>: { lastInject, at, lastReloadAt } } }`）。原先是全局单文件，压缩代理会话会把 `lastInject` 覆盖成自己的小值，主会话下一轮误判为「上轮不大」，压缩后重载永远轮不到主会话。状态只保留最近 12 个会话，旧格式自动视为空。
+
+- 修（纯日志噪音）：`detectSnapshotDrift` 跳过 `kind='hit'` 的快照。`hit` 是 meow-memory 每轮按关键词命中的「可能相关的记忆」，本来就带条目正文、每轮换内容，不是常驻段；按常驻口径报「变胖」时 `soul.log` 的 `observed snapshot` 恒为 0，红字却每轮挂在魂引尾巴上，直到旧 hit 离开历史。`initial` / `reinjection` 仍照常报。`check.mjs` T3 由 2 条断言扩为 4 条（hit 不报 / initial 报 / reinjection 报），74/74 通过。
+
+- 新增（第一阶段，未接线）：魂引拆分的纯函数 `composeSoulStable()` / `composeSoulState()` / `planSoulSplit()`，对应配置 `soulSplitInjection`（默认 `false`）/ `soulStableMaxTokens`（900）/ `soulStateMaxTokens`（120）。稳定段走身份/认知/禁令/外交/工具入口/安全路由，动态段走时间/工作区/未结计数/分区计数/pinned≤2/群聊，两级硬上限（`soulStateMaxTokens` 的 token 预算 + 200 字，先按 token 再按字数）。`soulSplitInjection:false` 时 `agent/pre-step` 完全走 legacy `composeSoul()`，输出逐字节不变（`check.mjs` SP6 用 sha256 守）。`check.mjs` 74 → 81 条断言：新增 SP1–SP6，另加 SP7 读真实 `soul.md` 守稳定段基线（658 tok，含工具入口；627 是不含该行的旧口径）。方案见 `reports/20261104-soul-injection-split-plan.md`，接线留第二阶段。
+
+- 新增（第二阶段 shadow，2026-11-04）：`agent/pre-step` 接 `planSoulSplit`，但**只算不发**——消息仍是 legacy 整块、逐字节不变；每轮在 inject 日志行末尾追加 `mode=split-shadow stable=1 why=… stableTok=658 stateTok=57 stateChars=128 nodes=1 pinned=0 budget=2200 anomaly=none`。按伊纳拍板改口径：`composeSoulState` 不再收 `memoryHeads`，pinned 正文只归 meow（且只对 user/rules 生效），state 只留 `lessonHead` 1 条 40 字补位。新增只读工具 `loadLessonHead()` / `detectPinnedAnomalies()`（非 rules/user 的 `lifecycle='pinned'` 报红）/ `countPinnedEntries()` / `countSoulNodes()`。`check.mjs` 81 → 83 条。
+
+- 新增（第二阶段判定，2026-11-04）：`planStateEmit()` —— 动态段每 turn 只在**第一个 step** 发（`turn-first`），压缩重载 / 哈希变化时不管第几步强制补（`reload`），其余 step 不发（`skip-step`）；无 step 信息时用 `lastStateTurn` 兜底。实测 `agent/pre-step` 是**每 step 触发**，一个 turn 多步就会堆多条整块魂引，这是命中率的真实来源。日志同步加 `state=1/0`、`stateWhy=`、`stateNodes=`（`SOUL_STATE_KIND='soul-state'` 单独计数，`countSoulNodes(events, kind)` 加 kind 参数）。`check.mjs` 83 → 84 条（SP10）。
+
+- 新增（真发，2026-11-04）：`soulSplitInjection: true` 时不再发 legacy 整块，改为「稳定段（`kind='soul'`）+ 动态段（`kind='soul-state'`）」两条；false 时原样走旧路径、逐字节不变。`createSoulMessage(text, kind)` 加 kind 参数；申报（预算红字 / drift）改由 `soulTargetIndex()` 选消息——真发优先挂动态段，legacy 回落魂引，不再硬用 `composed.text` 重建（否则真发会把旧整块塞回来）。`check.mjs` 84 → 85 条（SP11：首轮两条 / 第二步 0 条 / 新 turn 只发动态段）。默认仍 `false`，线上行为未变。
 
 ## 0.1.1 — 2026-11-03
 

@@ -10,6 +10,8 @@
 
 只要三样东西：一个 `soul.md`、一个能挂 bundle 的 profile、一条 `soulPath`。
 
+运行环境：**Node.js ≥ 22.5**（内置 `node:sqlite` 需要这个版本，不引任何 npm 依赖）。
+
 1. 把包放进 profile 的 `dependencies`（本地开发用 `link:` 指到源码目录）：
 
    ```json
@@ -36,7 +38,7 @@
 
 `<插件目录>/soul.md` 也可以直接当人格文件——把 `soul.example.md` 复制成 `soul.md` 改内容即可。
 
-npm 发布后（v0.1.2 起）：`dsh plugin add @ly-ina/dsh-soulweave`（发布前这一行装不上，别以为是命令写错了）。
+npm 发布后（v0.2.0 起）：`dsh plugin add @ly-ina/dsh-soulweave`（发布前这一行装不上，别以为是命令写错了）。
 
 ## 让 AI 帮你装
 
@@ -242,7 +244,7 @@ node soul_lint.mjs --json     # 机读
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 71/71 通过（v0.1.2 新增 V1–V3 / X1–X3 共 6 条）
+node check.mjs          # 单元/集成：期望最后一行 87/87 通过（v0.2.0 新增 SP8–SP13 等魂引拆分注入断言）
 node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
 node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报可疑对与总数（不进 npm 包）
 ```
@@ -252,7 +254,7 @@ node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报�
 ## 本机实测环境
 
 Windows 11（NT 10.0.26200）、Node v24.22.1、DSH 0.1.0-rc.7；
-`check.mjs` 71/71（v0.1.1 为 64/64）、`clean-install.mjs` R1..R8、`npm pack --dry-run` 17 文件（v0.1.2 起；v0.1.1 为 16 文件 / 90.2 kB）。
+`check.mjs` 87/87（v0.1.2 为 71/71）、`clean-install.mjs` R1..R8、`npm pack --dry-run` 17 文件（v0.1.2 起；v0.1.1 为 16 文件 / 90.2 kB）。
 
 其他系统与 DSH 版本未实测，见 REPORT 的「未验证」一节。
 

@@ -109,6 +109,23 @@ export const HINTS = Object.freeze([
   '关系层 soul_relations() · 情绪 soul_mood()',
 ])
 
+/**
+ * D3（2026-11-04）：【记忆】节。原来「我记得」挤在【人格】末行、工具入口挤在【怎么查】，
+ * 两块都不是人格；现在合成一节：pinned 条目 → 未结 → 一行工具入口。
+ * 预算（伊纳 2026-11-04 拍板）：pinned 上限 3 条 / 70 tok；pinned 不砍，超了只报警。
+ */
+export const MEMORY_SECTION = Object.freeze({
+  title: '【记忆】',
+  pinnedMaxTokens: 70,
+  pointer: '查：soul_recall · memory_search · archive_search · soul_capabilities · soul_relations()',
+})
+
+/**
+ * 路由层只保留「安全规则」两条（伊纳 2026-11-04 拍板）：改文件前读规则、争论先取证。
+ * 工具发现不在这里——它在【记忆】尾部那一行。其余路由行照旧留在 router.md 里，只是不注入。
+ */
+const ROUTER_SAFETY = /verification\.md|先取证/
+
 /** 三节每条最多注入几条（2026-10-28 起超出的不再静默丢，会在 soul.log 记一行 warn）。 */
 export const SOUL_SECTION_CAP = 8
 
@@ -320,6 +337,15 @@ export function normalizeConfig(config = {}) {
     // 2026-11-01：第四源 soul-index 原文库（全量会话原文）；空 = 不注册该源
     soulIndexDir: asText(config.soulIndexDir),
     soulIndexPython: asText(config.soulIndexPython) || 'python',
+    /**
+     * 交办单 A3（2026-11-04）：原文库增量触发。
+     * 脚本默认取 `<soulIndexDir>/auto-sync.mjs`；没配 soulIndexDir 就是空，不注册监听。
+     * 节流 60 秒（同一轮里多次 turn/end 不会重复拉起）；`soulIndexAutoSync:false` 可整体关掉。
+     */
+    soulIndexSyncScript: asText(config.soulIndexSyncScript)
+      || (asText(config.soulIndexDir) ? join(asText(config.soulIndexDir), 'auto-sync.mjs') : ''),
+    soulIndexSyncIntervalMs: asInt(config.soulIndexSyncIntervalMs, 60_000, 5_000, 3_600_000),
+    soulIndexAutoSync: config.soulIndexAutoSync !== false,
     logPath: asText(config.logPath) || join(stateDir, 'soul.log'),
     stateDir,
     /**
@@ -382,6 +408,17 @@ export function normalizeConfig(config = {}) {
     tierPins: Array.isArray(config.tierPinIds) && config.tierPinIds.length > 0
       ? config.tierPinIds.map((item) => asText(item)).filter(Boolean)
       : tierBudget.pinIds ?? [],
+
+    /**
+     * 2026-11-04 魂引拆分（方案 reports/20261104-soul-injection-split-plan.md）。
+     * 默认 false：`agent/pre-step` 完全走 legacy 的 composeSoul()，行为逐字节不变。
+     * 第一阶段只落了渲染函数与测试，接线在第二阶段；回滚就是把它改回 false。
+     */
+    soulSplitInjection: config.soulSplitInjection === true,
+    /** 稳定段预算（tok）：方案 §2.1 定 900。 */
+    soulStableMaxTokens: asInt(config.soulStableMaxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, HARD_SOUL_TOKENS),
+    /** 动态段预算（tok）：方案 §2.1 定 120；另有 200 字硬上限（SOUL_STATE_MAX_CHARS）。 */
+    soulStateMaxTokens: asInt(config.soulStateMaxTokens, DEFAULT_SOUL_STATE_TOKENS, 20, 400),
     /** 模块 C 扫插件的根目录：默认本工作区的 plugins + 当前 profile 的 node_modules。 */
     pluginRoots: Array.isArray(config.pluginRoots) && config.pluginRoots.length > 0
       ? config.pluginRoots.map((item) => asText(item)).filter(Boolean)
@@ -666,10 +703,23 @@ export function composeSoul(input = {}) {
     if (shownMind.length > 0) lines.push(`认知：${shownMind.join(' · ')}${overflow(mindAll, shownMind)}`)
     if (shownBoundary.length > 0) lines.push(`禁令：${shownBoundary.join(' · ')}${overflow(boundaryAll, shownBoundary)}`)
     if (shownGroup.length > 0) lines.push(`外交：${shownGroup.join(' · ')}${overflow(groupAll, shownGroup)}`)
-    if (shownMem.length > 0) lines.push(`我记得：${shownMem.join(' · ')}`)
-    lines.push('【现在在哪】')
-    lines.push(`${stampOf(at, timeZone)} ${weekdayOf(at, timeZone)} · ${workspace}`.trim())
-    if (pending.length > 0) {
+    // D3（2026-11-04）：【记忆】独立成节。原来「我记得」挂在【人格】末行，被当成"我是谁"的一部分；
+    // 它其实是"我记得什么"，跟人格不是一类，混在一起既撑大【人格】也让它排在日期之后。
+    lines.push(MEMORY_SECTION.title)
+    let pinnedUsed = 0
+    for (const item of shownMem) {
+      const remain = MEMORY_SECTION.pinnedMaxTokens - pinnedUsed
+      if (remain <= 0) break
+      // pinned 是"整句才成立"的短陈述，先按 40 字裁，超预算再逐档收窄；收不进就停，不硬塞残句。
+      let text = clip(item, 40)
+      while (text.length > 8 && estimateTokens(text) > remain) text = clip(text, Math.max(8, text.length - 4))
+      const cost = estimateTokens(text)
+      if (cost > remain) break
+      pinnedUsed += cost
+      lines.push(`- ${text}`)
+    }
+    // 降档顺序（伊纳 2026-11-04 拍板）：先砍【路由】与未结 → 再收窄每节条数 → 最后才动 pinned。
+    if (pending.length > 0 && stage.hints !== 'short') {
       if (pendingMode === 'count') {
         lines.push(`未结 ${pending.length} 条 → soul_recall('未结')`)
       } else {
@@ -677,16 +727,24 @@ export function composeSoul(input = {}) {
         if (shown.length > 0) lines.push(`未结：${shown.map((item) => clip(item, 40)).join(' · ')}`)
       }
     }
-    const shownRouter = router.slice(0, stage.take.router ?? 0)
+    // 工具入口：原来在【怎么查】的三个 HINTS 行，压成一行放在【记忆】尾部。
+    // 降档到 short 时只留最短一行——入口是安全网，可以短，不能没有。
+    lines.push(stage.hints === 'short' ? '查：soul_recall / memory_search / archive_search' : MEMORY_SECTION.pointer)
+    lines.push('【现在在哪】')
+    lines.push(`${stampOf(at, timeZone)} ${weekdayOf(at, timeZone)} · ${workspace}`.trim())
+    // 路由收窄（2026-11-04 伊纳要求）：正则匹配 0 条时**不许静默只剩一行工具入口**——
+    // router.md 以后改个措辞，安全规则就没了。匹配不到就退回原路由块（仍按档位条数），并记 warn。
+    const safetyRouter = router.filter((item) => ROUTER_SAFETY.test(item))
+    const shownRouter = (safetyRouter.length > 0 ? safetyRouter : router).slice(0, stage.take.router ?? 0)
+    if (router.length > 0 && safetyRouter.length === 0) {
+      warnings.push('dsh-soul: 路由层没有任何一行匹配 ROUTER_SAFETY（verification.md / 先取证），已退回注入原路由块')
+    }
     const zoneLine = renderZoneLine(zoneRows)
     if (zoneLine) lines.push(zoneLine)
     if (shownRouter.length > 0) {
       lines.push('【路由】')
       lines.push(...shownRouter)
     }
-    lines.push('【怎么查】')
-    if (stage.hints === 'short') lines.push('memory_search / archive_search / soul_recall')
-    else lines.push(...HINTS)
     return lines.join('\n')
   }
 
@@ -719,7 +777,7 @@ export function composeSoul(input = {}) {
   // 那种情况申报只进日志（L2 那条极限用例守的就是「不超预算优先」）。
   if (used.hints === 'short') {
     const fullTokens = estimateTokens(render(stages[0]))
-    warnings.push(`dsh-soul: 魂引降档 stage=${used.id} 原 ${fullTokens}tok 上限 ${maxTokens}tok（【怎么查】只留一行）`)
+    warnings.push(`dsh-soul: 魂引降档 stage=${used.id} 原 ${fullTokens}tok 上限 ${maxTokens}tok（【记忆】pinned 已按档位收窄）`)
     const note = `【魂引】已降档 ${used.id}`
     if (!text.includes('【魂引】已降档') && estimateTokens(`${text}\n${note}`) <= maxTokens) {
       text = `${text}\n${note}`
@@ -731,6 +789,217 @@ export function composeSoul(input = {}) {
     stage: used.id,
     warnings,
   }
+}
+
+// ---------------------------------------------------------------------------
+// 2026-11-04 魂引拆分（方案：reports/20261104-soul-injection-split-plan.md）
+//
+// 第一阶段只交纯函数与判定：`composeSoulStable` / `composeSoulState` / `planSoulSplit`。
+// `agent/pre-step` 仍走上面的 `composeSoul()`（legacy），配置 `soulSplitInjection` 默认 false；
+// 接线、日志 `mode=split`、surface 判定留到第二阶段。
+// ---------------------------------------------------------------------------
+
+/** 动态段硬上限：方案 §2.1「≤120 tok，硬上限 200 字」。 */
+export const SOUL_STATE_MAX_CHARS = 200
+export const DEFAULT_SOUL_STABLE_TOKENS = 900
+export const DEFAULT_SOUL_STATE_TOKENS = 120
+
+/** 稳定段降条数档位：三节各不少于 1 条（沿用 composeSoul 的不变式）。 */
+const STABLE_TAKES = Object.freeze([5, 3, 2, 1])
+
+function renderSoulStableBody(take, ctx) {
+  const lines = ['【魂引 · 人格】']
+  const pushSection = (label, all) => {
+    if (all.length === 0) return
+    const shown = all.slice(0, take)
+    const rest = all.length - shown.length
+    lines.push(`${label}：${shown.join(' · ')}${rest > 0 ? ` · 另 ${rest} 条在 soul.md` : ''}`)
+  }
+  pushSection('身份', ctx.identity)
+  pushSection('认知', ctx.mind)
+  pushSection('禁令', ctx.boundary)
+  if (ctx.inGroup) pushSection('外交', ctx.group)
+  lines.push(MEMORY_SECTION.pointer)
+  if (ctx.router.length > 0) {
+    lines.push('【路由】')
+    lines.push(...ctx.router)
+  }
+  return lines.join('\n')
+}
+
+/**
+ * 稳定段：身份 / 认知 / 禁令 / 外交 / 工具入口 / 安全路由。
+ *
+ * 它**不许出现时间、工作区、未结、分区计数、pinned 正文**——写进去就等于每轮都变，
+ * 拆分白做。`maxTokens` 默认 900（方案 §2.1），超了按 5→3→2→1 削每节条数，仍超再硬裁。
+ *
+ * @returns {{ text: string, tokens: number, take: number, warnings: string[] }}
+ */
+export function composeSoulStable(input = {}) {
+  const soul = input.soul ?? EMPTY_SOUL
+  const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, HARD_SOUL_TOKENS)
+  const inGroup = input.inGroup === true
+  const routerAll = (Array.isArray(input.router) ? input.router : [])
+    .map((item) => asText(item))
+    .filter((item) => item !== '')
+    .slice(0, 6)
+  const safety = routerAll.filter((item) => ROUTER_SAFETY.test(item))
+  const warnings = []
+  if (routerAll.length > 0 && safety.length === 0) {
+    // 与 composeSoul 同一守则：匹配不到就退回原路由块，绝不静默只剩工具入口。
+    warnings.push('dsh-soul: 稳定段没有一行匹配 ROUTER_SAFETY（verification.md / 先取证），已退回注入原路由块')
+  }
+  const ctx = {
+    identity: bulletsOf(soul, '身份').slice(0, SOUL_SECTION_CAP),
+    mind: bulletsOf(soul, '认知').slice(0, SOUL_SECTION_CAP),
+    boundary: bulletsOf(soul, '禁令').slice(0, SOUL_SECTION_CAP),
+    group: bulletsOf(soul, '外交').slice(0, SOUL_SECTION_CAP),
+    inGroup,
+    router: (safety.length > 0 ? safety : routerAll).slice(0, 6),
+  }
+  let take = STABLE_TAKES[0]
+  let text = renderSoulStableBody(take, ctx)
+  for (const candidate of STABLE_TAKES) {
+    take = candidate
+    text = renderSoulStableBody(take, ctx)
+    if (estimateTokens(text) <= maxTokens) break
+  }
+  if (estimateTokens(text) > maxTokens) {
+    const note = '…（稳定段超限，已截断）'
+    let out = ''
+    for (const ch of text) {
+      if (estimateTokens(`${out}${ch}${note}`) > maxTokens) break
+      out += ch
+    }
+    text = `${out}${note}`
+  }
+  return { text, tokens: estimateTokens(text), take, warnings }
+}
+
+/**
+ * 动态段：时间 / 工作区 / 未结计数 / 分区计数 / pinned ≤2 条 / 群聊标记。
+ *
+ * 硬上限 200 字（方案 §2.1）。超了按「分区指针 → pinned → 分区 → 未结」逐级砍，
+ * 绝不把记忆正文塞回来——动态段一旦变大，拆分就白做。
+ *
+ * @returns {{ text: string, tokens: number, chars: number, step: { pinned: number, zones: number } }}
+ */
+export function composeSoulState(input = {}) {
+  const timeZone = asText(input.timeZone) || 'Asia/Shanghai'
+  const at = input.at instanceof Date ? input.at : new Date(input.at ?? Date.now())
+  const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_STATE_TOKENS, 20, 400)
+  const workspace = asText(input.workspace) || '未标注工作区'
+  const pending = (Array.isArray(input.pending) ? input.pending : []).filter((item) => asText(item) !== '')
+  const zoneRows = (Array.isArray(input.zones) ? input.zones : []).filter((row) => Number(row?.count) >= 0)
+  // 2026-11-04 伊纳拍板：pinned 正文只归 meow，且**只对 user/rules 生效**——meow 的 initial
+  // 候选是 `[...user, ...globalRules]`，lesson/fact/project 里的 pinned 它根本不看。
+  // 所以 state 里一条 pinned 正文都不放；只留 lesson 头 1 条补位：meow 不注 lesson，
+  // 这边不放就等于 lesson 常驻彻底消失。40 字硬截，只取正文。
+  const lessonHead = clip(asText(input.lessonHead), 40)
+  const inGroup = input.inGroup === true
+  const zoneLine = renderZoneLine(zoneRows)
+
+  const build = (step) => {
+    const lines = ['【魂引 · 现状】']
+    lines.push(`${stampOf(at, timeZone)} ${weekdayOf(at, timeZone)} · ${workspace}`.trim())
+    if (pending.length > 0) lines.push(`未结 ${pending.length} 条 → soul_recall('未结')`)
+    if (lessonHead !== '' && step.lesson > 0) lines.push(`- ${lessonHead}`)
+    if (zoneLine) {
+      if (step.zones >= 2) lines.push(zoneLine)
+      else if (step.zones === 1) lines.push(zoneLine.split('\n')[0])
+    }
+    if (inGroup) lines.push('群聊：是')
+    return lines.join('\n')
+  }
+
+  const ladder = [
+    { lesson: 1, zones: 2 },
+    { lesson: 1, zones: 1 },
+    { lesson: 0, zones: 1 },
+    { lesson: 0, zones: 0 },
+  ]
+  let used = ladder[0]
+  let text = build(used)
+  for (const step of ladder) {
+    used = step
+    text = build(step)
+    if (estimateTokens(text) <= maxTokens && text.length <= SOUL_STATE_MAX_CHARS) break
+  }
+  // 两级硬上限都要真守（2026-11-04 伊纳指出：只守字数会让 soulStateMaxTokens 名不副实）：
+  // ① token 预算；② 200 字绝对上限。中文场景下 token 先到，200 字是最后一道闸。
+  if (estimateTokens(text) > maxTokens) {
+    const note = '…（现状段超 tokens）'
+    if (estimateTokens(note) > maxTokens) {
+      text = ''
+    } else {
+      let out = ''
+      for (const ch of text) {
+        if (estimateTokens(`${out}${ch}${note}`) > maxTokens) break
+        out += ch
+      }
+      text = `${out}${note}`
+    }
+  }
+  if (text.length > SOUL_STATE_MAX_CHARS) {
+    const note = '…（现状段超 200 字）'
+    text = `${text.slice(0, Math.max(0, SOUL_STATE_MAX_CHARS - note.length))}${note}`
+  }
+  return { text, tokens: estimateTokens(text), chars: text.length, step: { ...used } }
+}
+
+/**
+ * 稳定段发不发（方案 §2.2 的四条判定）。
+ *
+ * 1. surface 里没有 `source.kind === 'soul'` → 发；
+ * 2. 压缩后重载 → 发；3. `soul.md` 哈希与上次不同 → 发；
+ * 4. 其余只发动态段。拿不准时宁可多发一次（方案 §6 风险表第一条）。
+ */
+export function planSoulSplit(input = {}) {
+  const surfaceHasStable = input.surfaceHasStable === true
+  const reload = input.reload === true
+  const soulHash = asText(input.soulHash)
+  const lastHash = asText(input.lastInjectedHash)
+  const reasons = []
+  if (!surfaceHasStable) reasons.push('missing')
+  if (reload) reasons.push('reload')
+  // 只有「上次记录过哈希」才谈得上变化；从没记录过时由 missing 负责发，别记成 hash
+  // （否则首轮日志会写成 missing+hash，看着像 soul.md 被改过）。
+  if (lastHash !== '' && soulHash !== '' && soulHash !== lastHash) reasons.push('hash')
+  return {
+    injectStable: reasons.length > 0,
+    injectState: true,
+    reason: reasons.length > 0 ? reasons.join('+') : 'state-only',
+  }
+}
+
+/** 动态段的消息来源：与稳定段的 `soul` 分开，`countSoulNodes` 才数得清各自几条。 */
+export const SOUL_STATE_KIND = 'soul-state'
+
+/**
+ * 动态段这一步发不发（伊纳 2026-11-04 拍板）。
+ *
+ * 一个 turn 里时间、工作区、未结数、分区计数、lesson 头都不变，第二步再发一遍纯重复：
+ * 每 step 发 83 tok，一次 10 步的工具对话就堆 830 tok；每 turn 首 step 只堆 83 tok。
+ *
+ * - `stableDue`（压缩重载 / 哈希变化）：不管第几步，stable + state 一起补发；
+ * - `step === 1`：发；
+ * - 其余 step：不发（`skip-step`）；
+ * - 没有 step 信息时用 per-session 的 `lastStateTurn` 兜底，同一 turn 不重复发。
+ *
+ * @returns {{ emit: boolean, why: 'turn-first'|'reload'|'skip-step' }}
+ */
+export function planStateEmit(input = {}) {
+  const turn = Number(input.turn)
+  const step = Number(input.step)
+  const lastStateTurn = Number(input.lastStateTurn)
+  const stableDue = input.stableDue === true
+  const hasTurn = Number.isFinite(turn)
+  const hasStep = Number.isFinite(step) && step > 0
+  if (stableDue) return { emit: true, why: 'reload' }
+  if (hasStep) return step === 1 ? { emit: true, why: 'turn-first' } : { emit: false, why: 'skip-step' }
+  // 没有 step：靠 session 里记的上一轮 turn 兜底，同一 turn 只发一次。
+  if (hasTurn && lastStateTurn === turn) return { emit: false, why: 'skip-step' }
+  return { emit: true, why: 'turn-first' }
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +1060,16 @@ export function snapshotMetaOf(message) {
   } catch {
     return null
   }
+}
+
+/**
+ * 申报（预算红字 / drift）挂哪条消息：真发时优先挂动态段——它每 turn 一条、读者能看到；
+ * 老会话没有动态段时退回唯一那条魂引。legacy 模式下这个函数等价于「找 kind==='soul'」。
+ */
+function soulTargetIndex(list) {
+  const stateIdx = list.findIndex((m) => m?.source?.kind === SOUL_STATE_KIND)
+  if (stateIdx >= 0) return stateIdx
+  return list.findIndex((m) => m?.source?.kind === MESSAGE_KIND)
 }
 
 /**
@@ -893,9 +1172,19 @@ export function planSnapshotPrune(historyCounts, incoming) {
 /** 「[项目名 : project]」这种行 = meow-memory 把项目正文塞进了常驻快照（R3 护栏）。 */
 const DRIFT_PATTERN = /\[[^\]\n]{1,40}\s:\s(project|topic|fact|lesson)\]/
 
+/**
+ * R3 护栏：常驻快照里出现项目/话题/事实/经验正文就该报。
+ *
+ * 2026-11-04 修正（误报）：`hit` 快照是 meow-memory 每轮按关键词命中的「可能相关的记忆」，
+ * 它本来就带条目正文、且每轮换内容——不是常驻段。按常驻口径报「变胖」时，soul.log 的
+ * `observed snapshot` 恒为 0（预算量的是本轮 decision.messages，漂移扫的是历史快照），
+ * 红字却每轮挂在魂引尾巴上，一直到那几条旧 hit 离开历史。所以 `hit` 跳过。
+ * `initial` / `reinjection` 才是真正的常驻段，继续报。
+ */
 export function detectSnapshotDrift(snapshots) {
   const hits = new Set()
   for (const message of Array.isArray(snapshots) ? snapshots : []) {
+    if (snapshotMetaOf(message)?.kind === 'hit') continue
     const match = DRIFT_PATTERN.exec(textOfMessage(message))
     if (match) hits.add(match[1])
   }
@@ -1322,6 +1611,11 @@ export function loadMemoryHeads(memoryDbPath, limit = 3) {
       if (!cols.includes('content')) continue
       const where = ['importance >= 3']
       if (cols.includes('status')) where.push("status = 'active'")
+      // D1（2026-11-04）：检索口径统一——被取代（superseded_by）、冷却中（cooldown_until）、
+      // 归档（lifecycle='archived'）的条目不再进魂引。列缺失（老库/summary）就跳过，不硬写列名。
+      if (cols.includes('lifecycle')) where.push("(lifecycle is null or lifecycle != 'archived')")
+      if (cols.includes('superseded_by')) where.push('superseded_by is null')
+      if (cols.includes('cooldown_until')) where.push(`(cooldown_until is null or cooldown_until <= ${Date.now()})`)
       const order = cols.includes('updated_at') ? 'updated_at desc' : 'rowid desc'
       try {
         for (const row of db
@@ -1357,6 +1651,116 @@ export function loadMemoryHeads(memoryDbPath, limit = 3) {
 }
 
 /**
+ * 2026-11-04 第二阶段口径（伊纳拍板）：state 里只放 lesson 头 1 条。
+ *
+ * meow 的 initial 候选是 `[...user, ...globalRules]`，**不看 lesson**；魂引这边再不放，
+ * lesson 的常驻铭记就彻底没了。取法写死：active、非 archived、未被取代、不在冷却、
+ * `importance` 最高，同分取 `updated_at` 最新，裁 40 字，只取正文。
+ */
+export function loadLessonHead(memoryDbPath) {
+  if (!memoryDbPath || !existsSync(memoryDbPath)) return ''
+  let db
+  try {
+    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    const cols = tableColumns(db, 'lesson')
+    if (!cols.includes('content')) return ''
+    const where = ['importance >= 3']
+    if (cols.includes('status')) where.push("status = 'active'")
+    if (cols.includes('lifecycle')) where.push("(lifecycle is null or lifecycle != 'archived')")
+    if (cols.includes('superseded_by')) where.push('superseded_by is null')
+    if (cols.includes('cooldown_until')) where.push(`(cooldown_until is null or cooldown_until <= ${Date.now()})`)
+    const order = cols.includes('updated_at')
+      ? 'importance desc, updated_at desc'
+      : 'importance desc, rowid desc'
+    const row = db
+      .prepare(`select content from lesson where ${where.join(' and ')} order by ${order} limit 1`)
+      .get()
+    return row ? clip(asText(row.content), 40) : ''
+  } catch {
+    return ''
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* 关不掉不影响主流程 */
+    }
+  }
+}
+
+/**
+ * `lifecycle='pinned'` 目前只对 rules/user 生效（meow 的 initial 候选不看 lesson/fact/project/topic）。
+ * 这几层上标了 pinned 就是**两头都不进**的静默丢失，shadow 期一律报红。
+ * 返回 `[{ table, count }]`，空数组表示干净。
+ */
+export function detectPinnedAnomalies(memoryDbPath) {
+  if (!memoryDbPath || !existsSync(memoryDbPath)) return []
+  let db
+  try {
+    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    const found = []
+    for (const table of ['lesson', 'fact', 'project', 'topic']) {
+      if (!tableColumns(db, table).includes('lifecycle')) continue
+      try {
+        const count = db.prepare(`select count(*) c from ${table} where lifecycle = 'pinned'`).get()?.c
+        if (Number(count) > 0) found.push({ table, count: Number(count) })
+      } catch {
+        /* 单表读不到就跳过 */
+      }
+    }
+    return found
+  } catch {
+    return []
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* 关不掉不影响主流程 */
+    }
+  }
+}
+
+/** meow 侧会「无条件装」的 pinned 条数（`rules` + `user` 里 `lifecycle='pinned'`）。shadow 观测用。 */
+export function countPinnedEntries(memoryDbPath) {
+  if (!memoryDbPath || !existsSync(memoryDbPath)) return 0
+  let db
+  try {
+    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    let total = 0
+    for (const table of ['rules', 'user']) {
+      if (!tableColumns(db, table).includes('lifecycle')) continue
+      try {
+        total += Number(db.prepare(`select count(*) c from ${table} where lifecycle = 'pinned'`).get()?.c) || 0
+      } catch {
+        /* 单表读不到就跳过 */
+      }
+    }
+    return total
+  } catch {
+    return 0
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* 关不掉不影响主流程 */
+    }
+  }
+}
+
+/**
+ * 数历史里某类注入消息的条数（默认 `source.kind === 'soul'`）。
+ * shadow 用它分别报「稳定段节点数」和「动态段节点数」——两者 kind 不同，混在一起就看不出谁在涨。
+ */
+export function countSoulNodes(events, kind = MESSAGE_KIND) {
+  let count = 0
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event?.type !== 'user/message') continue
+    const message = event?.data?.message ?? event?.data
+    if (message?.source?.kind === kind) count += 1
+  }
+  return count
+}
+
+/**
  * 反哺用：meow 库里 `corrected=1` 且仍在用的 lesson。
  * 列不一致（有的老库没 project）先探列再拼 SQL，别硬写列名。
  */
@@ -1388,15 +1792,15 @@ export function loadCorrectedLessons(memoryDbPath, limit = 200) {
 // 注入消息
 // ---------------------------------------------------------------------------
 
-export function createSoulMessage(text) {
+export function createSoulMessage(text, kind = MESSAGE_KIND) {
   return Object.freeze({
     id: `soul-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role: 'user',
     content: Object.freeze([Object.freeze({ type: 'text', text })]),
     source: Object.freeze({
-      kind: MESSAGE_KIND,
+      kind,
       form: 'snapshot',
-      sections: Object.freeze([Object.freeze({ name: MESSAGE_KIND, text })]),
+      sections: Object.freeze([Object.freeze({ name: kind, text })]),
     }),
   })
 }
@@ -1470,6 +1874,11 @@ export function createPreStepHandler(options = {}) {
     ? options.memoryLoader
     : () => backend.listHeads(MEMORY_HEAD_LIMIT)
   let memoryCache = { at: 0, items: [] }
+  // 2026-11-04 第二阶段：state 只放 lesson 头 1 条，跟其余 loader 一样 60s 一取。
+  let lessonCache = { at: 0, text: '' }
+  // 2026-11-04：本进程内哪些会话已经发过稳定段。不能用历史事件数判——
+  // 老会话历史里有 200+ 条魂引，但早被挤出模型上下文。
+  const stableSent = new Set()
   // 待办 A：分区行（计数现扫，索引只定顺序），也是 60s 内复用。
   const zoneLoader = typeof options.zoneLoader === 'function' ? options.zoneLoader : () => zoneRowsOf(config)
   let zoneCache = { at: 0, rows: [] }
@@ -1581,8 +1990,6 @@ export function createPreStepHandler(options = {}) {
       inGroup,
     })
 
-    let messages = [...kept, createSoulMessage(composed.text)]
-
     // 2026-10-28：三节超过 3 条时不再静默丢弃——一行 warn 进 soul.log（每节每轮最多一条）。
     for (const warning of composed.warnings ?? []) {
       appendLog(config.logPath, logLine(at, 'soul-warn', warning))
@@ -1593,6 +2000,84 @@ export function createPreStepHandler(options = {}) {
     // 实测 `agent/pre-step` 的 decision.messages 只含本轮增量，历史快照不在里面——
     // 所以这里能做的是「让条数不再增长」，历史里已经超的只能在日志里如实报出来（见回执 H2/H3）。
     const events = eventsOfSession(session)
+    // ---------------------------------------------------------------------
+    // 2026-11-04 第二阶段 shadow（伊纳拍板）：只算不发。
+    // 消息仍然是 legacy 整块，逐字节不变；这里只把「如果拆分会长什么样」写进日志。
+    // 四个观测目标：稳定段会不会重发、压缩后会不会补、surface 节点数、pinned 有没有异常。
+    // ---------------------------------------------------------------------
+    if (at.getTime() - lessonCache.at > 60_000) {
+      lessonCache = { at: at.getTime(), text: loadLessonHead(config.memoryDbPath) }
+    }
+    const shadowStable = composeSoulStable({
+      soul: soul ?? EMPTY_SOUL,
+      router: readRouterLines(config.routerPath),
+      inGroup,
+      maxTokens: config.soulStableMaxTokens,
+    })
+    const shadowState = composeSoulState({
+      at,
+      timeZone,
+      workspace,
+      pending: pendingCache.items,
+      zones: zoneCache.rows,
+      lessonHead: lessonCache.text,
+      inGroup,
+      maxTokens: config.soulStateMaxTokens,
+    })
+    const shadowNodes = countSoulNodes(events)
+    const soulHash = soul?.sha256 ?? soulSources.soul?.sha256 ?? ''
+    // 历史里已有魂引节点（nodes>0）就视为「同内容已发过」；`previousState.soulHash` 的持久化
+    // 留到真发阶段做（那时才有「发完写状态」的时机）。否则 `soulHash !== ''` 每轮恒真。
+    const recordedHash = asText(previousState?.soulHash)
+    const lastInjectedHash = recordedHash !== '' ? recordedHash : (shadowNodes > 0 ? soulHash : '')
+    // 2026-11-04 修正（真发时踩到）：判「稳定段发过没有」不能用历史**事件**数——
+    // 老会话历史里有 200+ 条魂引，但早被挤出模型上下文；按事件数判成「已发过」，
+    // 结果真发时稳定段被跳过，这一轮的魂引只剩【现状】，人格和禁令整段消失。
+    // 改用进程内记账：本进程给这个会话发过才记；重启 Set 清空 → 首次必然补发。
+    const shadowPlan = planSoulSplit({
+      surfaceHasStable: stableSent.has(sessionKey),
+      reload,
+      soulHash,
+      lastInjectedHash,
+    })
+    if (shadowPlan.injectStable) stableSent.add(sessionKey)
+    const pinnedAnomalies = detectPinnedAnomalies(config.memoryDbPath)
+    // 动态段按伊纳 2026-11-04 拍板：每 turn 只在第一个 step 发；压缩重载 / 哈希变化时强制补。
+    // 「首轮缺段」和「从没记录过哈希」都不算补发原因——首轮本来 step=1，会自然发。
+    const hashChanged = recordedHash !== '' && soulHash !== '' && soulHash !== recordedHash
+    const statePlan = planStateEmit({
+      turn: payload?.turn,
+      step: payload?.step,
+      lastStateTurn: previousState?.lastStateTurn,
+      stableDue: reload === true || hashChanged,
+    })
+    const stateNodes = countSoulNodes(events, SOUL_STATE_KIND)
+    // `budget=0` 是显式 kill switch（伊纳 2026-11-04 定义）：pinned 一起停是预期，不是漏装。
+    const shadowLine = [
+      `mode=${config.soulSplitInjection ? 'split-active' : 'split-shadow'}`,
+      `stable=${shadowPlan.injectStable ? 1 : 0}`,
+      `why=${shadowPlan.reason}`,
+      `state=${statePlan.emit ? 1 : 0}`,
+      `stateWhy=${statePlan.why}`,
+      `stableTok=${shadowStable.tokens}`,
+      `stateTok=${shadowState.tokens}`,
+      `stateChars=${shadowState.chars}`,
+      `nodes=${shadowNodes}`,
+      `stateNodes=${stateNodes}`,
+      `pinned=${countPinnedEntries(config.memoryDbPath)}`,
+      `budget=${config.tierBudgetChars}`,
+      `anomaly=${pinnedAnomalies.length > 0 ? pinnedAnomalies.map((item) => `${item.table}:${item.count}`).join(',') : 'none'}`,
+    ].join(' ')
+    // 2026-11-04 真发开关：false 时逐字节走 legacy（原样一条整块）；true 时发
+    // 「稳定段（缺段/重载/哈希变）+ 动态段（每 turn 首 step）」。回滚就是改回 false。
+    let messages
+    if (config.soulSplitInjection) {
+      messages = [...kept]
+      if (shadowPlan.injectStable) messages.push(createSoulMessage(shadowStable.text))
+      if (statePlan.emit) messages.push(createSoulMessage(shadowState.text, SOUL_STATE_KIND))
+    } else {
+      messages = [...kept, createSoulMessage(composed.text)]
+    }
     // 三期 C1：每轮记下最近 2 条真人 user 消息，工具没传 query 时当「本轮在做什么」。
     rememberUserTexts(lastUserTexts(events, 2))
     const historyCounts = countSnapshots(events)
@@ -1657,18 +2142,23 @@ export function createPreStepHandler(options = {}) {
       )
     }
     if (notes.length > 0) {
-      const idx = finalMessages.findIndex((m) => m?.source?.kind === MESSAGE_KIND)
-      if (idx >= 0) finalMessages[idx] = createSoulMessage(composed.text + notes.map((note) => `\n${note}`).join(''))
+      const idx = soulTargetIndex(finalMessages)
+      if (idx >= 0) {
+        const base = textOfMessage(finalMessages[idx])
+        const kind = finalMessages[idx]?.source?.kind ?? MESSAGE_KIND
+        finalMessages[idx] = createSoulMessage(`${base}${notes.map((note) => `\n${note}`).join('')}`, kind)
+      }
     }
 
     // R3 护栏：常驻快照里出现 project/topic/fact/lesson 正文 = meow-memory 变胖了。
     // 只记日志 + 当轮申报，**不改它的源码**（交办单 §3 R3）。
     const drift = detectSnapshotDrift(finalMessages.filter((message) => isSnapshotMessage(message)))
     if (drift.length > 0) {
-      const idx = finalMessages.findIndex((m) => m?.source?.kind === MESSAGE_KIND)
+      const idx = soulTargetIndex(finalMessages)
       if (idx >= 0) {
         const base = textOfMessage(finalMessages[idx])
-        finalMessages[idx] = createSoulMessage(`${base}\n【预算】常驻快照出现 ${drift.join('/')} 正文（疑似变胖）`)
+        const kind = finalMessages[idx]?.source?.kind ?? MESSAGE_KIND
+        finalMessages[idx] = createSoulMessage(`${base}\n【预算】常驻快照出现 ${drift.join('/')} 正文（疑似变胖）`, kind)
       }
     }
 
@@ -1693,6 +2183,7 @@ export function createPreStepHandler(options = {}) {
           `observed=soul:${observed.soul} snapshot:${observed.snapshot} inject:${observed.inject} conv:${observed.conversation} fixed:${observed.fixed} total:${observed.total}tok`,
           prunedText,
           `hist=${historyCounts.initial}/${historyCounts.reinjection}/${historyCounts.hit}`,
+          shadowLine,
         ].join(' '),
       ),
     )
@@ -1701,6 +2192,10 @@ export function createPreStepHandler(options = {}) {
   }
 
   handler.composeSoulAt = composeSoul
+  /** 压缩结束后调用：本进程的「稳定段已发」记账作废，下一轮必须重发（2026-11-04）。 */
+  handler.resetStable = (sessionKey) => {
+    stableSent.delete(asText(sessionKey) || 'unknown')
+  }
   return handler
 }
 
@@ -2938,13 +3433,72 @@ export function createTools(config, deps = {}) {
 
 /** 宿主入口 */
 
-export function apply(ctx, config = {}) {
-  const logger = ctx.logger?.('soul') ?? console
+/**
+ * 交办单 A3（2026-11-04）：原文库增量触发。
+ *
+ * 宿主**没有** `agent/post-step`（`agent/turn-finished` / `session/compaction` 也不存在），
+ * 「一轮结束」能用的只有 `agent/turn-stopping`（提交前、可 steer）和会话事件 `turn/end`（事后）。
+ * 这里选后者：它不挡对话、监听器抛错也不影响提交，正合适做记账类后台活。
+ *
+ * 只做 detached spawn，不 await；60 秒内只拉一次（节流），锁与幂等由 auto-sync.mjs 自己保证。
+ * 返回 `(event) => boolean`：true 表示这一轮真的拉起了同步，方便单测直接断言。
+ */
+export function createSoulIndexSyncTrigger(options = {}) {
+  const config = options.config ?? normalizeConfig(options)
+  const spawnFn = typeof options.spawnFn === 'function' ? options.spawnFn : spawn
+  const nowFn = typeof options.now === 'function' ? options.now : () => Date.now()
+  const logger = options.logger
+  const script = config.soulIndexSyncScript
+  const intervalMs = config.soulIndexSyncIntervalMs
+  let lastAt = 0
+  return (event) => {
+    if (event?.type !== 'turn/end') return false
+    if (!script || !existsSync(script)) return false
+    const at = nowFn()
+    if (lastAt !== 0 && at - lastAt < intervalMs) return false
+    lastAt = at
+    try {
+      const child = spawnFn(process.execPath, [script], {
+        cwd: dirname(script),
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      child?.unref?.()
+      return true
+    } catch (error) {
+      logger?.warn?.(`dsh-soul: 原文库增量没拉起来：${String(error?.message ?? error)}`)
+      return false
+    }
+  }
+}
+
+export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?? console
   const normalized = normalizeConfig(config)
   const handler = createPreStepHandler({ config: normalized, timeZone: config?.timeZone, logger })
   ctx.on('agent/pre-step', handler, { prepend: true })
 
   const disposers = []
+  /**
+   * 2026-11-04：压缩会真的把稳定段从模型上下文里删掉，但本进程的 `stableSent`
+   * 还记着「发过」，单靠它会让压缩后的人格/禁令整段消失。宿主有
+   * `compaction/end`（无 error 才算成功），收到就清该会话的记账，下一轮补发。
+   * 只在 split 开启时挂监听：legacy 每步都注入全量魂引，不依赖这个记账。
+   */
+  if (normalized.soulSplitInjection && typeof ctx.on === 'function') {
+    try {
+      const off = ctx.on('session/event', (session, event) => {
+        if (event?.type !== 'compaction/end') return
+        const error = event?.data?.error
+        if (error !== undefined && error !== null && error !== '') return
+        const sessionKey = asText(session?.id)
+        if (sessionKey) handler.resetStable(sessionKey)
+      })
+      if (typeof off === 'function') disposers.push(off)
+    } catch (error) {
+      logger.warn?.(`dsh-soul: 压缩重载监听没挂上：${String(error?.message ?? error)}`)
+    }
+  }
   /** 十期：懒拿 `sessions` 服务（拿不到也不影响其它工具，soul_surface 自己报错）。 */
   let sessionsRef = null
   try {
@@ -2965,6 +3519,19 @@ export function apply(ctx, config = {}) {
     for (const tool of createTools(normalized, { getSessions: () => sessionsRef, logger })) disposers.push(ctx.tools.register(tool))
   } else {
     logger.warn?.('dsh-soul: tools 服务不可用，soul_recall / soul_persist / soul_cue / soul_toolout / soul_capabilities / soul_surface 未注册')
+  }
+
+  /** A3：只在配了原文库时挂监听；拿不到 session/event 也不影响其它功能。 */
+  if (normalized.soulIndexAutoSync && normalized.soulIndexSyncScript !== '' && typeof ctx.on === 'function') {
+    try {
+      const trigger = createSoulIndexSyncTrigger({ config: normalized, logger })
+      const off = ctx.on('session/event', (_session, event) => {
+        trigger(event)
+      })
+      if (typeof off === 'function') disposers.push(off)
+    } catch (error) {
+      logger.warn?.(`dsh-soul: 原文库增量监听没挂上：${String(error?.message ?? error)}`)
+    }
   }
 
   return () => {
