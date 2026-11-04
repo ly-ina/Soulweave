@@ -35,6 +35,15 @@ const soulPath = join(root, 'soul.md')
 const WATCH = [join(SRC, 'soul.md'), join(SRC, '.state'), join(SRC, 'memory'), join(SRC, 'soul-memory.db')]
 const before = new Map(WATCH.map((p) => [p, existsSync(p) ? statSync(p).mtimeMs : null]))
 
+/**
+ * soul_toolout 只在目标库（billion-context index.db）存在时才注册（index.js:2931）。
+ * 干净安装默认配置下那台机器上通常没有这个库，于是只注册 8 个工具、R5 的「九个工具」就假红。
+ * 这里把 BILI_SESSIONS_DIR 指到临时根并造一个空库文件，既保住 R5 的覆盖，又不碰真实目录。
+ */
+process.env.BILI_SESSIONS_DIR = join(root, 'bili', 'sessions', 'index.db')
+mkdirSync(dirname(process.env.BILI_SESSIONS_DIR), { recursive: true })
+writeFileSync(process.env.BILI_SESSIONS_DIR, '')
+
 try {
   // ---- R1：临时根 + 示例 soul.md（内容取自 soul.example.md，不碰任何私人 soul.md）
   mkdirSync(pkgDir, { recursive: true })
@@ -90,8 +99,8 @@ try {
   assert.ok(soulMessage, '注入里没有 source.kind === "soul" 的消息')
   const soulText = (soulMessage.content ?? []).map((part) => part.text ?? '').join('')
   assert.ok(soulText.includes('示例助手'), `魂引没读到示例 soul.md：${soulText.slice(0, 80)}`)
-  assert.ok(soulText.includes('【现在在哪】') && soulText.includes('【怎么查】'), '魂引缺「现在在哪 / 怎么查」')
-  ok('R4', `魂引 ${soulText.length} 字，含示例正文与两节固定内容`)
+  assert.ok(soulText.includes('【现在在哪】') && soulText.includes('查：soul_recall'), '魂引缺「现在在哪 / 查」入口')
+  ok('R4', `魂引 ${soulText.length} 字，含示例正文与「现在在哪 / 查」入口`)
 
   // ---- R5：九个工具
   const expected = [

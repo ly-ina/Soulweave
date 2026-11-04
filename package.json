@@ -1,6 +1,6 @@
 {
   "name": "@ly-ina/dsh-soulweave",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "description": "Soulweave: a small soul layer for DeepSeek Harness. Injects a token-budgeted persona/now/how-to-look-up preamble via agent/pre-step, and exposes soul_recall over an optional memory backend (builtin SQLite / meow-memory / none) plus notes, sealed segments and an optional text index. Read-only towards soul.md; only soul_persist appends to its fourth section.",
@@ -53,5 +53,8 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "engines": {
+    "node": ">=22.5"
   }
 }

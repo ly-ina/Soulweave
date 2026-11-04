@@ -20,6 +20,12 @@ import {
   TOTAL_TOKENS,
   HARD_SOUL_TOKENS,
   composeSoul,
+  composeSoulStable,
+  composeSoulState,
+  planSoulSplit,
+  planStateEmit,
+  SOUL_STATE_KIND,
+  SOUL_STATE_MAX_CHARS,
   decideReload,
   SOUL_STAGES,
   createPreStepHandler,
@@ -50,6 +56,14 @@ import {
   readRelations,
   readSoul,
   readSoulSources,
+  readRouterLines,
+  loadLessonHead,
+  detectPinnedAnomalies,
+  countPinnedEntries,
+  countSoulNodes,
+  textOfMessage,
+  createSoulIndexSyncTrigger,
+  apply,
   createMemoryBackend,
 } from './index.js'
 
@@ -348,13 +362,14 @@ await test('§8.11', 'soul.log 每轮一行，行数与轮次一致', async () =
 // 本地加固
 // ---------------------------------------------------------------------------
 
-await test('L1', 'soul.md 缺失：不崩，仍注入「现在在哪 / 怎么查」', async () => {
+await test('L1', 'soul.md 缺失：不崩，仍注入「现在在哪 / 记忆（含工具入口）」', async () => {
   const missing = normalizeConfig({ ...config, soulPath: join(root, 'soul/missing.md'), logPath: join(root, 'logs/missing.log') })
   const handler = createPreStepHandler({ config: missing, now: () => new Date('2026-10-24T22:07:00+08:00'), pendingLoader: () => [] })
   const decision = await runHandler(handler, 1)
   const soulText = decision.messages.filter((m) => m?.source?.kind === 'soul').map((m) => m.content[0].text).join('')
   assert.ok(soulText.includes('现在在哪'), '缺文件时没有「现在在哪」')
-  assert.ok(soulText.includes('怎么查'), '缺文件时没有「怎么查」')
+  assert.ok(soulText.includes('【记忆】'), '缺文件时没有「【记忆】」')
+  assert.ok(soulText.includes('soul_recall'), '缺文件时没有工具入口行')
   return `${estimateTokens(soulText)}tok`
 })
 
@@ -1463,12 +1478,354 @@ await test('T2', 'planSnapshotPrune：历史 hit 满 2 后，本轮新 hit 被�
   return `hit 满→${JSON.stringify(full.keep)} / 未满→${JSON.stringify(room.keep)}`
 })
 
-await test('T3', 'detectSnapshotDrift：常驻快照里出现项目/话题正文要被抓到', () => {
+await test('T3', 'detectSnapshotDrift：常驻快照里出现项目/话题正文要被抓到（hit 不算常驻）', () => {
   const clean = snapshotMessage('hit', ['a'], '===== 长期记忆 =====\n【关于你】\n- 人格见 soul.md')
   assert.deepEqual(detectSnapshotDrift([clean]), [], '干净快照被误判')
-  const fat = snapshotMessage('hit', ['a'], '===== 长期记忆 =====\n[dsh : project] MVP 跑通')
-  assert.deepEqual(detectSnapshotDrift([fat]), ['project'], '变胖没被抓到')
-  return '干净=[] / 变胖=[project]'
+  const hitFat = snapshotMessage('hit', ['a'], '===== 长期记忆 =====\n[dsh : project] MVP 跑通')
+  assert.deepEqual(detectSnapshotDrift([hitFat]), [], 'hit 是按需命中，不该按常驻口径报变胖')
+  const initialFat = snapshotMessage('initial', ['a'], '===== 长期记忆 =====\n[dsh : project] MVP 跑通')
+  assert.deepEqual(detectSnapshotDrift([initialFat]), ['project'], 'initial 变胖没被抓到')
+  const reinjFat = snapshotMessage('reinjection', ['a'], '===== 长期记忆 =====\n[全局 : lesson] 教训')
+  assert.deepEqual(detectSnapshotDrift([reinjFat]), ['lesson'], 'reinjection 变胖没被抓到')
+  return '干净=[] / hit=[] / initial=[project] / reinjection=[lesson]'
+})
+
+// ---------------------------------------------------------------------------
+// S 系列：魂引拆分（第一阶段只测纯函数，`agent/pre-step` 仍走 legacy）
+// ---------------------------------------------------------------------------
+
+const SPLIT_SOUL = {
+  raw: 'fixture',
+  sha256: 'fixture-sha',
+  preamble: [],
+  sections: {
+    身份: ['我是蓝汐。', '用户叫伊纳。'],
+    认知: ['先取证再下结论。', '人比任务重。'],
+    禁令: ['不虚构已验证。', '不写凭据。'],
+    外交: ['群聊只闲聊。'],
+    反哺: [],
+  },
+}
+
+const SPLIT_AT = new Date('2026-11-04T22:00:00+08:00')
+const SPLIT_ROUTER = ['改配置先读 rules/verification.md', '争论先取证', '其余路由行']
+
+await test('SP1', '稳定段不含时间/工作区/未结/分区：同一输入两次逐字节相同', () => {
+  const input = { soul: SPLIT_SOUL, router: SPLIT_ROUTER, maxTokens: 1000 }
+  const a = composeSoulStable(input)
+  const b = composeSoulStable(input)
+  assert.equal(a.text, b.text, '同样输入两次渲染不一致（稳定段里混进了可变内容）')
+  assert.ok(!/\d{4}-\d{2}-\d{2}/.test(a.text), '稳定段里出现了日期')
+  assert.ok(!a.text.includes('【现在在哪】'), '稳定段里出现了【现在在哪】')
+  assert.ok(!a.text.includes('未结'), '稳定段里出现了未结计数')
+  assert.ok(!a.text.includes('【分区】'), '稳定段里出现了分区计数')
+  assert.ok(a.text.includes('身份：') && a.text.includes('认知：') && a.text.includes('禁令：'), '三节被整节丢了')
+  assert.ok(a.text.includes('verification.md'), '安全路由没进去')
+  return `tokens=${a.tokens} take=${a.take} 两路一致`
+})
+
+await test('SP2', '动态段随时间/工作区变化，且渲染出时间与未结计数', () => {
+  const base = {
+    at: SPLIT_AT,
+    timeZone: 'Asia/Shanghai',
+    workspace: 'E:\\dsh_work',
+    pending: ['甲', '乙'],
+    zones: [{ zone: 'work', count: 334, tags: ['工作'] }],
+    memoryHeads: ['记忆一：先取证'],
+  }
+  const first = composeSoulState(base)
+  const later = composeSoulState({ ...base, at: new Date('2026-11-04T23:30:00+08:00') })
+  const moved = composeSoulState({ ...base, workspace: 'E:\\other' })
+  assert.notEqual(first.text, later.text, '换时间后动态段没变')
+  assert.notEqual(first.text, moved.text, '换工作区后动态段没变')
+  assert.ok(later.text.includes('2026-11-04 23:30'), '时间没渲染出来')
+  assert.ok(first.text.includes('未结 2 条'), '未结计数没渲染出来')
+  assert.ok(first.text.includes('work 334'), '分区计数没渲染出来')
+  return `${first.chars}字·${first.tokens}tok`
+})
+
+await test('SP3', '动态段：pinned 正文进不来，lesson 头只有 1 条，两级预算都硬守', () => {
+  const out = composeSoulState({
+    at: SPLIT_AT,
+    timeZone: 'Asia/Shanghai',
+    workspace: 'E:\\dsh_work\\a-very-long-workspace-name-for-state-segment-test',
+    pending: ['1', '2', '3', '4', '5'],
+    zones: [
+      { zone: 'work', count: 334, tags: ['工作', '工具'] },
+      { zone: 'misc', count: 23, tags: ['杂'] },
+    ],
+    // 2026-11-04 伊纳拍板：pinned 正文归 meow，state 只留 lesson 头 1 条。
+    memoryHeads: ['记忆一：这条 pinned 正文不该再进 state', '记忆二：也不该'],
+    lessonHead: '一条很长的教训正文，用于验证 40 字硬截不会把动态段撑爆，后面还有更多填充文字',
+    maxTokens: 120,
+  })
+  assert.ok(out.chars <= SOUL_STATE_MAX_CHARS, `动态段 ${out.chars} 字，超了 ${SOUL_STATE_MAX_CHARS}`)
+  assert.ok(out.tokens <= 120, `动态段 ${out.tokens}tok，超了默认 120 预算（token 截没生效）`)
+  assert.ok(out.text.includes('一条很长的教训正文'), 'lesson 头没进 state')
+  assert.ok(!out.text.includes('记忆一'), 'pinned 正文混进 state 了')
+  assert.ok(out.step.lesson <= 1, `lesson 放了 ${out.step.lesson} 条，口径是 1 条`)
+  // 极端预算：token 截必须真的按 token 收，不能只守字数
+  const tiny = composeSoulState({
+    at: SPLIT_AT,
+    timeZone: 'Asia/Shanghai',
+    workspace: 'E:\\dsh_work',
+    pending: ['1', '2', '3'],
+    zones: [{ zone: 'work', count: 334, tags: ['工作'] }],
+    lessonHead: '一条很长的教训正文，用来把动态段撑到超过三十个 token 的预算',
+    maxTokens: 30,
+  })
+  assert.ok(tiny.tokens <= 30, `maxTokens=30 时动态段还是 ${tiny.tokens}tok`)
+  return `${out.chars}字 / ${out.tokens}tok / tiny=${tiny.tokens}tok / lesson=${out.step.lesson}`
+})
+
+await test('SP4', '稳定段超预算时按 5→3→2→1 削条数，仍超就硬裁不越界', () => {
+  const big = {
+    ...SPLIT_SOUL,
+    sections: {
+      身份: Array.from({ length: 8 }, (_, i) => `身份第${i + 1}条`),
+      认知: Array.from({ length: 8 }, (_, i) => `认知第${i + 1}条`),
+      禁令: Array.from({ length: 8 }, (_, i) => `禁令第${i + 1}条`),
+      外交: [],
+      反哺: [],
+    },
+  }
+  const loose = composeSoulStable({ soul: big, router: SPLIT_ROUTER, maxTokens: 900 })
+  const tight = composeSoulStable({ soul: big, router: SPLIT_ROUTER, maxTokens: 60 })
+  assert.equal(loose.take, 5, '预算够时应该取满 5 条')
+  assert.ok(tight.take < 5, '预算紧时没有收窄条数')
+  assert.ok(tight.tokens <= 60, `稳定段 ${tight.tokens}tok 超了 60`)
+  assert.ok(tight.text.includes('身份'), '收窄把身份整节丢了')
+  return `take5=${loose.tokens}tok → take${tight.take}=${tight.tokens}tok`
+})
+
+await test('SP5', 'planSoulSplit：缺稳定段/压缩重载/哈希变化要发，其余只发动态段', () => {
+  const cases = [
+    [{}, true, 'missing'],
+    [{ surfaceHasStable: true }, false, 'state-only'],
+    [{ surfaceHasStable: true, reload: true }, true, 'reload'],
+    [{ surfaceHasStable: true, soulHash: 'b', lastInjectedHash: 'a' }, true, 'hash'],
+    [{ surfaceHasStable: true, soulHash: 'a', lastInjectedHash: 'a' }, false, 'state-only'],
+  ]
+  for (const [input, expectStable, expectReason] of cases) {
+    const plan = planSoulSplit(input)
+    assert.equal(plan.injectStable, expectStable, `injectStable 不符：${JSON.stringify(input)}`)
+    assert.equal(plan.reason, expectReason, `reason 不符：${JSON.stringify(input)}`)
+    assert.equal(plan.injectState, true, '动态段每轮都必须发')
+  }
+  return `${cases.length} 组判定一致`
+})
+
+await test('SP6', 'legacy composeSoul 逐字节不变（sha256 快照）', () => {
+  const out = composeSoul({
+    soul: SPLIT_SOUL,
+    at: SPLIT_AT,
+    timeZone: 'Asia/Shanghai',
+    workspace: 'E:\\dsh_work',
+    pending: ['甲', '乙', '丙'],
+    zones: [
+      { zone: 'work', count: 334, tags: ['工作'] },
+      { zone: 'misc', count: 23, tags: ['杂'] },
+    ],
+    memoryHeads: ['记忆一：先取证', '记忆二：不装'],
+    router: SPLIT_ROUTER,
+    inGroup: false,
+    maxTokens: 1000,
+  })
+  const sha = createHash('sha256').update(out.text).digest('hex')
+  assert.equal(sha, '90547ccac1f2b6072c7bd3735879f4b825e8648506ef530921f3ed1f6d7d3601', '旧路径输出变了！')
+  assert.equal(out.tokens, 189, '旧路径 token 数变了')
+  return `sha=${sha.slice(0, 12)}… tokens=${out.tokens} stage=${out.stage}`
+})
+
+// SP7 是唯一一条会读本机真实文件的用例（只读、缺文件就 SKIP），因为夹具规模太小，
+// 「稳定段多大」这个数字必须用真实 soul.md 说话：夹具 stable 只有 111 tok，真实是 658 tok。
+//
+// 基线口径（2026-11-04 伊纳给 627，我实测拆开后差额就是工具入口那一行）：
+//   627 tok  人格 + 【路由】两行（不含「查：soul_recall…」）
+//   658 tok  上面 + 工具入口行  ← 方案 §2.1 把「工具入口」划在稳定段，取这个做基线
+await test('SP7', '真实 soul.md：stable 基线 658 tok（含工具入口），stable+state 明显小于 legacy', () => {
+  const soulPath = process.env.SOULWEAVE_REAL_SOUL || 'E:/dsh_work/lanxi/soul.md'
+  const routerPath = process.env.SOULWEAVE_REAL_ROUTER || 'E:/dsh_work/lanxi/rules/router.md'
+  if (!existsSync(soulPath)) return `SKIP：没有真实 soul.md（${soulPath}）`
+  const soul = parseSoul(readFileSync(soulPath, 'utf8'))
+  const router = existsSync(routerPath) ? readRouterLines(routerPath) : []
+  const at = new Date('2026-11-04T22:52:00+08:00')
+  const zones = [{ zone: 'work', count: 334, tags: ['工作'] }]
+  const stable = composeSoulStable({ soul, router, maxTokens: 900 })
+  const state = composeSoulState({
+    at, timeZone: 'Asia/Shanghai', workspace: 'E:\\dsh_work',
+    pending: ['甲', '乙', '丙'], zones, maxTokens: 120,
+  })
+  const legacy = composeSoul({
+    soul, at, timeZone: 'Asia/Shanghai', workspace: 'E:\\dsh_work',
+    router, pending: ['甲', '乙', '丙'], zones, maxTokens: 1000,
+  })
+  assert.ok(stable.text.includes('查：soul_recall'), '稳定段丢了工具入口')
+  assert.ok(stable.text.includes('verification.md'), '稳定段丢了安全路由')
+  assert.ok(stable.tokens <= 900, `stable ${stable.tokens}tok 超 900`)
+  assert.ok(stable.tokens >= 620, `stable 只有 ${stable.tokens}tok，比基线 658 掉太多，疑似丢节`)
+  assert.ok(stable.tokens <= 700, `stable ${stable.tokens}tok 比基线 658 涨太多，稳定段变胖了`)
+  assert.ok(stable.tokens + state.tokens < legacy.tokens, '拆分后合计没有比 legacy 小，收益不成立')
+  return `stable ${stable.tokens}tok/${stable.text.length}字 · state ${state.tokens}tok/${state.chars}字 · legacy ${legacy.tokens}tok`
+})
+
+await test('SP8', 'shadow 三件工具：lesson 头取 importance 最高、非 rules/user 的 pinned 报红、soul 节点计数', () => {
+  const dbPath = join(root, 'shadow-probe.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec('create table lesson (id text primary key, content text, importance integer, status text, lifecycle text, updated_at text)')
+  db.exec('create table fact (id text primary key, content text, lifecycle text)')
+  db.exec("insert into lesson values ('l1','低重要性教训',2,'active',null,'2026-11-01')")
+  db.exec("insert into lesson values ('l2','高重要性教训：先取证再下结论，后面这段填充是用来验证四十字硬截的所以故意写长一点点',3,'active',null,'2026-11-02')")
+  db.exec("insert into lesson values ('l3','已归档教训',4,'active','archived','2026-11-03')")
+  db.exec("insert into fact values ('f1','事实一','pinned')")
+  db.close()
+
+  const head = loadLessonHead(dbPath)
+  assert.ok(head.startsWith('高重要性教训'), `lesson 头取错了：${head}`)
+  assert.ok(head.length <= 40, `lesson 头 ${head.length} 字，超过 40`)
+  const anomalies = detectPinnedAnomalies(dbPath)
+  assert.deepEqual(anomalies, [{ table: 'fact', count: 1 }], '非 rules/user 的 pinned 没报红')
+
+  const events = [
+    { type: 'user/message', data: { message: { source: { kind: 'soul' } } } },
+    { type: 'user/message', data: { message: { source: { kind: 'plugin:meow-memory' } } } },
+    { type: 'user/message', data: { message: { source: { kind: 'soul' } } } },
+  ]
+  assert.equal(countSoulNodes(events), 2, 'soul 节点算错')
+  assert.equal(countPinnedEntries(dbPath), 0, 'rules/user 里没有 pinned，不该计数')
+  return `lesson=${head.length}字 · anomaly=fact:1 · nodes=2`
+})
+
+await test('SP10', 'planStateEmit：每 turn 首 step 才发，压缩/哈希变化强制补，同 turn 不重复；state 节点单独计数', () => {
+  const cases = [
+    [{ step: 1, turn: 5 }, true, 'turn-first'],
+    [{ step: 3, turn: 5 }, false, 'skip-step'],
+    [{ step: 3, turn: 5, stableDue: true }, true, 'reload'],
+    [{ step: 7, turn: 5, stableDue: true }, true, 'reload'],
+    [{ turn: 5, lastStateTurn: 5 }, false, 'skip-step'],
+    [{ turn: 6, lastStateTurn: 5 }, true, 'turn-first'],
+  ]
+  for (const [input, expectEmit, expectWhy] of cases) {
+    const plan = planStateEmit(input)
+    assert.equal(plan.emit, expectEmit, `emit 不符：${JSON.stringify(input)}`)
+    assert.equal(plan.why, expectWhy, `why 不符：${JSON.stringify(input)}`)
+  }
+  // state 用 'soul-state'，不能混进稳定段的 nodes 里
+  const events = [
+    { type: 'user/message', data: { message: { source: { kind: 'soul' } } } },
+    { type: 'user/message', data: { message: { source: { kind: 'soul-state' } } } },
+    { type: 'user/message', data: { message: { source: { kind: 'soul-state' } } } },
+  ]
+  assert.equal(countSoulNodes(events), 1, 'stable 节点数错')
+  assert.equal(countSoulNodes(events, SOUL_STATE_KIND), 2, 'state 节点数错')
+  return `${cases.length} 组判定一致 · nodes=1 stateNodes=2`
+})
+
+await test('SP11', '真发开关：首轮发 stable(soul)+state(soul-state)，第二步不发，历史已有稳定段后不再重发', async () => {
+  const logPath = join(root, 'logs/real.log')
+  rmSync(logPath, { force: true })
+  const handler = createPreStepHandler({
+    config: normalizeConfig({ ...config, logPath, soulSplitInjection: true }),
+    now: () => new Date('2026-11-04T23:20:00+08:00'),
+    pendingLoader: () => [],
+  })
+  const sessionWith = (history) => ({ id: 'real-1', cwd: FIXTURE_WS, ownEvents: () => history })
+  const kindsOf = (decision) => decision.messages
+    .map((m) => m?.source?.kind)
+    .filter((k) => k === 'soul' || k === 'soul-state')
+
+  const d1 = await handler({ ...fakePayload(1), agent: { session: sessionWith([]) } }, async () => fakeDecision)
+  const kinds1 = kindsOf(d1)
+  assert.deepEqual(kinds1, ['soul', 'soul-state'], '首轮应发 稳定段 + 动态段')
+
+  const history = [{ type: 'user/message', data: { message: { source: { kind: 'soul' } } } }]
+  const d2 = await handler({ ...fakePayload(1), step: 2, agent: { session: sessionWith(history) } }, async () => fakeDecision)
+  assert.deepEqual(kindsOf(d2), [], '第二步不该再发任何魂引')
+
+  const d3 = await handler({ ...fakePayload(2), step: 1, agent: { session: sessionWith(history) } }, async () => fakeDecision)
+  assert.deepEqual(kindsOf(d3), ['soul-state'], '新 turn 首步只应发动态段（稳定段已在历史里）')
+
+  const last = d1.messages[d1.messages.length - 1]
+  assert.ok(textOfMessage(last).includes('【魂引 · 现状】'), '动态段没发')
+  const stableMsg = d1.messages[d1.messages.length - 2]
+  assert.ok(!textOfMessage(stableMsg).includes('【现在在哪】'), '稳定段里混进了动态内容')
+  return `首轮=${kinds1.join('+')} · step2=${kindsOf(d2).length}条 · turn2=${kindsOf(d3).join('+')}`
+})
+
+await test('SP12', '回归：历史里堆了 200 条魂引、本进程没发过时，稳定段仍必须发', async () => {
+  const logPath = join(root, 'logs/stale.log')
+  rmSync(logPath, { force: true })
+  const handler = createPreStepHandler({
+    config: normalizeConfig({ ...config, logPath, soulSplitInjection: true }),
+    now: () => new Date('2026-11-04T23:25:00+08:00'),
+    pendingLoader: () => [],
+  })
+  const history = Array.from({ length: 200 }, () => ({
+    type: 'user/message',
+    data: { message: { source: { kind: 'soul' } } },
+  }))
+  const decision = await handler(
+    { ...fakePayload(7), agent: { session: { id: 'stale-1', cwd: FIXTURE_WS, ownEvents: () => history } } },
+    async () => fakeDecision,
+  )
+  const kinds = decision.messages
+    .map((m) => m?.source?.kind)
+    .filter((k) => k === 'soul' || k === 'soul-state')
+  assert.deepEqual(kinds, ['soul', 'soul-state'], '历史有 200 条魂引也不能跳过本进程的首次稳定段')
+  return `历史 200 条 → 仍发 ${kinds.join('+')}`
+})
+
+await test('SP13', '压缩后重载：compaction/end 清记账，下一轮必须重发稳定段', async () => {
+  const logPath = join(root, 'logs/compaction.log')
+  rmSync(logPath, { force: true })
+  const handler = createPreStepHandler({
+    config: normalizeConfig({ ...config, logPath, soulSplitInjection: true }),
+    now: () => new Date('2026-11-04T23:30:00+08:00'),
+    pendingLoader: () => [],
+  })
+  const sessionWith = (history) => ({ id: 'compact-1', cwd: FIXTURE_WS, ownEvents: () => history })
+  const kindsOf = (decision) => decision.messages
+    .map((m) => m?.source?.kind)
+    .filter((k) => k === 'soul' || k === 'soul-state')
+
+  const d1 = await handler({ ...fakePayload(1), agent: { session: sessionWith([]) } }, async () => fakeDecision)
+  assert.deepEqual(kindsOf(d1), ['soul', 'soul-state'], '首轮应发稳定段 + 动态段')
+
+  // 压缩成功：等价于 apply() 收到 compaction/end 后调用 resetStable。
+  assert.equal(typeof handler.resetStable, 'function', 'handler 没有 resetStable')
+  handler.resetStable('compact-1')
+
+  const history = [{ type: 'user/message', data: { message: { source: { kind: 'soul' } } } }]
+  const d2 = await handler({ ...fakePayload(2), agent: { session: sessionWith(history) } }, async () => fakeDecision)
+  assert.deepEqual(kindsOf(d2), ['soul', 'soul-state'], '压缩后下一轮没重发稳定段')
+  const stableMsg = d2.messages[d2.messages.length - 2]
+  assert.ok(textOfMessage(stableMsg).includes('【魂引 · 人格】'), '重发的不是稳定段')
+  return `压缩前=${kindsOf(d1).join('+')} · 压缩后=${kindsOf(d2).join('+')}`
+})
+
+await test('SP9', 'shadow 端到端：pre-step 照旧发 legacy 整块，日志里多出 mode=split-shadow 那一段', async () => {
+  const logPath = join(root, 'logs/shadow.log')
+  rmSync(logPath, { force: true })
+  const handler = createPreStepHandler({
+    config: normalizeConfig({ ...config, logPath, soulSplitInjection: false }),
+    now: () => new Date('2026-11-04T23:00:00+08:00'),
+    pendingLoader: () => [],
+  })
+  const decision = await runHandler(handler, 1)
+  const soulMessage = decision.messages.find((m) => m?.source?.kind === 'soul' || m?.source?.kind === 'plugin:dsh-soul')
+  assert.ok(soulMessage, 'pre-step 没发魂引消息')
+  const text = textOfMessage(soulMessage)
+  assert.ok(text.includes('【魂引'), '发的不是魂引整块')
+  // shadow 只进日志，不进消息正文
+  assert.ok(!text.includes('mode=split'), 'shadow 字段漏进魂引正文了')
+
+  const log = readFileSync(logPath, 'utf8')
+  assert.ok(log.includes('mode=split-shadow'), '日志没有 mode=split-shadow')
+  assert.ok(/stableTok=\d+/.test(log), '日志没有 stableTok')
+  assert.ok(/stateTok=\d+/.test(log), '日志没有 stateTok')
+  assert.ok(/nodes=\d+/.test(log), '日志没有 surface 节点数')
+  assert.ok(/anomaly=(none|[\w:,\-]+)/.test(log), '日志没有 anomaly 字段')
+  return log.split('\n').find((line) => line.includes('mode=split-shadow'))?.slice(0, 160) ?? 'ok'
 })
 
 await test('T4', 'R2 端到端：历史已有 2 条 hit，本轮新 hit 被丢掉且日志写 pruned=', async () => {
@@ -1545,18 +1902,20 @@ await test('T9', '降档确实少了内容、但不砍人格核心：申报带 s
   const soul = parseSoul(readFileSync(soulOk, 'utf8'))
   const base = { soul, at: new Date('2026-10-28T13:12:00+08:00'), workspace: FIXTURE_WS }
   const full = composeSoul({ ...base, maxTokens: HARD_SOUL_TOKENS })
-  /** 条目 = 人格行的 bullet（用 · 分隔）+ 【怎么查】的行 + 【路由】的行。
+  /** 条目 = 人格行的 bullet（用 · 分隔）+ 【记忆】里的 pinned/未结/入口行 + 【路由】的行。
    *  不写死「少的是哪一条」：降档策略改了也只在条目数上体现。 */
   const entries = (text) => {
     const lines = text.split('\n')
     let count = 0
     for (const line of lines) {
-      if (/^(身份|认知|禁令|外交|我记得)：/.test(line)) count += line.split(' · ').length
+      if (/^(身份|认知|禁令|外交)：/.test(line)) count += line.split(' · ').length
     }
     let zone = ''
     for (const line of lines) {
-      if (line === '【怎么查】' || line === '【路由】') { zone = line; continue }
-      if (zone !== '' && line.trim() !== '' && !line.startsWith('【')) count += 1
+      if (line === '【记忆】' || line === '【路由】') { zone = line; continue }
+      if (line.startsWith('【')) { zone = ''; continue }
+      if (zone === '【路由】' && line.trim() !== '') count += 1
+      if (zone === '【记忆】' && /^(- |未结|查：)/.test(line)) count += 1
     }
     return count
   }
@@ -1574,15 +1933,22 @@ await test('T9', '降档确实少了内容、但不砍人格核心：申报带 s
   assert.ok(tight.tokens <= full.tokens, `${tight.tokens} > ${full.tokens}`)
   const note = tight.text.match(/【魂引】已降档 ([\w-]+)/)
   assert.equal(note[1], tight.stage, `申报的 stage ${note[1]} 与实际档位 ${tight.stage} 不一致`)
-  assert.ok(entries(tight.text) < entries(full.text), `降档后条目没减少：${entries(tight.text)} vs ${entries(full.text)}`)
+  // D3（2026-11-04）：降档的第一级只是把【记忆】尾部入口收窄（安全网可以短，不能没有），
+  // 条目数不一定立刻变少；「条目真的会降」的断言改在更深的档位上验。
+  let deeper = null
+  for (let m = tight.tokens - 1; m >= 40; m -= 1) {
+    const out = composeSoul({ ...base, maxTokens: m })
+    if (entries(out.text) < entries(full.text) && out.tokens <= m) { deeper = out; break }
+  }
+  assert.ok(deeper, `从 ${tight.tokens} 往下扫到 40，条目数一直没减少（full=${entries(full.text)}）`)
   for (const label of ['身份', '认知', '禁令']) {
     const head = firstBullet(full.text, label)
     assert.ok(head !== '', `full 档里没有「${label}」`)
-    const line = tight.text.split('\n').find((l) => l.startsWith(`${label}：`))
+    const line = deeper.text.split('\n').find((l) => l.startsWith(`${label}：`))
     assert.ok(line, `降档后整节「${label}」丢了`)
     assert.ok(line.includes(head.slice(0, 8)), `降档后「${label}」首条被砍：${line.slice(0, 60)}`)
   }
-  return `${full.tokens}tok(${full.stage}) → ${tight.tokens}tok(${tight.stage})，条目 ${entries(full.text)} → ${entries(tight.text)}`
+  return `${full.tokens}tok(${full.stage}) → ${tight.tokens}tok(${tight.stage}) → ${deeper.tokens}tok(${deeper.stage})，条目 ${entries(full.text)} → ${entries(tight.text)} → ${entries(deeper.text)}`
 })
 
 await test('T10', '任何档位三节各至少 1 条；极端装不下时申报「核心已压到极限」', () => {
@@ -2164,6 +2530,87 @@ await test('X3', 'P1 R5：不配置 extraSoulPaths 时渲染结果与 v0.1.1 的
   assert.equal(sha(newText), sha(legacyText), '单文件路径的渲染结果变了')
   assert.equal(viaSources.sha256, legacy.sha256, '成对的 sha256 不一致')
   return `sha256=${sha(newText).slice(0, 16)}… 两路一致`
+})
+
+// ---------------------------------------------------------------------------
+// 交办单 A3（2026-11-04）：原文库增量触发
+// ---------------------------------------------------------------------------
+
+await test('Y1', 'A3：turn/end 拉起原文库增量，60 秒内不重复，其它事件不触发，脚本缺失不报错', () => {
+  const dir = join(root, 'sync-trigger')
+  mkdirSync(dir, { recursive: true })
+  const script = join(dir, 'auto-sync.mjs')
+  writeFileSync(script, '// stub\n', 'utf8')
+  const config = normalizeConfig({ soulIndexDir: dir, stateDir: join(dir, 'state'), memoryBackend: 'none' })
+  assert.equal(config.soulIndexSyncScript, script, `默认脚本路径不对：${config.soulIndexSyncScript}`)
+  assert.equal(config.soulIndexSyncIntervalMs, 60_000, '节流默认值不是 60s')
+
+  const calls = []
+  let clock = 1_000_000
+  const trigger = createSoulIndexSyncTrigger({
+    config,
+    now: () => clock,
+    spawnFn: (...args) => {
+      calls.push(args)
+      return { unref() {} }
+    },
+  })
+  assert.equal(trigger({ type: 'user/message' }), false, '非 turn/end 不该触发')
+  assert.equal(trigger({ type: 'turn/end', turn: 1 }), true, 'turn/end 应触发')
+  assert.equal(calls.length, 1, `spawn 次数不对：${calls.length}`)
+  assert.equal(calls[0][0], process.execPath, 'spawn 的不是当前 node')
+  assert.deepEqual(calls[0][1], [script], 'spawn 参数不对')
+  clock += 30_000
+  assert.equal(trigger({ type: 'turn/end', turn: 2 }), false, '60s 内不该重复拉')
+  clock += 31_000
+  assert.equal(trigger({ type: 'turn/end', turn: 3 }), true, '超过 60s 应再次拉')
+
+  const missing = createSoulIndexSyncTrigger({
+    config: normalizeConfig({ soulIndexDir: join(dir, 'nope'), stateDir: join(dir, 'state'), memoryBackend: 'none' }),
+    now: () => clock,
+    spawnFn: () => {
+      throw new Error('不该被调用')
+    },
+  })
+  assert.equal(missing({ type: 'turn/end' }), false, '脚本不存在时应静默返回 false')
+  return `spawn=${calls.length} 次；节流 60s；缺脚本不报错`
+})
+
+await test('Y2', 'A3：apply 只在配了原文库时挂 session/event，并在 dispose 时卸掉', () => {
+  const dir = join(root, 'sync-apply')
+  mkdirSync(join(dir, 'soul-index'), { recursive: true })
+  writeFileSync(join(dir, 'soul-index', 'auto-sync.mjs'), '// stub\n', 'utf8')
+  writeFileSync(join(dir, 'soul.md'), '# T\n\n## 身份\n- x\n', 'utf8')
+  const handlers = new Map()
+  const ctx = {
+    on: (event, fn) => {
+      handlers.set(event, fn)
+      return () => handlers.delete(event)
+    },
+    tools: { register: () => () => {} },
+    logger: () => ({ warn() {}, info() {}, debug() {} }),
+  }
+  const dispose = apply(ctx, {
+    soulPath: join(dir, 'soul.md'),
+    soulIndexDir: join(dir, 'soul-index'),
+    stateDir: join(dir, 'state'),
+    memoryBackend: 'none',
+  })
+  assert.ok(handlers.has('session/event'), 'apply 没挂 session/event')
+  dispose()
+  assert.equal(handlers.has('session/event'), false, 'dispose 没卸掉监听')
+
+  const handlers2 = new Map()
+  const ctx2 = { ...ctx, on: (event, fn) => { handlers2.set(event, fn); return () => handlers2.delete(event) } }
+  const dispose2 = apply(ctx2, {
+    soulPath: join(dir, 'soul.md'),
+    soulIndexDir: '',
+    stateDir: join(dir, 'state2'),
+    memoryBackend: 'none',
+  })
+  assert.equal(handlers2.has('session/event'), false, '没配原文库时不该挂监听')
+  dispose2()
+  return '挂载/卸载/未配置三态正确'
 })
 
 
