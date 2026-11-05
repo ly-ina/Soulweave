@@ -244,7 +244,7 @@ node soul_lint.mjs --json     # 机读
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 87/87 通过（v0.2.0 新增 SP8–SP13 等魂引拆分注入断言）
+node check.mjs          # 单元/集成：期望最后一行 88/88 通过（v0.2.1 新增 SP14 pinned 打包断言）
 node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
 node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报可疑对与总数（不进 npm 包）
 ```
@@ -254,7 +254,7 @@ node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报�
 ## 本机实测环境
 
 Windows 11（NT 10.0.26200）、Node v24.22.1、DSH 0.1.0-rc.7；
-`check.mjs` 87/87（v0.1.2 为 71/71）、`clean-install.mjs` R1..R8、`npm pack --dry-run` 17 文件（v0.1.2 起；v0.1.1 为 16 文件 / 90.2 kB）。
+`check.mjs` 88/88（v0.1.2 为 71/71）、`clean-install.mjs` R1..R8、`npm pack --dry-run` 17 文件（v0.1.2 起；v0.1.1 为 16 文件 / 90.2 kB）。
 
 其他系统与 DSH 版本未实测，见 REPORT 的「未验证」一节。
 

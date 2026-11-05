@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-11-05
+
+- **pinned 记忆头补齐**：`loadMemoryHeads()` 现在把 `lifecycle='pinned'` 的低 importance 条目也算进来，并排在高 importance 之前；不再只认 `importance >= 3`。
+- **三条 pinned 能装下**：`MEMORY_SECTION.pinnedMaxTokens` 70 → 100，单条先裁 30 字；3 条 30 字短陈述能同时进【记忆】，收不进仍按原逻辑停，不硬塞残句。
+- `check.mjs` 87 → 88（SP14：低 importance pinned + 3 条 30 字打包）。
+
 ## 0.2.0 — 2026-11-05
 
 - **魂引拆分注入正式上线**（`soulSplitInjection`）：稳定段（人格/认知/禁令）每会话只进一次，动态段（时间/未结/分区）只在 turn 的首个 step 进；`agent/pre-step` 每 step 触发的重复整块注入随之消失。日志新增 `mode=split-active stable= why= state= stateWhy= stateNodes=`。
