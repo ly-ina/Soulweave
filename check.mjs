@@ -58,6 +58,7 @@ import {
   readSoulSources,
   readRouterLines,
   loadLessonHead,
+  loadMemoryHeads,
   detectPinnedAnomalies,
   countPinnedEntries,
   countSoulNodes,
@@ -2636,6 +2637,26 @@ await test('R7', 'soul_toolout 只在目标库存在时注册（库不在时不�
   const namesPresent = createTools(present).map((t) => t.name)
   assert.ok(namesPresent.includes('soul_toolout'), '库存在时没注册 soul_toolout')
   return `\u5e93\u4e0d\u5b58\u5728 ${namesMissing.length} \u4e2a\u5de5\u5177\uff1b\u5e93\u5b58\u5728 ${namesPresent.length} \u4e2a`
+})
+
+await test('SP14', 'pinned：低 importance 也进记忆头，3 条 30 字能装进 100 tok', () => {
+  const pinnedDb = join(root, 'pinned-heads.db')
+  const db = new DatabaseSync(pinnedDb)
+  db.exec("create table lesson (id text primary key, content text, importance integer, status text, lifecycle text, updated_at integer)")
+  db.exec("create table rules (id text primary key, content text, importance integer, status text, lifecycle text, updated_at integer)")
+  const trio = [
+    '甲'.repeat(30),
+    '乙'.repeat(30),
+    '丙'.repeat(30),
+  ]
+  trio.forEach((text, i) => db.prepare("insert into lesson values (?,?,?,?,?,?)").run(`p${i}`, text, 2, 'active', 'pinned', Date.now() - i))
+  db.close()
+  const heads = loadMemoryHeads(pinnedDb, 3)
+  assert.equal(heads.length, 3, `低 importance pinned 没进头：${heads.length}`)
+  const soul = parseSoul('# T\n\n## 身份\n- a\n')
+  const out = composeSoul({ soul, at: new Date(), workspace: FIXTURE_WS, maxTokens: 1000, memoryHeads: heads })
+  assert.ok(trio.every((text) => out.text.includes(text)), '3 条 30 字 pinned 没全装进【记忆】')
+  return `heads=${heads.length} total=${out.tokens ?? estimateTokens(out.text)}tok`
 })
 
 const width = Math.max(...results.map((r) => r.title.length))

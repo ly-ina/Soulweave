@@ -112,11 +112,11 @@ export const HINTS = Object.freeze([
 /**
  * D3（2026-11-04）：【记忆】节。原来「我记得」挤在【人格】末行、工具入口挤在【怎么查】，
  * 两块都不是人格；现在合成一节：pinned 条目 → 未结 → 一行工具入口。
- * 预算（伊纳 2026-11-04 拍板）：pinned 上限 3 条 / 70 tok；pinned 不砍，超了只报警。
+ * 预算（伊纳 2026-11-04 拍板，2026-11-05 调 100）：pinned 上限 3 条 / 100 tok，单条先裁 30 字；收不进就停，不硬塞残句。
  */
 export const MEMORY_SECTION = Object.freeze({
   title: '【记忆】',
-  pinnedMaxTokens: 70,
+  pinnedMaxTokens: 100,
   pointer: '查：soul_recall · memory_search · archive_search · soul_capabilities · soul_relations()',
 })
 
@@ -710,8 +710,8 @@ export function composeSoul(input = {}) {
     for (const item of shownMem) {
       const remain = MEMORY_SECTION.pinnedMaxTokens - pinnedUsed
       if (remain <= 0) break
-      // pinned 是"整句才成立"的短陈述，先按 40 字裁，超预算再逐档收窄；收不进就停，不硬塞残句。
-      let text = clip(item, 40)
+      // pinned 是"整句才成立"的短陈述，先按 30 字裁，超预算再逐档收窄；收不进就停，不硬塞残句。
+      let text = clip(item, 30)
       while (text.length > 8 && estimateTokens(text) > remain) text = clip(text, Math.max(8, text.length - 4))
       const cost = estimateTokens(text)
       if (cost > remain) break
@@ -1609,19 +1609,22 @@ export function loadMemoryHeads(memoryDbPath, limit = 3) {
     for (const table of ['rules', 'lesson']) {
       const cols = tableColumns(db, table)
       if (!cols.includes('content')) continue
-      const where = ['importance >= 3']
+      const where = [cols.includes('lifecycle') ? "(importance >= 3 or lifecycle = 'pinned')" : 'importance >= 3']
       if (cols.includes('status')) where.push("status = 'active'")
       // D1（2026-11-04）：检索口径统一——被取代（superseded_by）、冷却中（cooldown_until）、
       // 归档（lifecycle='archived'）的条目不再进魂引。列缺失（老库/summary）就跳过，不硬写列名。
       if (cols.includes('lifecycle')) where.push("(lifecycle is null or lifecycle != 'archived')")
       if (cols.includes('superseded_by')) where.push('superseded_by is null')
       if (cols.includes('cooldown_until')) where.push(`(cooldown_until is null or cooldown_until <= ${Date.now()})`)
-      const order = cols.includes('updated_at') ? 'updated_at desc' : 'rowid desc'
+      const order = cols.includes('lifecycle') && cols.includes('updated_at')
+        ? "case when lifecycle = 'pinned' then 0 else 1 end, updated_at desc"
+        : cols.includes('updated_at') ? 'updated_at desc' : 'rowid desc'
       try {
+        const lifecycleCol = cols.includes('lifecycle') ? ', lifecycle' : ''
         for (const row of db
-          .prepare(`select content, importance from ${table} where ${where.join(' and ')} order by ${order} limit ${limit}`)
+          .prepare(`select content, importance${lifecycleCol} from ${table} where ${where.join(' and ')} order by ${order} limit ${limit}`)
           .all()) {
-          rows.push({ content: String(row.content ?? ''), importance: Number(row.importance) || 0 })
+          rows.push({ content: String(row.content ?? ''), importance: Number(row.importance) || 0, pinned: String(row.lifecycle ?? '') === 'pinned' })
         }
       } catch {
         /* 单表读不到就跳过，不影响另一张 */
@@ -1629,7 +1632,7 @@ export function loadMemoryHeads(memoryDbPath, limit = 3) {
     }
     const seen = new Set()
     const heads = []
-    for (const row of rows.sort((a, b) => b.importance - a.importance)) {
+    for (const row of rows.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.importance - a.importance))) {
       const head = clip(row.content.replace(/\s+/g, ' ').trim(), 60)
       if (head === '') continue
       const key = head.slice(0, 10)
