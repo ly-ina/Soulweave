@@ -22,6 +22,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import * as builtinMemory from './memory-builtin.mjs'
+import { createHybridSearch } from './hybrid.mjs'
 
 import { buildCue, cueStats, readCueMap, runCue, scoreCue } from './cue.mjs'
 import { restoreFromExport, runToolout } from './toolout.mjs'
@@ -2640,6 +2641,38 @@ export function searchIndexSource(options, words, limit) {
  */
 export function createRecallSources(config) {
   const backend = createMemoryBackend(config)
+  /**
+   * 混合重排（2026-11-07）：向量编码放在外部可选模块里，插件不背 95MB 模型和 transformers 依赖。
+   * 找不到模块、模型加载失败、编码抛错，一律退回纯 BM25；重排只是加分项，不能把原有召回搞挂。
+   */
+  let recallerPromise = null
+  const recallForHybrid = async (query, limit) => {
+    if (recallerPromise === null) {
+      recallerPromise = (async () => {
+        const spec = asText(config.embedModule)
+        if (spec === '') return null
+        const resolved = await resolveSealedModule({ sealedModule: spec })
+        if (!resolved.module || typeof resolved.module.createVectorRecall !== 'function') {
+          console.error(`[soulweave] 向量模块不可用：${resolved.error ?? '缺少 createVectorRecall'}，召回退回 BM25`)
+          return null
+        }
+        return resolved.module.createVectorRecall({
+          dbPath: backend.dbPath,
+          modelDir: asText(config.embedModelDir) || undefined,
+          cachePath: asText(config.embedCachePath) || undefined,
+        })
+      })().catch((error) => {
+        console.error(`[soulweave] 向量模块初始化失败：${String(error?.message ?? error)}，召回退回 BM25`)
+        return null
+      })
+    }
+    const instance = await recallerPromise
+    if (!instance) throw new Error('vector recall unavailable')
+    return instance.recall(query, limit)
+  }
+  const memorySearch = config.hybridSearch === true
+    ? createHybridSearch({ search: (query, limit) => backend.search(query, limit), recall: recallForHybrid })
+    : (query, limit) => backend.search(query, limit)
   const archiveSearch = asText(config.sealedModule)
     ? createArchiveSearch({ ...config, manifestPath: join(config.archiveRoot, 'manifest.jsonl') })
     : null
@@ -2648,7 +2681,7 @@ export function createRecallSources(config) {
       id: 'memory',
       label: '① 记忆库',
       enabled: true,
-      search: (words, n) => backend.search(words.join(' '), n),
+      search: (words, n) => memorySearch(words.join(' '), n),
     },
     {
       id: 'archive',

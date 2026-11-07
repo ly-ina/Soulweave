@@ -154,6 +154,37 @@ node soul_lint.mjs --json     # 机读
 
 单个源抛错只写 note，不拖累其余源。结果里 `sources` 给各源命中数，`active` 给本轮真正启用的源 id。
 
+### 混合召回（可选）
+
+`hybridSearch: true` 时，记忆源的候选不是只来自 BM25，而是两路各召回一批再合并：
+
+```
+BM25（后端自带）  ─┐
+                   ├─ RRF: 1/(60+bm25名次) + 1/(60+向量名次) ─→ 前 N 条
+向量（可选模块）  ─┘
+```
+
+只对 BM25 的候选做重排是不行的——BM25 没召回的条目，重排也救不回来，所以取并集。
+也不做分数加权：BM25 分和余弦相似度不在一个量纲，系数只能拍脑袋，RRF 只用名次。
+
+向量模块**不随插件发布**，因为模型约 95MB、还要 transformers 依赖。要用的自己装：
+
+```powershell
+cd E:\dsh_work\lanxi\tools\semantic-search
+node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirror 走代理或镜像
+```
+
+然后在 profile 里给 soulweave 配：
+
+```yaml
+    hybridSearch: true
+    embedModule: E:/dsh_work/lanxi/tools/semantic-search/embed.mjs
+    embedCachePath: E:/dsh_work/lanxi/tools/semantic-search/cache.db
+```
+
+模块缺失、模型加载失败、编码抛错，一律原样退回 BM25，只写一行 `console.error`，不影响召回。
+模型与参数的细节见 `lanxi/tools/semantic-search/README.md`。
+
 ## 完整配置表
 
 | 配置项 | 默认值 | 说明 |
@@ -180,6 +211,10 @@ node soul_lint.mjs --json     # 机读
 | `pendingLimit` | 3 | 「现在在哪 → 手头未结」条数 |
 | `pendingMode` | `count` | 未结只报条数；`full` 为旧行为 |
 | `recallLimit` | 3 | `soul_recall` 默认条数（上限 5） |
+| `hybridSearch` | `false` | true 时记忆源走「BM25 + 向量」名次合并（RRF），见下节 |
+| `embedModule` | 空 | 向量模块路径或包名；空 = 纯 BM25 |
+| `embedCachePath` | 模块自带 | 向量缓存 SQLite 路径 |
+| `embedModelDir` | 模块自带 | 模型根目录（要含 `<org>/<model>` 两层） |
 | `gamedevSkillsDir` | `<工作区>/skills/gamedev` | 可选游戏开发技能库（只读 `INDEX.json`） |
 | `biliDbPath` | 环境变量 `BILI_SESSIONS_DIR` 或 XDG 路径 | `soul_toolout` 的目标库 |
 | `pluginRoots` | 工作区 `plugins` + profile `node_modules` | `soul_capabilities` 扫插件用 |
