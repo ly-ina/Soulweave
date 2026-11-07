@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 — 2026-11-07
+
+- **修**：`normalizeConfig` 返回的是白名单对象，0.2.2 里新加的 `hybridSearch` / `embedModule` / `embedCachePath` / `embedModelDir` 没在返回对象中列出，运行时全部变成 `undefined`，混合召回静默退回纯 BM25（现象：`soul_recall` 记忆源只剩 BM25 那一条）。现已补上，并在 `test-hybrid.mjs` 加三条透传断言。
+
 ## 0.2.2 — 2026-11-07
 
 - **混合召回（可选）**：新增 `hybridSearch` / `embedModule` / `embedCachePath` / `embedModelDir` 配置。开启后记忆源取「BM25 候选 ∪ 向量候选」，用 RRF（`1/(60+名次)`）合并；不做分数加权，因为两种分不在一个量纲。
