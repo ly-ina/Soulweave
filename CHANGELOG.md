@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — 2026-11-07
+
+- **混合召回（可选）**：新增 `hybridSearch` / `embedModule` / `embedCachePath` / `embedModelDir` 配置。开启后记忆源取「BM25 候选 ∪ 向量候选」，用 RRF（`1/(60+名次)`）合并；不做分数加权，因为两种分不在一个量纲。
+- 新增 `hybrid.mjs`（零依赖）：模块缺失、模型加载失败、编码抛错、返回非数组，任何一步失败都原样退回 BM25。
+- 向量模块不随插件发布（模型约 95MB + transformers 依赖），按 `lanxi/tools/semantic-search/README.md` 自行安装；`setup.mjs` 可下模型、装依赖，支持 `--proxy` / `--mirror`。
+- `check.mjs` 88/88 保持通过；混合逻辑另有 4 条单测（`lanxi/tools/semantic-search/test-hybrid.mjs`）。
+
 ## 0.2.1 — 2026-11-05
 
 - **pinned 记忆头补齐**：`loadMemoryHeads()` 现在把 `lifecycle='pinned'` 的低 importance 条目也算进来，并排在高 importance 之前；不再只认 `importance >= 3`。
