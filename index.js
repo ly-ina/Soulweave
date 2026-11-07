@@ -373,6 +373,15 @@ export function normalizeConfig(config = {}) {
     /** soul_recall 默认返回条数（§3.2：默认 3，上限 5）。 */
     recallLimit: asInt(config.recallLimit, 3, 1, 5),
     /**
+     * 混合召回（2026-11-07）：true 时记忆源走「BM25 ∪ 向量」RRF 合并。
+     * embedModule 是可选外部模块路径/包名，空 = 纯 BM25；加载或编码失败都退回 BM25。
+     * 注意：normalizeConfig 是白名单对象，新配置必须在这里列出来，否则运行时会拿到 undefined。
+     */
+    hybridSearch: config.hybridSearch === true,
+    embedModule: asText(config.embedModule),
+    embedCachePath: asText(config.embedCachePath),
+    embedModelDir: asText(config.embedModelDir),
+    /**
      * 二期模块 B 的目标库：billion-context 的 index.db。
      * 默认按 XDG 约定从用户主目录推，不写死绝对路径（§9.6）；可用 config.biliDbPath 覆盖。
      */
