@@ -204,7 +204,8 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 | `sealedModule` | 空 | 旧名，仍兼容 |
 | `soulIndexDir` | 空 | 原文库目录（含 `query.py`） |
 | `soulIndexPython` | `python` | 跑 `query.py` 的解释器 |
-| `soulMaxTokens` | 220（可调到 1000；硬上限 1100） | 魂引 token 上限 |
+| `soulMaxTokens` | 1000（可调到 8000） | 魂引 token 上限；上界只是防手滑，成本自己担 |
+| `soulWarnTokens` | 1100 | 魂引超过这条线写一条 `soul-warn`，不夹、不降档；设 0 关闭 |
 | `totalMaxTokens` | 950 | 四类注入合计上限 |
 | `fixedMaxTokens` | 2500 | 快照超这个值才在末行申报 |
 | `enforceBudget` | `false` | true 才真把目录型注入从本轮剔掉 |
@@ -223,11 +224,12 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 
 ## 设置面板（可选）
 
-装好后侧边栏会出现「魂引」图标，可以直接改七项常用配置：
+装好后侧边栏会出现「魂引」图标，可以直接改八项常用配置：
 
 | 项 | 键 | 说明 |
 |---|---|---|
-| 魂引上限 | `soulMaxTokens` | 每轮注入的魂引 token 上限 |
+| 魂引上限 | `soulMaxTokens` | 每轮注入的魂引 token 上限，最高 8000 |
+| 魂引警示线 | `soulWarnTokens` | 超线只写日志提醒，不夹、不降档 |
 | 四类注入合计上限 | `totalMaxTokens` | 魂引、记忆、现状、路由合计 |
 | 超预算时裁剪别人的注入 | `enforceBudget` | 关着只申报超支，不静默裁 |
 | 「现在在哪」条目上限 | `pendingLimit` | 超限只留最近 3 条 |

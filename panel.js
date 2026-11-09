@@ -21,8 +21,16 @@ export const PANEL_ITEMS = Object.freeze([
     label: '魂引上限',
     type: 'int',
     min: 100,
-    max: 4000,
-    help: '每轮注入的魂引 token 上限。硬上限 1100，超过会被夹住。',
+    max: 8000,
+    help: '每轮注入的魂引 token 上限，默认上限 1000。',
+  },
+  {
+    key: 'soulWarnTokens',
+    label: '魂引警示线',
+    type: 'int',
+    min: 0,
+    max: 8000,
+    help: '魂引超过这条线只写一行日志提醒，不夹、不降档。设 0 关闭提醒。',
   },
   {
     key: 'totalMaxTokens',

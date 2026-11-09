@@ -19,6 +19,8 @@ const FIXTURE_WS = join(tmpdir(), 'dsh-soul-check-ws')
 import {
   TOTAL_TOKENS,
   HARD_SOUL_TOKENS,
+  SOUL_TOKEN_CEILING,
+  DEFAULT_SOUL_WARN_TOKENS,
   composeSoul,
   composeSoulStable,
   composeSoulState,
@@ -1963,7 +1965,7 @@ await test('T10', '任何档位三节各至少 1 条；极端装不下时申报�
   const soul = parseSoul(readFileSync(soulOk, 'utf8'))
   const longWs = join(FIXTURE_WS, 'x'.repeat(160))
   const seen = new Set()
-  for (let m = 40; m <= HARD_SOUL_TOKENS; m += 1) {
+  for (let m = 40; m <= DEFAULT_SOUL_WARN_TOKENS; m += 1) {
     const out = composeSoul({ soul, at: new Date('2026-10-28T13:12:00+08:00'), workspace: longWs, maxTokens: m })
     seen.add(out.stage)
     // 物理上装不下（硬裁）时只要求申报「核心已压到极限」，不再要求三节都在
@@ -2670,6 +2672,20 @@ await test('R8', '客户端声明 id 必须等于 package.json 的 name（宿主
   assert.equal(m[1], pkg.name, `panel-client id=${m[1]} 与包名 ${pkg.name} 不一致，宿主会退回单文件地址二次执行`)
   assert.ok(!pc.includes('__DSH_SOULWEAVE_CLIENT__'), 'panel-client.js 还留着 window 哨兵，会挡住 HMR 重新注册')
   return `id=${m[1]} = name，无哨兵`
+})
+
+await test('R9', '魂引上限放宽到 8000、警示线可配且只提醒不夹', () => {
+  assert.equal(normalizeConfig({ soulMaxTokens: 3000 }).soulMaxTokens, 3000, '3000 仍被夹住，硬上限没放宽')
+  assert.equal(normalizeConfig({ soulMaxTokens: 99999 }).soulMaxTokens, SOUL_TOKEN_CEILING, '上界没有兜住')
+  assert.equal(normalizeConfig({}).soulWarnTokens, DEFAULT_SOUL_WARN_TOKENS, '警示线默认值不对')
+  assert.equal(normalizeConfig({ soulWarnTokens: 0 }).soulWarnTokens, 0, '警示线设 0 关闭失败')
+  const soul = parseSoul('# T\n\n## 身份\n- ' + '甲'.repeat(60) + '\n')
+  const on = composeSoul({ soul, at: new Date(), workspace: FIXTURE_WS, maxTokens: 4000, warnTokens: 20 })
+  assert.ok(on.warnings.some((w) => w.includes('警示线')), '超警示线没有落 warn')
+  assert.ok(!on.text.includes('核心已压到极限'), '超警示线不应该触发截断')
+  const off = composeSoul({ soul, at: new Date(), workspace: FIXTURE_WS, maxTokens: 4000, warnTokens: 0 })
+  assert.ok(!off.warnings.some((w) => w.includes('警示线')), '警示线 0 仍在报')
+  return '3000 不被夹；99999→8000；warn 可开关'
 })
 
 const width = Math.max(...results.map((r) => r.title.length))

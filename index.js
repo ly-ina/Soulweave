@@ -58,8 +58,19 @@ export const FEEDBACK_SECTION = '反哺'
 /** 旧名兼容。 */
 export const FEEDBACK_ALIASES = Object.freeze(['反哺记录'])
 
-/** 魂引硬上限（§5）。 */
-export const HARD_SOUL_TOKENS = 1100
+/**
+ * 魂引配置可设的最高值（§5，2026-11-09 放宽）。
+ *
+ * 以前这里是 1100 的硬上限：超了直接夹住，使用者连「我想多花点」都表达不出来。
+ * 现在它只是数值上界（防手滑填 1e9），真正的成本提示交给 `soulWarnTokens`。
+ */
+export const SOUL_TOKEN_CEILING = 8000
+
+/** 警示线默认值：魂引渲染超过它就写一条 soul-warn，不降档、不夹。 */
+export const DEFAULT_SOUL_WARN_TOKENS = 1100
+
+/** 旧名兼容：曾经是硬上限，现在是 `SOUL_TOKEN_CEILING` 的别名。 */
+export const HARD_SOUL_TOKENS = SOUL_TOKEN_CEILING
 
 /**
  * 四类注入合计的上限（§5）。
@@ -79,8 +90,11 @@ export const TOTAL_TOKENS = 950
  * 原因：【怎么查】按要求加了「能力：soul_capabilities(query)」一行（≈20 tok，不是 12），
  * 真实 soul.md 渲染从 183 → 203 tok；200 的上限会让渲染器降档到 `short-hints`，
  * 那一档只有一行提示，**新加的能力行会被静默丢掉**。220 留出余量，档位回到 `full`。
+ *
+ * 2026-11-09 由 220 改成 1000：默认值就该是一般人够用的量，不是「先给 220 再让人自己调」。
+ * 1000 仍在默认警示线 1100 之下；真到 1100 以上由 `soulWarnTokens` 报成本。
  */
-export const DEFAULT_SOUL_TOKENS = 220
+export const DEFAULT_SOUL_TOKENS = 1000
 
 /** `soul_recall` 单次输出上限（§5）。 */
 export const RECALL_MAX_CHARS = 1200
@@ -355,7 +369,9 @@ export function normalizeConfig(config = {}) {
      * 都失败就跳过这个源——不再保留写死的 `../dsh-sealed-segments/index.js` 回落（§B）。
      */
     sealedModule: asText(config.sealedSegmentsModule) || asText(config.sealedModule),
-    soulMaxTokens: asInt(config.soulMaxTokens, DEFAULT_SOUL_TOKENS, 40, HARD_SOUL_TOKENS),
+    soulMaxTokens: asInt(config.soulMaxTokens, DEFAULT_SOUL_TOKENS, 40, SOUL_TOKEN_CEILING),
+    /** 警示线：魂引渲染超过它就写 warn，不夹、不降档（2026-11-09）。 */
+    soulWarnTokens: asInt(config.soulWarnTokens, DEFAULT_SOUL_WARN_TOKENS, 0, SOUL_TOKEN_CEILING),
     totalMaxTokens: asInt(config.totalMaxTokens, TOTAL_TOKENS, 200, 4000),
     /** 二期 B R1：固定注入申报阈值（2026-10-28 改口径：报常驻快照 tok，默认 2500；超了才申报、不裁剪）。 */
     fixedMaxTokens: asInt(config.fixedMaxTokens, 2500, 200, 20000),
@@ -427,7 +443,7 @@ export function normalizeConfig(config = {}) {
      */
     soulSplitInjection: config.soulSplitInjection === true,
     /** 稳定段预算（tok）：方案 §2.1 定 900。 */
-    soulStableMaxTokens: asInt(config.soulStableMaxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, HARD_SOUL_TOKENS),
+    soulStableMaxTokens: asInt(config.soulStableMaxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, SOUL_TOKEN_CEILING),
     /** 动态段预算（tok）：方案 §2.1 定 120；另有 200 字硬上限（SOUL_STATE_MAX_CHARS）。 */
     soulStateMaxTokens: asInt(config.soulStateMaxTokens, DEFAULT_SOUL_STATE_TOKENS, 20, 400),
     /** 模块 C 扫插件的根目录：默认本工作区的 plugins + 当前 profile 的 node_modules。 */
@@ -621,7 +637,9 @@ export function composeSoul(input = {}) {
   const at = input.at instanceof Date ? input.at : new Date(input.at ?? Date.now())
   const pending = Array.isArray(input.pending) ? input.pending.filter((x) => asText(x) !== '') : []
   const workspace = asText(input.workspace) || '未标注工作区'
-  const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_TOKENS, 40, HARD_SOUL_TOKENS)
+  const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_TOKENS, 40, SOUL_TOKEN_CEILING)
+  // 警示线：超了只写 warn，不夹。默认 1100 是当年实测的常驻成本线（2026-11-09 可配）。
+  const warnTokens = asInt(input.warnTokens, DEFAULT_SOUL_WARN_TOKENS, 0, SOUL_TOKEN_CEILING)
   const router = (Array.isArray(input.router) ? input.router : [])
     .map((item) => asText(item)).filter((item) => item !== '').slice(0, 6)
   const pendingMode = asText(input.pendingMode) === 'full' ? 'full' : 'count'
@@ -794,9 +812,14 @@ export function composeSoul(input = {}) {
       text = `${text}\n${note}`
     }
   }
+  // 2026-11-09：警示线可配。超过它不再夹、不再降档，只落一条 warn 把成本摆在明面上。
+  const finalTokens = estimateTokens(text)
+  if (warnTokens > 0 && finalTokens > warnTokens) {
+    warnings.push(`dsh-soul: 魂引 ${finalTokens}tok 超过警示线 ${warnTokens}tok（未夹；多出来的每轮都在付）`)
+  }
   return {
     text,
-    tokens: estimateTokens(text),
+    tokens: finalTokens,
     stage: used.id,
     warnings,
   }
@@ -848,7 +871,7 @@ function renderSoulStableBody(take, ctx) {
  */
 export function composeSoulStable(input = {}) {
   const soul = input.soul ?? EMPTY_SOUL
-  const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, HARD_SOUL_TOKENS)
+  const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, SOUL_TOKEN_CEILING)
   const inGroup = input.inGroup === true
   const routerAll = (Array.isArray(input.router) ? input.router : [])
     .map((item) => asText(item))
@@ -1999,7 +2022,10 @@ export function createPreStepHandler(options = {}) {
       router: readRouterLines(config.routerPath),
       memoryHeads: memoryCache.items,
       zones: zoneCache.rows,
-      maxTokens: reload ? HARD_SOUL_TOKENS : Math.min(config.soulMaxTokens, available),
+      maxTokens: reload
+        ? Math.max(config.soulMaxTokens, config.soulWarnTokens)
+        : Math.min(config.soulMaxTokens, available),
+      warnTokens: config.soulWarnTokens,
       reload,
       inGroup,
     })
