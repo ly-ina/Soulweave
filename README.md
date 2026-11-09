@@ -221,6 +221,22 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 
 `<插件目录>` 由 `import.meta.url` 推出，不用 `process.cwd()`。
 
+## 设置面板（可选）
+
+装好后侧边栏会出现「魂引」图标，可以直接改七项常用配置：
+
+| 项 | 键 | 说明 |
+|---|---|---|
+| 魂引上限 | `soulMaxTokens` | 每轮注入的魂引 token 上限 |
+| 四类注入合计上限 | `totalMaxTokens` | 魂引、记忆、现状、路由合计 |
+| 超预算时裁剪别人的注入 | `enforceBudget` | 关着只申报超支，不静默裁 |
+| 「现在在哪」条目上限 | `pendingLimit` | 超限只留最近 3 条 |
+| soul_recall 默认条数 | `recallLimit` | 上限 5 |
+| 稳定段 / 动态段拆分注入 | `soulSplitInjection` | 关掉退回 legacy 每步全量 |
+| 混合召回（BM25 + 向量） | `hybridSearch` | embed 缺失时自动退回 BM25 |
+
+面板**不改 profile 的 `cordis.patch.yml`**，只写 `<stateDir>/panel-override.json`；启动时在 `normalizeConfig` 之前合并，所以优先级是「面板覆盖 > profile > 默认值」。保存后重启生效；「恢复 profile」会删掉覆盖文件。
+
 ## 工具
 
 | 工具 | 作用 |
