@@ -159,7 +159,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'swp-head' },
-          h('span', { className: 'swp-title' }, '魂引设置'),
+          h('span', { className: 'swp-title' }, '魂织设置'),
           file ? h('span', { className: 'swp-file' }, file) : null,
         ),
         msg ? h('div', { className: `swp-msg ${msg.kind}` }, msg.text) : null,
@@ -185,7 +185,7 @@ window.__ModuleLoader__.load({
                 name: ICON_SLOT,
                 id: PANEL_ID,
                 order: 41,
-                label: () => '魂引',
+                label: () => '魂织',
               },
               SoulWeaveIcon,
             ),
