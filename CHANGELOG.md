@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4 — 2026-11-09
+
+- **侧边栏设置面板**：新增「魂引」面板，七项常用配置（魂引上限、四类合计上限、超预算裁剪、未结条数、soul_recall 条数、拆分注入、混合召回）。面板只读写 `<stateDir>/panel-override.json`，启动时在 `normalizeConfig` 之前合并，不碰 profile；保存后重启生效。
+- **修复**：`inject` 补上 `webServer`。漏声明时拿不到 `ctx.webServer`，面板路由静默不注册，表现为 405。
+- **自测**：`check.mjs` 新增 R8，断言 `panel-client.js` 声明的模块 id 必须等于 `package.json` 的 `name`（宿主 manifest 按包名注册，不一致会被二次执行）；89/89 通过。
+
 ## 0.2.3 — 2026-11-07
 
 - **修**：`normalizeConfig` 返回的是白名单对象，0.2.2 里新加的 `hybridSearch` / `embedModule` / `embedCachePath` / `embedModelDir` 没在返回对象中列出，运行时全部变成 `undefined`，混合召回静默退回纯 BM25（现象：`soul_recall` 记忆源只剩 BM25 那一条）。现已补上，并在 `test-hybrid.mjs` 加三条透传断言。

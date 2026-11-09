@@ -1,6 +1,6 @@
 {
   "name": "@ly-ina/dsh-soulweave",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": false,
   "type": "module",
   "description": "Soulweave: a small soul layer for DeepSeek Harness. Injects a token-budgeted persona/now/how-to-look-up preamble via agent/pre-step, and exposes soul_recall over an optional memory backend (builtin SQLite / meow-memory / none) plus notes, sealed segments and an optional text index. Read-only towards soul.md; only soul_persist appends to its fourth section.",
@@ -25,7 +25,8 @@
   },
   "main": "./index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./client": "./panel-client.js"
   },
   "files": [
     "index.js",
@@ -44,7 +45,9 @@
     "soul.example.md",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "panel.js",
+    "panel-client.js"
   ],
   "scripts": {
     "check": "node check.mjs",
@@ -53,6 +56,14 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
     }
   },
   "engines": {

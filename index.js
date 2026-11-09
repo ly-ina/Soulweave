@@ -20,6 +20,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { applyOverride, registerSoulweavePanel } from './panel.js'
 
 import * as builtinMemory from './memory-builtin.mjs'
 import { createHybridSearch } from './hybrid.mjs'
@@ -35,7 +36,7 @@ import { ZONE_IDS, ZONES, buildZoneIndex, readZoneIndex, renderZoneLine, scanZon
 export const name = 'soulweave'
 
 /** §9.4：需要动 `ctx.tools` 就必须经 inject 声明。 */
-export const inject = ['tools']
+export const inject = ['tools', 'webServer']
 
 /** 注入消息的 `source.kind`，同时用于去重与预算归类（§3.4）。 */
 export const MESSAGE_KIND = 'soul'
@@ -3519,7 +3520,8 @@ export function createSoulIndexSyncTrigger(options = {}) {
 }
 
 export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?? console
-  const normalized = normalizeConfig(config)
+  const baseStateDir = asText(config?.stateDir) || join(PLUGIN_DIR, '.state')
+  const normalized = normalizeConfig(applyOverride(config, baseStateDir))
   const handler = createPreStepHandler({ config: normalized, timeZone: config?.timeZone, logger })
   ctx.on('agent/pre-step', handler, { prepend: true })
 
@@ -3578,6 +3580,13 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
       logger.warn?.(`dsh-soul: 原文库增量监听没挂上：${String(error?.message ?? error)}`)
     }
   }
+
+  disposers.push(
+    registerSoulweavePanel(ctx, logger, {
+      stateDir: normalized.stateDir,
+      getEffective: () => normalized,
+    }),
+  )
 
   return () => {
     for (const dispose of disposers) {

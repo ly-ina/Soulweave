@@ -2659,6 +2659,19 @@ await test('SP14', 'pinned：低 importance 也进记忆头，3 条 30 字能装
   return `heads=${heads.length} total=${out.tokens ?? estimateTokens(out.text)}tok`
 })
 
+await test('R8', '客户端声明 id 必须等于 package.json 的 name（宿主按包名当 manifest id）', () => {
+  const pluginDir = dirname(fileURLToPath(import.meta.url))
+  const pkg = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8'))
+  assert.ok(pkg.dsh && pkg.dsh.client, 'package.json 没有 dsh.client 声明')
+  assert.equal((pkg.exports || {})['./client'], './panel-client.js', 'exports["./client"] 没指向 panel-client.js')
+  const pc = readFileSync(join(pluginDir, 'panel-client.js'), 'utf8')
+  const m = pc.match(/__ModuleLoader__\.load\(\{\s*id:\s*'([^']+)'/)
+  assert.ok(m, 'panel-client.js 里找不到 __ModuleLoader__.load({ id })')
+  assert.equal(m[1], pkg.name, `panel-client id=${m[1]} 与包名 ${pkg.name} 不一致，宿主会退回单文件地址二次执行`)
+  assert.ok(!pc.includes('__DSH_SOULWEAVE_CLIENT__'), 'panel-client.js 还留着 window 哨兵，会挡住 HMR 重新注册')
+  return `id=${m[1]} = name，无哨兵`
+})
+
 const width = Math.max(...results.map((r) => r.title.length))
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'
