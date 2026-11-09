@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.5 — 2026-11-09
+
+- **魂引上限从「硬夹」改成「上界 + 警示线」**。以前 `soulMaxTokens` 被 `HARD_SOUL_TOKENS = 1100` 夹死，人格写得长的人调不上去，渲染器还会静默降档。现在：
+  - `SOUL_TOKEN_CEILING = 8000` 只是数值上界（防手滑填 1e9），配置到 3000 就是 3000；
+  - 新增 `soulWarnTokens`（默认 1100，可配，0 = 关闭）：魂引渲染超过它只写一条 `soul-warn`，不截断、不降档；
+  - 压缩后 `reload` 那一轮不再固定 `HARD_SOUL_TOKENS`，改为 `max(soulMaxTokens, soulWarnTokens)`，避免压缩一次就把长魂引砍回 1100；
+  - 面板新增「魂引警示线」一项，`soulMaxTokens` 上限同步放到 8000。
+  - `DEFAULT_SOUL_TOKENS` 由 220 改成 **1000**：默认值就该是一般人够用的量，不再「先给 220 再让人自己调」。1000 仍在警示线 1100 之下。
+- `HARD_SOUL_TOKENS` 保留为 `SOUL_TOKEN_CEILING` 的别名，旧 import 不破。
+- **自测**：新增 R9（3000 不被夹、99999→8000、警示线可开关且不触发截断），90/90 通过。
+
 ## 0.2.4 — 2026-11-09
 
 - **侧边栏设置面板**：新增「魂引」面板，七项常用配置（魂引上限、四类合计上限、超预算裁剪、未结条数、soul_recall 条数、拆分注入、混合召回）。面板只读写 `<stateDir>/panel-override.json`，启动时在 `normalizeConfig` 之前合并，不碰 profile；保存后重启生效。
