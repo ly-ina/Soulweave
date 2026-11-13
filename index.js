@@ -110,10 +110,15 @@ export const INJECTION_CLASSES = Object.freeze([
   Object.freeze({ id: 'partition', label: '分区目录', kinds: Object.freeze(['context-index']) }),
   Object.freeze({ id: 'archive', label: '封存目录', kinds: Object.freeze(['archive-index', 'archive-seal-hint']) }),
   Object.freeze({ id: 'time', label: '时间行', kinds: Object.freeze(['time-context', 'realtime-clock']) }),
+  // 2026-11-11 v2：每轮关键记忆召回单列一类，预算让步时最后才砍它。
+  Object.freeze({ id: 'soul-recall', label: '记忆召回', kinds: Object.freeze(['soul-recall']) }),
 ])
 
-/** 让步顺序（§5）：先砍封存目录，再砍分区目录；魂引核心与时间行永不砍。 */
-export const YIELD_ORDER = Object.freeze(['archive', 'partition'])
+/**
+ * 让步顺序（§5）：先砍封存目录，再砍分区目录，**最后**才砍记忆召回；
+ * 魂引核心、动态段与时间行永不砍（v2 起 recall 排在链尾）。
+ */
+export const YIELD_ORDER = Object.freeze(['archive', 'partition', 'soul-recall'])
 
 /** 「怎么查」三条入口（§1）。固定文案，不随轮次变化。 */
 export const HINTS = Object.freeze([
@@ -387,6 +392,14 @@ export function normalizeConfig(config = {}) {
     pendingMode: asText(config.pendingMode) === 'full' ? 'full' : 'count',
     /** 2026-11-01：路由层文件——魂引只放「该去哪查」，不放内容，这样库怎么长魂引都不涨。 */
     routerPath: asText(config.routerPath) || '',
+    /**
+     * 2026-11-12：规则原文目录（本机 = E:\dsh_work\lanxi\rules）。
+     * 稳定段只注入「文件名 + 标题」索引（受 rulesIndexMaxTokens 管），细则走 soul_recall 第⑤源。
+     * 单源原则：原文只在那个目录里有一份，插件不复制进记忆库、也不整段抄进注入。
+     */
+    rulesDir: asText(config.rulesDir) || '',
+    /** 规则索引预算（tok；0 = 不注入索引，但第⑤源仍可用）。 */
+    rulesIndexMaxTokens: asInt(config.rulesIndexMaxTokens, 120, 0, 400),
     /** soul_recall 默认返回条数（§3.2：默认 3，上限 5）。 */
     recallLimit: asInt(config.recallLimit, 3, 1, 5),
     /**
@@ -446,6 +459,30 @@ export function normalizeConfig(config = {}) {
     soulStableMaxTokens: asInt(config.soulStableMaxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, SOUL_TOKEN_CEILING),
     /** 动态段预算（tok）：方案 §2.1 定 120；另有 200 字硬上限（SOUL_STATE_MAX_CHARS）。 */
     soulStateMaxTokens: asInt(config.soulStateMaxTokens, DEFAULT_SOUL_STATE_TOKENS, 20, 400),
+    /**
+     * 2026-11-10 触发器注入（条件召回 v1）：只借世界书「条件注入」一个思路，不搬角色卡。
+     * 默认 false —— 关着时 `agent/pre-step` 输出逐字节不变；不调模型、不多工具轮次。
+     */
+    triggerInjection: config.triggerInjection === true,
+    /** 触发器清单路径；读不到/JSON 坏只写一条 trigger-warn，不抛。 */
+    triggerPath: asText(config.triggerPath) || join(stateDir, 'triggers.json'),
+    /** 每轮最多注入几条（夹 1–5）。 */
+    triggerMaxEntries: asInt(config.triggerMaxEntries, 2, 1, 5),
+    /** 每轮触发器正文预算（tok，夹 50–600）。 */
+    triggerBudgetTokens: asInt(config.triggerBudgetTokens, 200, 50, 600),
+    /** 同 session 同 id 的冷却分钟数（夹 0–1440；0 = 不冷却）。 */
+    triggerCooldownMinutes: asInt(config.triggerCooldownMinutes, 120, 0, 1440),
+    /**
+     * 2026-11-11 v2：每轮关键记忆召回（经验层）。trigger 是规则层，recall 是经验层。
+     * 默认 false —— 关着时 `agent/pre-step` 输出与 v1.2 逐字节一致。
+     */
+    autoRecall: config.autoRecall === true,
+    /** trigger + recall 的合并预算池（tok）。先 trigger，余量给 recall；夹 100–1200。 */
+    conditionalBudgetTokens: asInt(config.conditionalBudgetTokens, 350, 100, 1200),
+    /** recall 单轮正文预算（tok，夹 80–400）；实际取 min(它, 合并池余量)。 */
+    recallBudgetTokens: asInt(config.recallBudgetTokens, 180, 80, 400),
+    /** 同 session 同记忆 id 的召回冷却分钟数（夹 0–1440；0 = 不冷却）。 */
+    recallCooldownMinutes: asInt(config.recallCooldownMinutes, 60, 0, 1440),
     /** 模块 C 扫插件的根目录：默认本工作区的 plugins + 当前 profile 的 node_modules。 */
     pluginRoots: Array.isArray(config.pluginRoots) && config.pluginRoots.length > 0
       ? config.pluginRoots.map((item) => asText(item)).filter(Boolean)
@@ -854,6 +891,10 @@ function renderSoulStableBody(take, ctx) {
   pushSection('禁令', ctx.boundary)
   if (ctx.inGroup) pushSection('外交', ctx.group)
   lines.push(MEMORY_SECTION.pointer)
+  if (ctx.rules.length > 0) {
+    lines.push('【规则原文】（只列目录，细则用 soul_recall 查）')
+    lines.push(...ctx.rules)
+  }
   if (ctx.router.length > 0) {
     lines.push('【路由】')
     lines.push(...ctx.router)
@@ -873,6 +914,9 @@ export function composeSoulStable(input = {}) {
   const soul = input.soul ?? EMPTY_SOUL
   const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, SOUL_TOKEN_CEILING)
   const inGroup = input.inGroup === true
+  const rules = (Array.isArray(input.rulesIndex) ? input.rulesIndex : [])
+    .map((item) => asText(item))
+    .filter((item) => item !== '')
   const routerAll = (Array.isArray(input.router) ? input.router : [])
     .map((item) => asText(item))
     .filter((item) => item !== '')
@@ -889,6 +933,7 @@ export function composeSoulStable(input = {}) {
     boundary: bulletsOf(soul, '禁令').slice(0, SOUL_SECTION_CAP),
     group: bulletsOf(soul, '外交').slice(0, SOUL_SECTION_CAP),
     inGroup,
+    rules,
     router: (safety.length > 0 ? safety : routerAll).slice(0, 6),
   }
   let take = STABLE_TAKES[0]
@@ -1009,6 +1054,45 @@ export function planSoulSplit(input = {}) {
 /** 动态段的消息来源：与稳定段的 `soul` 分开，`countSoulNodes` 才数得清各自几条。 */
 export const SOUL_STATE_KIND = 'soul-state'
 
+/** 触发器注入的消息来源（2026-11-10）：单独一种 kind，便于日志与测试区分。 */
+export const SOUL_TRIGGER_KIND = 'soul-trigger'
+
+/** 每轮关键记忆召回的消息来源（2026-11-11 v2）：另一种 kind，预算上排在 trigger 之后。 */
+export const SOUL_RECALL_KIND = 'soul-recall'
+
+/** 召回正文与查询文本的截断长度（字）。 */
+export const RECALL_TEXT_MAX_CHARS = 120
+
+/**
+ * 从 `backend.search` 的返回里挑第一条可用召回（v2）。
+ *
+ * 现有三个后端的 `search` 实际返回 `{ entries: [{ loc, snippet }], note }`，
+ * `loc` 形如 `记忆库/fact#f00001`；交办单写的则是 `[{ id, content }]` 这种直给形状。
+ * 这里两种都收：缺 id 或缺正文的行跳过，凑不出完整一对就返回 null（宁可不注入）。
+ */
+export function pickRecallEntry(result) {
+  const rows = Array.isArray(result) ? result : Array.isArray(result?.entries) ? result.entries : []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const loc = asText(String(row.loc ?? ''))
+    const rawId = asText(String(row.id ?? ''))
+    const id = rawId || (loc.includes('#') ? asText(loc.slice(loc.lastIndexOf('#') + 1)) : '')
+    const content = asText(String(row.content ?? '')) || asText(String(row.snippet ?? ''))
+    if (id && content) return { id, content }
+  }
+  return null
+}
+
+/** 召回注入格式：`【记忆】<id> · <正文，截 120 字>`。 */
+export function renderRecall(item) {
+  return `【记忆】${item.id} · ${clip(item.content, RECALL_TEXT_MAX_CHARS)}`
+}
+
+/** 与 trigger 同一条规则：压缩重载轮清掉本会话召回冷却，避免「消息被压掉、冷却又不补」。 */
+export function resetRecallCooldownOnReload(cooledBySession, sessionKey, shadowPlan) {
+  if (shadowPlan?.injectStable === true) cooledBySession.delete(sessionKey)
+}
+
 /**
  * 动态段这一步发不发（伊纳 2026-11-04 拍板）。
  *
@@ -1049,8 +1133,8 @@ export function classOfKind(kind) {
 
 /** 统计本轮 `decision.messages` 里各来源的 token（§3.4）。 */
 export function measureInjections(messages) {
-  const perClass = { soul: 0, partition: 0, archive: 0, time: 0, other: 0 }
-  const counts = { soul: 0, partition: 0, archive: 0, time: 0, other: 0 }
+  const perClass = { soul: 0, partition: 0, archive: 0, time: 0, 'soul-recall': 0, other: 0 }
+  const counts = { soul: 0, partition: 0, archive: 0, time: 0, 'soul-recall': 0, other: 0 }
   for (const message of Array.isArray(messages) ? messages : []) {
     const kind = typeof message?.source?.kind === 'string' ? message.source.kind : 'other'
     const id = classOfKind(kind)
@@ -1058,7 +1142,7 @@ export function measureInjections(messages) {
     perClass[id] += estimateTokens(text)
     counts[id] += 1
   }
-  const total = perClass.soul + perClass.partition + perClass.archive + perClass.time
+  const total = perClass.soul + perClass.partition + perClass.archive + perClass.time + perClass['soul-recall']
   return { perClass, counts, total, all: total + perClass.other }
 }
 
@@ -1896,6 +1980,103 @@ export function zoneRowsOf(config) {
   return rows
 }
 
+// ---------------------------------------------------------------------------
+// 触发器注入（条件召回 v1，2026-11-10）
+// ---------------------------------------------------------------------------
+
+/**
+ * 读触发器清单。文件不存在 / JSON 坏 / 结构不对 → 返回空并带 `error`，**不抛**。
+ * 是否写 `trigger-warn` 由调用方决定（纯函数好测）。
+ *
+ * 格式：`{"version":1,"triggers":[{"id","keywords":[],"text","enabled"}]}`
+ */
+export function loadTriggers(triggerPath) {
+  const file = asText(triggerPath)
+  if (!file) return { ok: false, triggers: [], error: '未配置 triggerPath' }
+  if (!existsSync(file)) return { ok: false, triggers: [], error: '文件不存在' }
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    const list = Array.isArray(parsed?.triggers) ? parsed.triggers : []
+    const triggers = []
+    for (const item of list) {
+      if (item?.enabled === false) continue
+      const id = asText(item?.id)
+      const text = asText(item?.text)
+      const keywords = Array.isArray(item?.keywords)
+        ? item.keywords.map((word) => asText(word)).filter(Boolean)
+        : []
+      if (!id || !text || keywords.length === 0) continue
+      triggers.push({ id, keywords, text })
+    }
+    return { ok: true, triggers, error: '' }
+  } catch (error) {
+    return { ok: false, triggers: [], error: String(error?.message ?? error) }
+  }
+}
+
+/**
+ * 从清单里挑本轮该注入的条目（纯函数）。
+ * - 大小写不敏感**子串**匹配（中文没有词边界，子串是唯一便宜的口径）；
+ * - 按命中关键词数降序，取前 `maxEntries` 条；
+ * - 累加正文估算 token 超 `budgetTokens` 就停（不做单条截断）。
+ *
+ * @returns {Array<{id: string, text: string, hits: number}>}
+ */
+export function selectTriggers(userText, triggers, options = {}) {
+  const text = asText(userText)
+  if (!text) return []
+  const maxEntries = asInt(options.maxEntries, 2, 1, 5)
+  const budgetTokens = asInt(options.budgetTokens, 200, 50, 600)
+  const lower = text.toLowerCase()
+  const scored = []
+  for (const trigger of Array.isArray(triggers) ? triggers : []) {
+    const id = asText(trigger?.id)
+    const body = asText(trigger?.text)
+    if (!id || !body) continue
+    const keywords = Array.isArray(trigger?.keywords) ? trigger.keywords : []
+    let hits = 0
+    for (const word of keywords) {
+      const value = asText(word).toLowerCase()
+      if (value !== '' && lower.includes(value)) hits += 1
+    }
+    if (hits > 0) scored.push({ id, text: body, hits })
+  }
+  scored.sort((a, b) => b.hits - a.hits)
+  const picked = []
+  let spent = 0
+  for (const item of scored) {
+    if (picked.length >= maxEntries) break
+    const cost = estimateTokens(item.text)
+    if (spent + cost > budgetTokens) break
+    picked.push(item)
+    spent += cost
+  }
+  return picked
+}
+
+/**
+ * 2026-11-10 v1.1 修复：pre-step 时 `payload.events` 里可能还没有本轮 user 消息，
+ * 旧实现 lastUserTexts(events,1) 会拿到更早的压缩摘要（里面常含「魂织」等词），导致串触发。
+ * 优先取 `payload.messages` 尾部当前消息；跳过注入的 soul-* 消息；events 只作兜底。
+ */
+export function pickTriggerText(messages, events) {
+  const tail = Array.isArray(messages) ? messages.slice(-4) : []
+  for (let index = tail.length - 1; index >= 0; index -= 1) {
+    const message = tail[index]
+    const kind = message?.source?.kind
+    if (kind && String(kind).startsWith('soul')) continue
+    if (message?.role && message.role !== 'user') continue
+    const text = textOfMessage(message).trim()
+    if (text) return text
+  }
+  return lastUserTexts(events, 1)[0] ?? ''
+}
+
+/** 2026-11-10 v1.1：压缩重载轮清掉本会话触发冷却，避免「消息被压掉、冷却又不补」。 */
+export function resetTriggerCooldownOnReload(cooledBySession, sessionKey, shadowPlan) {
+  if (shadowPlan?.injectStable === true) cooledBySession.delete(sessionKey)
+}
+
 export function createPreStepHandler(options = {}) {
   const config = options.config ?? normalizeConfig(options)
   const now = typeof options.now === 'function' ? options.now : () => new Date()
@@ -1913,9 +2094,25 @@ export function createPreStepHandler(options = {}) {
   let memoryCache = { at: 0, items: [] }
   // 2026-11-04 第二阶段：state 只放 lesson 头 1 条，跟其余 loader 一样 60s 一取。
   let lessonCache = { at: 0, text: '' }
+  /** 规则索引缓存（2026-11-12）：60s 内复用，避免每一步都扫目录。 */
+  let rulesCache = { at: 0, lines: [], entries: [], count: 0, shown: 0, tokens: 0 }
   // 2026-11-04：本进程内哪些会话已经发过稳定段。不能用历史事件数判——
   // 老会话历史里有 200+ 条魂引，但早被挤出模型上下文。
   const stableSent = new Set()
+  /**
+   * 2026-11-10 触发器冷却：`Map<sessionKey, Map<triggerId, ts>>`，只在进程内，不落盘。
+   * 重启后从不冷却开始——宁可多发一条，也不要因为冷启动丢掉该提醒的那一轮。
+   */
+  const triggerCooled = new Map()
+  /** 2026-11-10：「读不到触发器文件」只告警一次（同一路径同一原因），否则每 turn 刷一行。 */
+  const triggerWarned = new Set()
+  /** 2026-11-11 v2：召回冷却与告警节流，形状与 trigger 一致（session → id → ts）。 */
+  const recallCooled = new Map()
+  const recallWarned = new Set()
+  /** 召回检索入口：默认走记忆后端；check.mjs 用 options.recallSearcher 注入假后端。 */
+  const recallSearcher = typeof options.recallSearcher === 'function'
+    ? options.recallSearcher
+    : (query, limit) => backend.search(query, limit)
   // 待办 A：分区行（计数现扫，索引只定顺序），也是 60s 内复用。
   const zoneLoader = typeof options.zoneLoader === 'function' ? options.zoneLoader : () => zoneRowsOf(config)
   let zoneCache = { at: 0, rows: [] }
@@ -2048,8 +2245,12 @@ export function createPreStepHandler(options = {}) {
     if (at.getTime() - lessonCache.at > 60_000) {
       lessonCache = { at: at.getTime(), text: loadLessonHead(config.memoryDbPath) }
     }
+    if (at.getTime() - rulesCache.at > 60_000) {
+      rulesCache = { at: at.getTime(), ...readRulesIndex(config.rulesDir, config.rulesIndexMaxTokens) }
+    }
     const shadowStable = composeSoulStable({
       soul: soul ?? EMPTY_SOUL,
+      rulesIndex: rulesCache.lines,
       router: readRouterLines(config.routerPath),
       inGroup,
       maxTokens: config.soulStableMaxTokens,
@@ -2105,6 +2306,8 @@ export function createPreStepHandler(options = {}) {
       `nodes=${shadowNodes}`,
       `stateNodes=${stateNodes}`,
       `pinned=${countPinnedEntries(config.memoryDbPath)}`,
+      `rules=${rulesCache.shown}/${rulesCache.count}`,
+      `rulesTok=${rulesCache.tokens}`,
       `budget=${config.tierBudgetChars}`,
       `anomaly=${pinnedAnomalies.length > 0 ? pinnedAnomalies.map((item) => `${item.table}:${item.count}`).join(',') : 'none'}`,
     ].join(' ')
@@ -2117,6 +2320,104 @@ export function createPreStepHandler(options = {}) {
       if (statePlan.emit) messages.push(createSoulMessage(shadowState.text, SOUL_STATE_KIND))
     } else {
       messages = [...kept, createSoulMessage(composed.text)]
+    }
+
+    /*
+     * 2026-11-10 触发器注入（条件召回 v1）：只在**每 turn 第一个 step** 扫最后一条真人 user 文本，
+     * 命中清单就补一条 `soul-trigger` 小消息；同一 session 同一 id 有冷却。
+     * `triggerInjection=false`（默认）时整段不执行 —— legacy/split 两条路径的输出逐字节不变。
+     */
+    let triggerUsedTokens = 0
+    if (config.triggerInjection && statePlan.emit) {
+      resetTriggerCooldownOnReload(triggerCooled, sessionKey, shadowPlan)
+      const loaded = loadTriggers(config.triggerPath)
+      if (!loaded.ok) {
+        const warnKey = `${config.triggerPath}\u0000${loaded.error}`
+        if (!triggerWarned.has(warnKey)) {
+          triggerWarned.add(warnKey)
+          const warning = `dsh-soul: 触发器文件读不了，本轮跳过：${config.triggerPath}（${loaded.error}）`
+          appendLog(config.logPath, logLine(at, 'trigger-warn', warning))
+          logger?.warn?.(warning)
+        }
+      }
+      const lastText = pickTriggerText(payload?.messages, events)
+      const picked = selectTriggers(lastText, loaded.triggers, {
+        maxEntries: config.triggerMaxEntries,
+        budgetTokens: config.triggerBudgetTokens,
+      })
+      const cooldownMs = config.triggerCooldownMinutes * 60_000
+      const cooled = triggerCooled.get(sessionKey) ?? new Map()
+      const fired = []
+      for (const item of picked) {
+        const last = cooled.get(item.id) ?? 0
+        if (cooldownMs > 0 && at.getTime() - last < cooldownMs) continue
+        messages.push(createSoulMessage(item.text, SOUL_TRIGGER_KIND))
+        cooled.set(item.id, at.getTime())
+        fired.push(item)
+      }
+      if (fired.length > 0) {
+        triggerCooled.set(sessionKey, cooled)
+        triggerUsedTokens = fired.reduce((sum, item) => sum + estimateTokens(item.text), 0)
+        appendLog(
+          config.logPath,
+          logLine(at, 'trigger', `ids=${fired.map((item) => item.id).join(',')} tokens=${triggerUsedTokens}`),
+        )
+      }
+    }
+
+    /*
+     * 2026-11-11 v2 每轮关键记忆召回（经验层）：接在 trigger 后面，复用同一个 `statePlan.emit` 门。
+     * 查询文本必须用 pickTriggerText（v1.1 那条：直接取 events 末尾会拿到压缩摘要，串味）。
+     * 合并预算 conditionalBudgetTokens：先 trigger，余量给 recall；预算不够先裁 recall，不裁 state。
+     * `autoRecall=false`（默认）时整段不执行 —— v1.2 的输出逐字节不变。
+     */
+    if (config.autoRecall && statePlan.emit) {
+      resetRecallCooldownOnReload(recallCooled, sessionKey, shadowPlan)
+      const query = clip(pickTriggerText(payload?.messages, events), RECALL_TEXT_MAX_CHARS)
+      const room = config.conditionalBudgetTokens - triggerUsedTokens
+      const budget = Math.min(config.recallBudgetTokens, room)
+      if (query && budget > 0) {
+        let rows = null
+        let failed = ''
+        try {
+          rows = await Promise.resolve(recallSearcher(query, 3))
+        } catch (error) {
+          failed = `search-error:${error?.message ?? error}`
+        }
+        const entry = failed ? null : pickRecallEntry(rows)
+        if (failed) {
+          // 抛错：只写日志，不抛、不影响本轮对话。
+        } else if (!entry) {
+          const raw = Array.isArray(rows) ? rows : Array.isArray(rows?.entries) ? rows.entries : []
+          failed = raw.length === 0 ? 'empty' : 'bad-rows'
+        } else {
+          const text = renderRecall(entry)
+          const tokens = estimateTokens(text)
+          const cooldownMs = config.recallCooldownMinutes * 60_000
+          const cooled = recallCooled.get(sessionKey) ?? new Map()
+          const last = cooled.get(entry.id) ?? 0
+          if (tokens > budget) {
+            // 预算不够：静默放弃（不是故障，不写 recall-warn）。
+          } else if (cooldownMs > 0 && at.getTime() - last < cooldownMs) {
+            // 冷却中：同 session 同 id 不重复注入（同样静默）。
+          } else {
+            messages.push(createSoulMessage(text, SOUL_RECALL_KIND))
+            cooled.set(entry.id, at.getTime())
+            recallCooled.set(sessionKey, cooled)
+            appendLog(config.logPath, logLine(at, 'recall', `ids=${entry.id} tokens=${tokens}`))
+          }
+        }
+        if (failed) {
+          // 同一 session 同一原因只告警一次，别每 turn 刷一行；只写 id/原因，不记正文。
+          const warnKey = `${sessionKey}\u0000${failed}`
+          if (!recallWarned.has(warnKey)) {
+            recallWarned.add(warnKey)
+            const warning = `dsh-soul: 记忆召回失败，本轮跳过（${failed}）`
+            appendLog(config.logPath, logLine(at, 'recall-warn', warning))
+            logger?.warn?.(warning)
+          }
+        }
+      }
     }
     // 三期 C1：每轮记下最近 2 条真人 user 消息，工具没传 query 时当「本轮在做什么」。
     rememberUserTexts(lastUserTexts(events, 2))
@@ -2602,6 +2903,98 @@ export function walkMarkdown(root, limit = 400) {
   return out
 }
 
+/**
+ * 规则原文索引（2026-11-12）：扫 `rulesDir` 下 `*.md`，只取标题层。
+ *
+ * 返回 `{ lines, entries, count, shown, tokens }`；目录没配或读不到就返回空，不抛。
+ * `lines` 给稳定段，`entries` 给 soul_recall 第⑤源做定位——同一份数据两种用途，
+ * 原文一个字都不复制进记忆库（伊纳 2026-11-12 定的单源原则）。
+ */
+export function readRulesIndex(dir, maxTokens = 120) {
+  const empty = { lines: [], entries: [], count: 0, shown: 0, tokens: 0 }
+  const base = asText(dir)
+  if (base === '' || !existsSync(base)) return empty
+  let names = []
+  try {
+    names = readdirSync(base).filter((name) => name.toLowerCase().endsWith('.md')).sort()
+  } catch {
+    return empty
+  }
+  const entries = []
+  for (const name of names) {
+    let text = ''
+    try {
+      const file = join(base, name)
+      if (statSync(file).size > 400_000) continue
+      text = readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    const all = text.replace(/^\uFEFF/, '').split(/\r?\n/)
+    const h1 = all.find((line) => /^#\s+/.test(line))
+    const sections = all
+      .filter((line) => /^##\s+/.test(line))
+      .map((line) => line.replace(/^##\s+/, '').replace(/（[^）]*\d{4}-\d{2}-\d{2}[^）]*）/g, '').trim())
+      .filter((line) => line !== '')
+      .slice(0, 2)
+    // 文件自述摘要优先（2026-11-12）：规则文件可以在任意位置写一行 `> 摘要：…`，
+    // 索引就用它，不再靠标题猜；没写才退回标题/小节。仍是单源——摘要也住在同一份文件里。
+    const declared = text.match(/^>\s*摘要[:：]\s*(.+)$/m)
+    const bare = name.replace(/\.md$/i, '')
+    const title = (h1 ? h1.replace(/^#\s+/, '') : '')
+      .replace(/（[^）]*\d{4}-\d{2}-\d{2}[^）]*）/g, '')
+      .replace(/\([^)]*\d{4}-\d{2}-\d{2}[^)]*\)/g, '')
+      .trim()
+    const summary = (declared ? declared[1].trim() : '') || (title !== '' && title !== bare ? title : (sections.join('·') || bare))
+    const cap = declared ? 34 : 26
+    entries.push({ name: bare, file: name, title: title || bare, sections, line: `- ${bare}：${clip(summary, cap)}` })
+  }
+  const lines = []
+  let tokens = 0
+  for (const entry of entries) {
+    const next = estimateTokens([...lines, entry.line].join('\n'))
+    if (next > maxTokens) break
+    lines.push(entry.line)
+    tokens = next
+  }
+  return { lines, entries, count: entries.length, shown: lines.length, tokens }
+}
+
+/**
+ * 第⑤源：规则原文（2026-11-12）。与笔记源同一形状，只是目录固定、只读。
+ * 命中给 `rules/<文件名>:<行号>`，片段仍走 snippetAround，不整段回灌。
+ */
+export function searchRules(options, words, limit) {
+  if (asText(options.rulesDir) === '') return { entries: [], note: '未配置规则目录' }
+  if (!existsSync(options.rulesDir)) return { entries: [], note: '规则目录不存在' }
+  let names = []
+  try {
+    names = readdirSync(options.rulesDir).filter((name) => name.toLowerCase().endsWith('.md')).sort()
+  } catch {
+    return { entries: [], note: '规则目录读不了' }
+  }
+  const entries = []
+  for (const name of names) {
+    let text = ''
+    try {
+      const file = join(options.rulesDir, name)
+      if (statSync(file).size > 400_000) continue
+      text = readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    if (!hitAll(text, words)) continue
+    const lines = text.split(/\r?\n/)
+    const index = lines.findIndex((line) => hitAll(line, words))
+    entries.push({
+      loc: `rules/${name}:${index >= 0 ? index + 1 : 1}`,
+      snippet: snippetAround(index >= 0 ? lines[index] : text, words),
+    })
+    if (entries.length >= limit) break
+  }
+  return { entries, note: entries.length === 0 ? '规则原文里没有这些词' : '' }
+}
+
 export function searchNotes(options, words, limit) {
   if (!existsSync(options.notesDir)) return { entries: [], note: '笔记目录不存在' }
   const files = walkMarkdown(options.notesDir)
@@ -2732,6 +3125,12 @@ export function createRecallSources(config) {
       search: (words, n) => searchNotes(config, words, n),
     },
     {
+      id: 'rules',
+      label: '⑤ 规则原文',
+      enabled: Boolean(asText(config.rulesDir)),
+      search: (words, n) => searchRules(config, words, n),
+    },
+    {
       id: 'index',
       label: '④ 原文库',
       enabled: Boolean(asText(config.soulIndexDir)),
@@ -2767,7 +3166,7 @@ export function createRecall(options = {}) {
       return {
         ok: true,
         text,
-        sources: { memory: found.entries.length, archive: 0, notes: 0, index: 0 },
+        sources: { memory: found.entries.length, archive: 0, notes: 0, index: 0, rules: 0 },
         active: ['zone'],
         hits: found.entries.map((entry) => ({ zone: entry.zone, title: entry.title, tags: entry.tags, snippet: entry.snippet })),
         truncated: false,
@@ -2777,7 +3176,7 @@ export function createRecall(options = {}) {
       return {
         ok: false,
         text: 'soul_recall: query 不能为空',
-        sources: { memory: 0, archive: 0, notes: 0, index: 0 },
+        sources: { memory: 0, archive: 0, notes: 0, index: 0, rules: 0 },
         active: sources.filter((source) => source.enabled).map((source) => source.id),
         truncated: false,
       }
@@ -2797,7 +3196,7 @@ export function createRecall(options = {}) {
     const lines = [header]
     let dropped = 0
     let chars = header.length + 1
-    const counts = { memory: 0, archive: 0, notes: 0, index: 0 }
+    const counts = { memory: 0, archive: 0, notes: 0, index: 0, rules: 0 }
     for (const block of blocks) counts[block.id] = block.result.entries.length
     for (const block of blocks) {
       const head = `${block.label}（${block.result.entries.length} 条）${block.result.note ? ` · ${block.result.note}` : ''}`
