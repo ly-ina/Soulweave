@@ -141,7 +141,7 @@ node soul_lint.mjs --json     # 机读
 
 ## 检索源（soul_recall）
 
-四源注册制，没配置的源不注册：
+五源注册制，没配置的源不注册：
 
 | 源 | 开关 | 默认 |
 |---|---|---|
@@ -149,6 +149,7 @@ node soul_lint.mjs --json     # 机读
 | 封存段 | `sealedSegmentsModule` 非空 | 空（不注册） |
 | 笔记 | `notesDir` 存在 | 开（目录不存在就空） |
 | 原文库 | `soulIndexDir` 非空（`python query.py --json`，Python + FTS5） | 空（不注册） |
+| 规则原文 | `rulesDir` 非空（只读 `*.md`，命中给 `rules/<文件>:<行号>`） | 空（不注册） |
 
 封存模块的解析顺序：显式路径 → 包名 `import` → 用 `$DSH_HOME/profiles/*/node_modules` 解析包名 → 都失败就跳过并在结果里写「封存源不可用」。**没有**写死的同级目录回落。
 
@@ -197,6 +198,8 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 | `relationsDir` | `<stateDir>/relations` | 关系层 `*.md`（按文件名倒序取最新一份） |
 | `moodPath` | `<stateDir>/mood.md` | 情绪状态 |
 | `routerPath` | 空 | 路由层：一行一条「触发 → 去哪」 |
+| `rulesDir` | 空 | 规则原文目录：稳定段只注入标题索引，细则走第⑤源 |
+| `rulesIndexMaxTokens` | 120 | 规则索引预算（tok）；0 = 不注入索引，第⑤源仍可用 |
 | `archiveRoot` | `<stateDir>/archive` | 封存根目录（给 sealed 模块校验 manifest 路径） |
 | `memoryBackend` | `builtin` | 见上 |
 | `memoryDbPath` | `<stateDir>/soul-memory.db`（meow 时 `<stateDir>/memory.db`） | 记忆库路径 |
@@ -243,7 +246,7 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 
 | 工具 | 作用 |
 |---|---|
-| `soul_recall` | 四源检索，≤1200 字，带定位 |
+| `soul_recall` | 五源检索，≤1200 字，带定位 |
 | `soul_persist` | 把 corrected lesson 追加到 `soul.md` 的「反哺记录」；默认 preview |
 | `soul_tier` | 常驻名单审计（preview 只读；apply 仅 meow） |
 | `soul_cue` | cue 刷新（仅 meow） |

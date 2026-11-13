@@ -38,6 +38,8 @@ import {
   measureInjections,
   measureRequestBudget,
   normalizeConfig,
+  readRulesIndex,
+  searchRules,
   parseSoul,
   planBudget,
   countSnapshots,
@@ -68,6 +70,16 @@ import {
   createSoulIndexSyncTrigger,
   apply,
   createMemoryBackend,
+  loadTriggers,
+  selectTriggers,
+  pickTriggerText,
+  resetTriggerCooldownOnReload,
+  SOUL_TRIGGER_KIND,
+  SOUL_RECALL_KIND,
+  RECALL_TEXT_MAX_CHARS,
+  pickRecallEntry,
+  renderRecall,
+  resetRecallCooldownOnReload,
 } from './index.js'
 
 import { putMemory } from './memory-builtin.mjs'
@@ -2686,6 +2698,363 @@ await test('R9', '魂引上限放宽到 8000、警示线可配且只提醒不夹
   const off = composeSoul({ soul, at: new Date(), workspace: FIXTURE_WS, maxTokens: 4000, warnTokens: 0 })
   assert.ok(!off.warnings.some((w) => w.includes('警示线')), '警示线 0 仍在报')
   return '3000 不被夹；99999→8000；warn 可开关'
+})
+
+await test('R10', '触发器注入：命中/上限/预算/大小写/无命中/坏 JSON 不抛，且默认关时输出不变', async () => {
+  const list = [
+    { id: 'draw', keywords: ['画图', '出图'], text: '画图指引' },
+    { id: 'vault', keywords: ['vault'], text: 'vault 指引' },
+    { id: 'multi', keywords: ['画图', '出图', 'run-53'], text: '多词条目' },
+  ]
+  // 命中 + 大小写不敏感 + 按命中数降序
+  const hit = selectTriggers('我想 VAULT，再 RUN-53 画图出图', list, { maxEntries: 5, budgetTokens: 600 })
+  assert.deepEqual(hit.map((item) => item.id), ['multi', 'draw', 'vault'], `排序/命中不对：${hit.map((i) => i.id)}`)
+  assert.equal(hit[0].hits, 3, '命中数没按关键词个数算')
+  // 上限
+  const capped = selectTriggers('我想 VAULT，再 RUN-53 画图出图', list, { maxEntries: 2, budgetTokens: 600 })
+  assert.deepEqual(capped.map((item) => item.id), ['multi', 'draw'], 'maxEntries 没夹住')
+  // 预算截断（第一条就超）
+  const huge = [{ id: 'big', keywords: ['画图'], text: '长'.repeat(400) }]
+  assert.deepEqual(selectTriggers('画图', huge, { maxEntries: 5, budgetTokens: 50 }), [], '超预算没有停')
+  // 无命中
+  assert.deepEqual(selectTriggers('今天天气不错', list), [], '无命中应返回空数组')
+  assert.deepEqual(selectTriggers('', list), [], '空文本应返回空数组')
+  // 坏 JSON 不抛
+  const bad = join(root, 'trigger-bad.json')
+  writeFileSync(bad, '{oops', 'utf8')
+  const badLoaded = loadTriggers(bad)
+  assert.equal(badLoaded.ok, false, '坏 JSON 应报 ok:false')
+  assert.deepEqual(badLoaded.triggers, [], '坏 JSON 应返回空清单')
+  const missing = loadTriggers(join(root, 'trigger-missing.json'))
+  assert.equal(missing.ok, false, '文件不存在应报 ok:false（交办单：读不到要写 trigger-warn）')
+  assert.deepEqual(missing.triggers, [], '文件不存在应返回空清单')
+
+  // 默认关：与不带触发器字段的配置输出相同（id 去噪后逐字比较）
+  const plain = (messages) => messages.map((message) => ({
+    role: message.role,
+    text: textOfMessage(message),
+    kind: message?.source?.kind ?? '',
+  }))
+  const fixedNow = () => new Date('2026-11-10T12:00:00+08:00')
+  const baseHandler = createPreStepHandler({ config: { ...config }, now: fixedNow, pendingLoader: () => [] })
+  const offHandler = createPreStepHandler({
+    config: { ...config, triggerInjection: false, triggerPath: join(root, 'trigger-off.json') },
+    now: fixedNow,
+    pendingLoader: () => [],
+  })
+  const base = await runHandler(baseHandler, 7)
+  const off = await runHandler(offHandler, 7)
+  assert.deepEqual(plain(off.messages), plain(base.messages), 'triggerInjection:false 时输出变了')
+
+  // 开：命中就多一条 soul-trigger，同 session 冷却挡住第二次
+  const trigFile = join(root, 'trigger-on.json')
+  writeFileSync(trigFile, JSON.stringify({ version: 1, triggers: list }), 'utf8')
+  const onHandler = createPreStepHandler({
+    config: {
+      ...config,
+      triggerInjection: true,
+      triggerPath: trigFile,
+      triggerCooldownMinutes: 120,
+      triggerMaxEntries: 2,
+    },
+    now: fixedNow,
+    pendingLoader: () => [],
+  })
+  const events = [
+    { type: 'user/message', data: { id: 'u1', role: 'user', content: [{ type: 'text', text: '帮我用 run-53 画图出图' }], source: { kind: 'user' } } },
+  ]
+  const payload = { turn: 11, step: 1, messages: [], agent: { session: { id: 'trigger-session', cwd: FIXTURE_WS, events } } }
+  const fired = await onHandler(payload, async () => fakeDecision)
+  const trig = fired.messages.filter((message) => message?.source?.kind === SOUL_TRIGGER_KIND)
+  assert.equal(trig.length, 2, `应注入 2 条触发器，实际 ${trig.length}`)
+  assert.ok(textOfMessage(trig[0]).includes('多词条目'), '第一条应是命中数最多的 multi')
+  const again = await onHandler({ ...payload, turn: 12 }, async () => fakeDecision)
+  assert.equal(again.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, '冷却期内不该再发')
+  return '排序/上限/预算/大小写/空命中/坏JSON/默认关/接线/冷却 9 项'
+})
+
+await test('R10b', 'pre-step 取当前消息优先：旧事件含「魂织」也不串触发', async () => {
+  const stale = [{ type: 'user/message', data: { id: 'u0', role: 'user', content: [{ type: 'text', text: '魂织是什么' }], source: { kind: 'user' } } }]
+  const current = [{ id: 'u1', role: 'user', content: [{ type: 'text', text: '我想画图' }], source: { kind: 'user' } }]
+  assert.equal(pickTriggerText(current, stale), '我想画图', '应优先取当前消息')
+  assert.equal(pickTriggerText([], stale), '魂织是什么', '无当前消息时回退 events')
+  const trig = selectTriggers(pickTriggerText(current, stale), [
+    { id: 'draw', keywords: ['画图'], text: '画图指引' },
+    { id: 'soulweave', keywords: ['魂织'], text: '魂织指引' },
+  ], { maxEntries: 5, budgetTokens: 600 })
+  assert.deepEqual(trig.map((item) => item.id), ['draw'], '只应命中 draw，不该串到 soulweave')
+  return '当前优先/事件兜底/不串触发 3 项'
+})
+
+await test('R10c', '压缩重载轮清掉触发冷却，普通轮不清', async () => {
+  const map = new Map([['s1', new Map([['draw', 1]])]])
+  resetTriggerCooldownOnReload(map, 's1', { injectStable: false })
+  assert.equal(map.has('s1'), true, '普通轮不该清冷却')
+  resetTriggerCooldownOnReload(map, 's1', { injectStable: true })
+  assert.equal(map.has('s1'), false, '压缩重载轮应清本会话冷却')
+  return '普通轮保留/重载轮清空 2 项'
+})
+
+await test('R11', '每轮记忆召回：同轮命中、合并预算、让步顺序，不裁 state', async () => {
+  const recallLog = join(root, 'logs/recall.log')
+  rmSync(recallLog, { force: true })
+  const fixedNow = () => new Date('2026-11-11T12:00:00+08:00')
+  const trigFile = join(root, 'trigger-recall.json')
+  writeFileSync(trigFile, JSON.stringify({ version: 1, triggers: [
+    { id: 'draw', keywords: ['画图'], text: '画图指引' },
+    { id: 'multi', keywords: ['画图', 'run-53'], text: '多词条目' },
+  ] }), 'utf8')
+  const recallText = '封存 manifest 后行覆盖前行，别按行数判断段数。'
+  let seenQuery = ''
+  let seenLimit = 0
+  const recallSearcher = (query, limit) => {
+    seenQuery = query
+    seenLimit = limit
+    return { entries: [{ loc: '记忆库/fact#m00042', snippet: recallText }] }
+  }
+  const mk = (sessionId, text, turn, logPath) => ({
+    turn,
+    step: 1,
+    messages: [],
+    agent: {
+      session: {
+        id: sessionId,
+        cwd: FIXTURE_WS,
+        events: [{ type: 'user/message', data: { id: `u-${turn}`, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } } }],
+      },
+    },
+  })
+  const handler = createPreStepHandler({
+    config: {
+      ...config,
+      logPath: recallLog,
+      triggerInjection: true,
+      triggerPath: trigFile,
+      triggerMaxEntries: 2,
+      triggerBudgetTokens: 200,
+      soulSplitInjection: true,
+      autoRecall: true,
+      conditionalBudgetTokens: 350,
+      recallBudgetTokens: 180,
+      recallCooldownMinutes: 60,
+    },
+    now: fixedNow,
+    pendingLoader: () => [],
+    recallSearcher,
+  })
+  const decision = await handler(mk('recall-s1', '帮我用 run-53 画图出图', 1), async () => fakeDecision)
+  const trig = decision.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND)
+  const rec = decision.messages.filter((m) => m?.source?.kind === SOUL_RECALL_KIND)
+  const state = decision.messages.filter((m) => m?.source?.kind === SOUL_STATE_KIND)
+  assert.equal(trig.length, 2, `trigger 应注入 2 条，实际 ${trig.length}`)
+  assert.equal(rec.length, 1, `recall 应注入 1 条，实际 ${rec.length}`)
+  assert.equal(textOfMessage(rec[0]), `【记忆】m00042 · ${recallText}`, '召回格式/正文不对')
+  assert.equal(seenLimit, 3, 'search 应只要 3 条')
+  assert.ok(seenQuery.includes('run-53 画图出图'), `查询文本应来自 pickTriggerText：${seenQuery}`)
+  assert.ok(state.length >= 1, '动态段仍在')
+  const trigTokens = trig.reduce((sum, m) => sum + estimateTokens(textOfMessage(m)), 0)
+  const recTokens = estimateTokens(textOfMessage(rec[0]))
+  assert.ok(trigTokens + recTokens <= 350, `合并预算超了：${trigTokens}+${recTokens}`)
+  const log = readFileSync(recallLog, 'utf8')
+  assert.match(log, new RegExp(`recall ids=m00042 tokens=${recTokens}`), 'recall 日志不对')
+
+  // 先 trigger、余量给 recall：trigger 用掉 300 后合并池只剩 20，装不下召回 → 不注入
+  const bigTrig = join(root, 'trigger-recall-big.json')
+  writeFileSync(bigTrig, JSON.stringify({ version: 1, triggers: [
+    { id: 'big', keywords: ['画图'], text: '长'.repeat(300) },
+  ] }), 'utf8')
+  const bigLog = join(root, 'logs/recall-big.log')
+  rmSync(bigLog, { force: true })
+  const bigHandler = createPreStepHandler({
+    config: {
+      ...config,
+      logPath: bigLog,
+      triggerInjection: true,
+      triggerPath: bigTrig,
+      triggerMaxEntries: 1,
+      triggerBudgetTokens: 600,
+      autoRecall: true,
+      conditionalBudgetTokens: 320,
+      recallBudgetTokens: 180,
+    },
+    now: fixedNow,
+    pendingLoader: () => [],
+    recallSearcher,
+  })
+  const tight = await bigHandler(mk('recall-s2', '帮我画图', 1), async () => fakeDecision)
+  assert.equal(tight.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 1, '大触发器应注入')
+  assert.equal(tight.messages.filter((m) => m?.source?.kind === SOUL_RECALL_KIND).length, 0, '余量不够时不该召回')
+  assert.ok(!readFileSync(bigLog, 'utf8').includes(' recall ids='), '余量不够时不该写 recall 成功日志')
+
+  // 让步顺序：archive → partition → soul-recall，soul / time 永不砍
+  const measured = {
+    perClass: { soul: 40, partition: 100, archive: 100, time: 10, 'soul-recall': 80, other: 0 },
+    total: 330,
+  }
+  assert.deepEqual(planBudget(measured, 250).cut, ['archive'], '只该先砍封存目录')
+  const deep = planBudget(measured, 120)
+  assert.deepEqual(deep.cut, ['archive', 'partition', 'soul-recall'], `让步顺序不对：${deep.cut}`)
+  assert.equal(deep.after, 50, `砍完应剩 50：${deep.after}`)
+  assert.ok(!deep.cut.includes('soul') && !deep.cut.includes('time'), '魂引与时间行不该被砍')
+  return '同轮 2+1/格式/limit=3/预算扣减/余量不足不召回/让步顺序 6 项'
+})
+
+await test('R11b', '召回失败只写 recall-warn：抛错 / 空 / 缺字段都不注入', async () => {
+  const fixedNow = () => new Date('2026-11-11T13:00:00+08:00')
+  const cases = [
+    { session: 'recall-err', reason: 'search-error', searcher: () => { throw new Error('boom') } },
+    { session: 'recall-empty', reason: 'empty', searcher: () => ({ entries: [], note: '无命中' }) },
+    { session: 'recall-badrows', reason: 'bad-rows', searcher: () => ({ entries: [{ loc: '记忆库/fact', snippet: '' }, { id: '', content: 'x' }] }) },
+  ]
+  for (const item of cases) {
+    const logPath = join(root, `logs/${item.session}.log`)
+    rmSync(logPath, { force: true })
+    const handler = createPreStepHandler({
+      config: { ...config, logPath, autoRecall: true, triggerInjection: false },
+      now: fixedNow,
+      pendingLoader: () => [],
+      recallSearcher: item.searcher,
+    })
+    const payload = {
+      turn: 1,
+      step: 1,
+      messages: [],
+      agent: {
+        session: {
+          id: item.session,
+          cwd: FIXTURE_WS,
+          events: [{ type: 'user/message', data: { id: 'u1', role: 'user', content: [{ type: 'text', text: '画图' }], source: { kind: 'user' } } }],
+        },
+      },
+    }
+    const out = await handler(payload, async () => fakeDecision)
+    assert.equal(out.messages.filter((m) => m?.source?.kind === SOUL_RECALL_KIND).length, 0, `${item.session} 不该注入`)
+    const log = readFileSync(logPath, 'utf8')
+    assert.ok(log.includes('recall-warn'), `${item.session} 没写 recall-warn`)
+    assert.ok(log.includes(`（${item.reason}`), `${item.session} 的原因不对：${log.trim()}`)
+    assert.ok(!log.includes(' recall ids='), `${item.session} 不该写成功日志`)
+  }
+  // 形状解析：两种后端形状都收；缺 id / 缺正文的行跳过
+  assert.deepEqual(pickRecallEntry({ entries: [{ loc: '记忆库/fact#f00001', snippet: '正文甲' }] }), { id: 'f00001', content: '正文甲' }, 'loc 形状没解析出 id')
+  assert.deepEqual(pickRecallEntry([{ id: 'f00002', content: '正文乙' }]), { id: 'f00002', content: '正文乙' }, '直给形状没收')
+  assert.equal(pickRecallEntry([{ id: '', content: 'x' }, { id: 'y', content: '' }, null]), null, '无效行应返回 null')
+  assert.equal(pickRecallEntry({ entries: [] }), null, '空应返回 null')
+  // 正文截 120 字
+  const long = renderRecall({ id: 'f9', content: '甲'.repeat(200) })
+  assert.ok(long.length <= `【记忆】f9 · `.length + RECALL_TEXT_MAX_CHARS, `召回正文没截断：${long.length}`)
+  assert.ok(long.endsWith('…'), '截断应带省略号')
+  return '抛错/空/缺字段 3 项 + 双形状 + 截断 2 项'
+})
+
+await test('R11c', '召回冷却与重载清空、默认关逐字节不变、配置夹取', async () => {
+  const fixedNow = () => new Date('2026-11-11T14:00:00+08:00')
+  const logPath = join(root, 'logs/recall-cool.log')
+  rmSync(logPath, { force: true })
+  let calls = 0
+  const searcher = () => {
+    calls += 1
+    return [{ id: 'm00042', content: '封存 manifest 后行覆盖前行。' }]
+  }
+  const mk = (turn) => ({
+    turn,
+    step: 1,
+    messages: [],
+    agent: {
+      session: {
+        id: 'recall-cool',
+        cwd: FIXTURE_WS,
+        events: [{ type: 'user/message', data: { id: `u${turn}`, role: 'user', content: [{ type: 'text', text: '封存' }], source: { kind: 'user' } } }],
+      },
+    },
+  })
+  const handler = createPreStepHandler({
+    config: { ...config, logPath, autoRecall: true, triggerInjection: false, recallCooldownMinutes: 60 },
+    now: fixedNow,
+    pendingLoader: () => [],
+    recallSearcher: searcher,
+  })
+  const first = await handler(mk(1), async () => fakeDecision)
+  assert.equal(first.messages.filter((m) => m?.source?.kind === SOUL_RECALL_KIND).length, 1, '首轮应召回')
+  const second = await handler(mk(2), async () => fakeDecision)
+  assert.equal(second.messages.filter((m) => m?.source?.kind === SOUL_RECALL_KIND).length, 0, '冷却期内不该重复召回')
+  assert.equal(calls, 2, '冷却仍应照常检索（只是不注入）')
+  // 纯函数：普通轮保留、压缩重载轮清空本会话
+  const map = new Map([['s1', new Map([['m1', 1]])]])
+  resetRecallCooldownOnReload(map, 's1', { injectStable: false })
+  assert.equal(map.has('s1'), true, '普通轮不该清召回冷却')
+  resetRecallCooldownOnReload(map, 's1', { injectStable: true })
+  assert.equal(map.has('s1'), false, '重载轮应清召回冷却')
+
+  // 默认关：输出与不接线时逐字节一致（检索函数被故意写成会抛，也不该被调用）
+  const plain = (messages) => messages.map((m) => ({ role: m?.role, kind: m?.source?.kind, text: textOfMessage(m) }))
+  const quietPayload = {
+    turn: 9,
+    step: 1,
+    messages: [],
+    agent: {
+      session: {
+        id: 'recall-off',
+        cwd: FIXTURE_WS,
+        events: [{ type: 'user/message', data: { id: 'u9', role: 'user', content: [{ type: 'text', text: '画图' }], source: { kind: 'user' } } }],
+      },
+    },
+  }
+  const baseHandler = createPreStepHandler({ config: { ...config }, now: fixedNow, pendingLoader: () => [] })
+  const offHandler = createPreStepHandler({
+    config: { ...config, autoRecall: false },
+    now: fixedNow,
+    pendingLoader: () => [],
+    recallSearcher: () => { throw new Error('不该被调用') },
+  })
+  const baseOut = await baseHandler(quietPayload, async () => fakeDecision)
+  const offOut = await offHandler(quietPayload, async () => fakeDecision)
+  assert.deepEqual(plain(offOut.messages), plain(baseOut.messages), 'autoRecall:false 时输出变了')
+
+  // 配置默认值与夹取
+  const d = normalizeConfig({})
+  assert.equal(d.autoRecall, false, 'autoRecall 默认应为 false')
+  assert.equal(normalizeConfig({ autoRecall: true }).autoRecall, true, 'autoRecall 打开了')
+  assert.equal(d.conditionalBudgetTokens, 350, '合并预算默认 350')
+  assert.equal(normalizeConfig({ conditionalBudgetTokens: 50 }).conditionalBudgetTokens, 100, '合并预算下界')
+  assert.equal(normalizeConfig({ conditionalBudgetTokens: 9999 }).conditionalBudgetTokens, 1200, '合并预算上界')
+  assert.equal(d.recallBudgetTokens, 180, 'recall 预算默认 180')
+  assert.equal(normalizeConfig({ recallBudgetTokens: 10 }).recallBudgetTokens, 80, 'recall 预算下界')
+  assert.equal(normalizeConfig({ recallBudgetTokens: 9999 }).recallBudgetTokens, 400, 'recall 预算上界')
+  assert.equal(d.recallCooldownMinutes, 60, '冷却默认 60')
+  assert.equal(normalizeConfig({ recallCooldownMinutes: -1 }).recallCooldownMinutes, 0, '冷却下界')
+  assert.equal(normalizeConfig({ recallCooldownMinutes: 99999 }).recallCooldownMinutes, 1440, '冷却上界')
+  return '首轮召回/冷却不重复/重载清空/默认关不变/配置 6 项'
+})
+
+await test('R12', '规则原文：索引只取标题层并受预算夹取，第⑤源命中带行号，未配时逐字节不变', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-rules-'))
+  writeFileSync(join(dir, 'safety.md'), '\uFEFF# 安全边界（2026-11-01 定）\n\n## 身体\n同意\n', 'utf8')
+  writeFileSync(join(dir, '说话方式.md'), '# 说话方式（2026-11-06 伊纳调教）\n\n> 摘要：该说小穴就说小穴\n\n## 定下的规矩\n该说小穴就说小穴\n', 'utf8')
+  writeFileSync(join(dir, 'skip.txt'), 'x', 'utf8')
+  const textOf = (value) => (typeof value === 'string' ? value : (value?.text ?? value?.body ?? ''))
+
+  const idx = readRulesIndex(dir, 120)
+  assert.equal(idx.count, 2, '只数 .md')
+  assert.equal(idx.lines[0], '- safety：安全边界', '日期括号剥掉')
+  assert.equal(idx.lines[1], '- 说话方式：该说小穴就说小穴', '文件自述摘要优先')
+  assert.equal(readRulesIndex(dir, 0).lines.length, 0, '预算 0 = 不注入')
+  const tight = readRulesIndex(dir, 10)
+  assert.ok(tight.lines.length < 2 && tight.tokens <= 10, '预算紧就少给')
+
+  const hit = searchRules({ rulesDir: dir }, ['小穴'], 2)
+  assert.equal(hit.entries.length, 1, '第⑤源命中')
+  assert.equal(hit.entries[0].loc, 'rules/说话方式.md:3', 'loc 带行号')
+  assert.equal(searchRules({}, ['x'], 2).note, '未配置规则目录', '未配不抛')
+
+  assert.ok(textOf(composeSoulStable({ rulesIndex: idx.lines, router: [] })).includes('【规则原文】'), '稳定段带索引')
+  assert.ok(!textOf(composeSoulStable({ rulesIndex: [], router: [] })).includes('【规则原文】'), '不配就不出现')
+
+  const cfg = normalizeConfig({ rulesDir: dir })
+  assert.equal(cfg.rulesDir, dir, '白名单透传')
+  assert.equal(cfg.rulesIndexMaxTokens, 120, '默认 120')
+  assert.equal(normalizeConfig({ rulesDir: dir, rulesIndexMaxTokens: 9999 }).rulesIndexMaxTokens, 400, '上限夹 400')
+  rmSync(dir, { recursive: true, force: true })
+  return '索引/预算/摘要/第⑤源/白名单 6 项'
 })
 
 const width = Math.max(...results.map((r) => r.title.length))
