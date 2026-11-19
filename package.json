@@ -1,6 +1,6 @@
 {
   "name": "@ly-ina/dsh-soulweave",
-  "version": "0.2.7",
+  "version": "0.4.0",
   "private": false,
   "type": "module",
   "description": "Soulweave: a small soul layer for DeepSeek Harness. Injects a token-budgeted persona/now/how-to-look-up preamble via agent/pre-step, and exposes soul_recall over an optional memory backend (builtin SQLite / meow-memory / none) plus notes, sealed segments, an optional text index and an optional rules directory. Read-only towards soul.md; only soul_persist appends to its fourth section.",
@@ -26,32 +26,26 @@
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
+    "./core": "./core/index.mjs",
+    "./memory": "./memory/index.mjs",
     "./client": "./panel-client.js"
   },
   "files": [
     "index.js",
-    "memory-builtin.mjs",
-    "hybrid.mjs",
-    "zones.mjs",
-    "cue.mjs",
-    "tier.mjs",
-    "toolout.mjs",
-    "surface.mjs",
-    "capabilities.mjs",
-    "gamedev.mjs",
-    "soul_lint.mjs",
-    "scripts/migrate-zones.mjs",
+    "panel-client.js",
+    "core/",
+    "memory/",
+    "adapters/",
+    "tools/",
     "cordis.patch.yml",
-    "soul.example.md",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE",
-    "panel.js",
-    "panel-client.js"
+    "REPORT.md",
+    "README.md"
   ],
   "scripts": {
     "check": "node check.mjs",
-    "clean-install": "node clean-install.mjs"
+    "clean-install": "node clean-install.mjs",
+    "check-layers": "node tools/check-layers.mjs",
+    "example": "node examples/node-cli.mjs"
   },
   "dsh": {
     "bundle": {

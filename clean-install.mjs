@@ -130,7 +130,7 @@ try {
   ok('R6', `recall 空结果 ok=true；sources=${JSON.stringify(first.sources)}；自动建库 ${relative(root, dbPath)}`)
 
   // ---- R7：往 builtin 库写一条，再查能读回
-  const builtin = await import(pathToFileURL(join(pkgDir, 'memory-builtin.mjs')).href)
+  const builtin = await import(pathToFileURL(join(pkgDir, 'memory', 'builtin.mjs')).href)
   const wrote = builtin.putMemory(dbPath, {
     level: 'fact',
     content: '干净安装测试写的一条记忆：安装目录在临时根里。',

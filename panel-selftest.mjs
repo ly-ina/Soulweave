@@ -1,8 +1,8 @@
-﻿import { EventEmitter } from 'node:events'
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { registerSoulweavePanel, readOverride, applyOverride, PANEL_HEADER_NAME, PANEL_HEADER_VALUE } from './panel.js'
+import { registerSoulweavePanel, readOverride, applyOverride, PANEL_HEADER_NAME, PANEL_HEADER_VALUE } from './adapters/dsh/panel.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'sw-panel-'))
 let route = null

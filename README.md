@@ -6,6 +6,55 @@
 >
 > **默认不依赖本机任何其它插件**：不装 meow-memory 也能跑（用自带的最小 SQLite 后端），不装封存/原文库也能跑（对应检索源直接不注册）。
 
+## 包结构
+
+单包多入口：零构建、零 npm 依赖、没有 `node_modules`。三层单向依赖，只有最外面那层知道 DSH。
+
+```text
+index.js                  DSH 插件入口（name / inject / apply / MESSAGE_KIND）
+├─ adapters/dsh/          唯一允许接触 ctx 的适配层
+│  ├─ prestep.mjs         agent/pre-step：拼魂引、按预算注入
+│  └─ apply.mjs           注册 soul_* 工具、设置面板、同步触发器
+├─ core/                  纯逻辑：只 import node:*、memory 和相对路径
+│  ├─ prompt.mjs          魂引拼装
+│  ├─ budget.mjs          预算与降档
+│  ├─ soul.mjs            解析 soul.md
+│  ├─ recall.mjs          检索源编排
+│  ├─ triggers.mjs        触发词/冷却
+│  ├─ hybrid.mjs          RRF 混合召回
+│  └─ index.mjs           汇总出口（对应 exports "./core"）
+└─ memory/                记忆后端：只依赖 node:sqlite
+   ├─ builtin.mjs         自带最小 SQLite 后端
+   ├─ hybrid.mjs          RRF 混合召回（与 core/hybrid.mjs 同哈希副本）
+   └─ index.mjs           汇总出口（对应 exports "./memory"）
+
+panel-client.js           设置面板前端（包根，声明的 id 必须等于包名）
+tools/check-layers.mjs    分层守卫：core / memory 出现非 node:* 外部 import 即失败
+examples/node-cli.mjs     不装 DSH 也能跑通 core 的最小示例
+```
+
+| 入口 | 文件 | 用途 |
+|---|---|---|
+| `@ly-ina/dsh-soulweave` | `index.js` | DSH bundle 加载的插件本体 |
+| `@ly-ina/dsh-soulweave/core` | `core/index.mjs` | 不依赖宿主的纯逻辑，可单独引用 |
+| `@ly-ina/dsh-soulweave/memory` | `memory/index.mjs` | 自带 SQLite 后端与混合召回 |
+| `@ly-ina/dsh-soulweave/client` | `panel-client.js` | 设置面板前端 |
+
+三条规则：
+
+- `core` 不知道 DSH，可以用 `memory` 后端；`memory` 不许反向依赖 `core`。
+- 只有 `adapters/dsh/` 能拿到 `ctx`。换一个宿主，只需要重写这一层。
+- `core/hybrid.mjs` 与 `memory/hybrid.mjs` 是**有意保留的同哈希副本**：`./memory` 子入口要能独立使用，就不能反向 import `core`。守卫会校验两份哈希一致，改一份必须同步另一份。
+
+验证：
+
+```bash
+npm run check-layers   # 期望：PASS 依赖方向：24 个文件，core/memory 全部零宿主依赖
+npm run check          # 期望：97/97
+npm run example        # 期望：exit 0
+npm run clean-install  # 期望：R1..R8 OK（按 files 白名单复制到临时目录再跑）
+```
+
 ## 最小安装
 
 只要三样东西：一个 `soul.md`、一个能挂 bundle 的 profile、一条 `soulPath`。

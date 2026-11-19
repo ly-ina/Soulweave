@@ -63,6 +63,8 @@
 
 ## 未发布
 
+- 重构（0.4.0，2026-11-19）：单包多入口解耦。`index.js` 4028 → 52 行，只剩插件声明（`name` / `inject` / `apply` / `MESSAGE_KIND`）与公共 re-export；新增 `core/`（21 个文件，纯逻辑）、`memory/`（3 个文件，只依赖 `node:sqlite`）、`adapters/dsh/`（2 个文件，唯一接触 `ctx`）。`exports` 增加 `./core` 与 `./memory`，`files` 补上 `panel-client.js`（原先漏了，`./client` 发布后会解析失败）。新增 `tools/check-layers.mjs`：core/memory 出现宿主 import 即失败、memory 不得反向依赖 core、`core/hybrid.mjs` 与 `memory/hybrid.mjs` 必须 SHA-256 一致。`clean-install.mjs` 修正旧路径 `memory-builtin.mjs` → `memory/builtin.mjs`。`check.mjs` 97/97 + O* 11/11。
+
 - 改：`soul_toolout` 改为按 `biliDbPath` 存在与否注册。目标库不存在时不再注册该工具，避免每次调用都返回「库不存在」、并白占一张工具 schema。`check.mjs` 增至 72 条断言（新增 R7）。
 
 - 修：`reload-state.json` 改为按 session 分键（`{ version: 2, sessions: { <id>: { lastInject, at, lastReloadAt } } }`）。原先是全局单文件，压缩代理会话会把 `lastInject` 覆盖成自己的小值，主会话下一轮误判为「上轮不大」，压缩后重载永远轮不到主会话。状态只保留最近 12 个会话，旧格式自动视为空。

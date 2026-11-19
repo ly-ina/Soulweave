@@ -82,16 +82,16 @@ import {
   resetRecallCooldownOnReload,
 } from './index.js'
 
-import { putMemory } from './memory-builtin.mjs'
-import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './zones.mjs'
+import { putMemory } from './memory/builtin.mjs'
+import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
 
-import { bigramsOf, findDuplicatePairs, jaccardOf, lint, readDbEntries, readZoneEntries, soulweaveBlockOf, withTokens } from './soul_lint.mjs'
+import { bigramsOf, findDuplicatePairs, jaccardOf, lint, readDbEntries, readZoneEntries, soulweaveBlockOf, withTokens } from './core/soul_lint.mjs'
 
-import { cueStats, readCueMap, runCue } from './cue.mjs'
+import { cueStats, readCueMap, runCue } from './core/cue.mjs'
 import { createCapabilities } from './index.js'
-import { GAMEDEV_STOP, GAMEDEV_ZH } from './gamedev.mjs'
-import { budgetTokensOfChars, planForDb, resolveTierBudget, scoreParts } from './tier.mjs'
-import { planToolOutputs, restoreFromExport, runToolout } from './toolout.mjs'
+import { GAMEDEV_STOP, GAMEDEV_ZH } from './core/gamedev.mjs'
+import { budgetTokensOfChars, planForDb, resolveTierBudget, scoreParts } from './core/tier.mjs'
+import { planToolOutputs, restoreFromExport, runToolout } from './core/toolout.mjs'
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-soul-check-'))
 const results = []
@@ -1156,7 +1156,7 @@ import {
   renderSurfacePlan,
   surfaceStatsOf,
   textOf,
-} from './surface.mjs'
+} from './core/surface.mjs'
 
 const surfDir = join(root, 'surface')
 mkdirSync(surfDir, { recursive: true })
