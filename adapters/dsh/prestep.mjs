@@ -7,6 +7,7 @@ import { appendLog, asText, clip, estimateTokens, logLine, sha256, PLUGIN_DIR } 
 import { MESSAGE_KIND, MEMORY_HEAD_LIMIT } from '../../core/constants.mjs'
 import { normalizeConfig, readRouterLines } from '../../core/config.mjs'
 import { EMPTY_SOUL, composeSoul, composeSoulStable, composeSoulState, decideReload, planSoulSplit, readSoulSources } from '../../core/soul.mjs'
+import { readSnapshot as readPersonaSnapshot } from '../../core/persona.mjs'
 import { RECALL_TEXT_MAX_CHARS, SOUL_RECALL_KIND, SOUL_STATE_KIND, SOUL_TRIGGER_KIND, pickRecallEntry, planStateEmit, renderRecall, resetRecallCooldownOnReload } from '../../core/recall-state.mjs'
 import { applyBudgetPlan, countPinnedEntries, countResidentEntries, countSnapshotEntries, countSnapshots, countSoulNodes, detectPinnedAnomalies, detectSnapshotDrift, eventsOfSession, isSnapshotMessage, lastUserTexts, loadLessonHead, loadMemoryHeads, loadPendingItems, maybeLogTier, measureInjections, measureRequestBudget, planBudget, planSnapshotPrune, rememberUserTexts, snapshotMetaOf, soulTargetIndex, textOfMessage } from '../../core/budget.mjs'
 import { isDreamTurn, maybeRunProbe } from '../../core/probe.mjs'
@@ -166,6 +167,10 @@ export function createPreStepHandler(options = {}) {
     }
     if (reload) appendLog(config.logPath, logLine(at, 'reload', `压缩后重载 session=${sessionKey} previous=${previousInject}tok current=${currentInject}tok`))
 
+    // 2026-11-21 人格塑型快照：从记忆库 soul 表读「我记下的自己」，不是从 soul.md 读设定。
+    const personaSnapshot = config.personaInjection
+      ? readPersonaSnapshot(config.memoryDbPath, { maxItems: config.personaMaxItems, maxChars: config.personaMaxChars })
+      : { text: '', items: [], builtAt: at.toISOString(), stale: false, note: 'personaInjection=false' }
     const composed = composeSoul({
       soul: soul ?? EMPTY_SOUL,
       at,
@@ -175,6 +180,7 @@ export function createPreStepHandler(options = {}) {
       pendingMode: config.pendingMode,
       router: readRouterLines(config.routerPath),
       memoryHeads: memoryCache.items,
+      personaText: personaSnapshot.text,
       zones: zoneCache.rows,
       maxTokens: reload
         ? Math.max(config.soulMaxTokens, config.soulWarnTokens)
@@ -207,6 +213,7 @@ export function createPreStepHandler(options = {}) {
     }
     const shadowStable = composeSoulStable({
       soul: soul ?? EMPTY_SOUL,
+      personaText: personaSnapshot.text,
       rulesIndex: rulesCache.lines,
       router: readRouterLines(config.routerPath),
       inGroup,

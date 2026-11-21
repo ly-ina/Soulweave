@@ -84,6 +84,7 @@ import {
 
 import { putMemory } from './memory/builtin.mjs'
 import { previewDecay, applyDecay } from './memory/decay.mjs'
+import { readSnapshot as readPersonaSnapshot } from './core/persona.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
 
 import { bigramsOf, findDuplicatePairs, jaccardOf, lint, readDbEntries, readZoneEntries, soulweaveBlockOf, withTokens } from './core/soul_lint.mjs'
@@ -3180,6 +3181,45 @@ await test('R14', '阶段衰退：老且没用的沉底（importance-1 + 自家�
   assert.equal(previewDecay(dbPath, { now: NOW }).candidates.length, 0, '沉底后 30 天内不该重复进名单')
   const stale = applyDecay(dbPath, prev.candidates.map((c) => ({ table: c.table, id: c.id, stage: c.stage })), { now: NOW })
   assert.equal(stale.ok, false, '拿过期名单动手必须被拦下')
+})
+await test('R15', '人格塑型快照：只取 soul 表 active/够重要/未沉底/非 daily 的记忆，带日期、可裁剪、无库不崩', async () => {
+  const NOW = 1795263383996
+  const dbPath = join(root, 'persona', 'memory.db')
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new DatabaseSync(dbPath)
+  db.exec('create table soul(id text primary key, title text, content text, keywords text, importance integer, status text, lifecycle text, created_at integer, updated_at integer)')
+  const ins = db.prepare('insert into soul(id,content,keywords,importance,status,lifecycle,created_at,updated_at) values (?,?,?,?,?,?,?,?)')
+  ins.run('A', '性格是自己长出来的，不是别人写的。', '["自我"]', 4, 'active', null, NOW, NOW)
+  ins.run('B', '这是一条很长很长的自我描述，用来确认快照会按字数裁剪而不是整条倒进上下文里。', '[]', 2, 'active', null, NOW, NOW)
+  ins.run('C', '重要度不够，不该进快照。', '[]', 1, 'active', null, NOW, NOW)
+  ins.run('D', '已经归档了，不该进快照。', '[]', 4, 'archived', null, NOW, NOW)
+  ins.run('E', '已经沉底了，不该进快照。', '["decay:沉底@2026-11-01"]', 3, 'active', null, NOW, NOW)
+  ins.run('F', 'daily 条目是临时状态，不该进快照。', '[]', 3, 'active', 'daily', NOW, NOW)
+  db.close()
+
+  const snap = readPersonaSnapshot(dbPath, { now: NOW })
+  assert.equal(snap.items.length, 2, '只该取 A/B 两条')
+  assert.ok(snap.text.startsWith('【我记下的自己】'), '标题要标明这是记忆不是设定')
+  assert.ok(snap.text.includes('11-21'), '每条要带日期')
+  assert.ok(!snap.text.includes('重要度不够'), 'C 不该出现')
+  assert.ok(!snap.text.includes('已经归档'), 'D 不该出现')
+  assert.ok(!snap.text.includes('已经沉底'), 'E 不该出现')
+  assert.ok(!snap.text.includes('daily'), 'F 不该出现')
+  assert.ok(snap.text.length < 200, '快照要短')
+
+  const one = readPersonaSnapshot(dbPath, { now: NOW, maxItems: 1 })
+  assert.equal(one.items.length, 1, 'maxItems 要生效')
+
+  const missing = readPersonaSnapshot(join(root, 'persona', 'nope.db'))
+  assert.equal(missing.text, '', '没有库就不注入，也不崩')
+
+  const otherPath = join(root, 'persona', 'builtin.db')
+  const other = new DatabaseSync(otherPath)
+  other.exec('create table memories(id text primary key, content text)')
+  other.close()
+  const empty = readPersonaSnapshot(otherPath)
+  assert.equal(empty.text, '', '非 meow 结构返回空而不是抛错')
+  assert.ok(empty.note.includes('soul'), 'note 要说清为什么空')
 })
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'

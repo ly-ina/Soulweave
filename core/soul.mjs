@@ -258,6 +258,8 @@ export function composeSoul(input = {}) {
     if (shownMind.length > 0) lines.push(`认知：${shownMind.join(' · ')}${overflow(mindAll, shownMind)}`)
     if (shownBoundary.length > 0) lines.push(`禁令：${shownBoundary.join(' · ')}${overflow(boundaryAll, shownBoundary)}`)
     if (shownGroup.length > 0) lines.push(`外交：${shownGroup.join(' · ')}${overflow(groupAll, shownGroup)}`)
+    // 2026-11-21：人格塑型快照（记忆衍生，不是设定）。由 adapters 读库后传入，core 保持零宿主依赖。
+    if (typeof input.personaText === 'string' && input.personaText.trim() !== '') lines.push(input.personaText)
     // D3（2026-11-04）：【记忆】独立成节。原来「我记得」挂在【人格】末行，被当成"我是谁"的一部分；
     // 它其实是"我记得什么"，跟人格不是一类，混在一起既撑大【人格】也让它排在日期之后。
     lines.push(MEMORY_SECTION.title)
@@ -376,6 +378,7 @@ function renderSoulStableBody(take, ctx) {
   pushSection('认知', ctx.mind)
   pushSection('禁令', ctx.boundary)
   if (ctx.inGroup) pushSection('外交', ctx.group)
+  if (typeof ctx.personaText === 'string' && ctx.personaText.trim() !== '') lines.push(ctx.personaText)
   lines.push(MEMORY_SECTION.pointer)
   if (ctx.rules.length > 0) {
     lines.push('【规则原文】（只列目录，细则用 soul_recall 查）')
