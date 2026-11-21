@@ -18,8 +18,13 @@
 ## 2. 一轮对话的最小顺序
 
 ```js
-import { ensureDb, putMemory, search } from '@ly-ina/dsh-soulweave/memory'
-import { parseSoul, composeSoulStable } from '@ly-ina/dsh-soulweave/core'
+// A) 直接 clone 下来运行：用相对路径（demo 就是这么跑的）
+import { ensureDb, putMemory, search } from './memory/index.mjs'
+import { parseSoul, composeSoulStable } from './core/soul.mjs'
+
+// B) 装进你自己的项目后（npm install <这个目录>），才能用包名：
+// import { ensureDb, putMemory, search } from '@ly-ina/dsh-soulweave/memory'
+// import { parseSoul, composeSoulStable } from '@ly-ina/dsh-soulweave/core'
 
 // 1) 人格：每人一份 soul 文本
 const soul = parseSoul(soulText)           // 认「## 身份 / ## 认知 / ## 禁令 / ## 外交」四节
