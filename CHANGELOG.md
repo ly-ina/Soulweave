@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 — 2026-11-21
+
+- **情境签名 `when_ctx`（记忆系统第 1 条）**：记忆条目可以带「什么时候该想起我」，不再只靠相似度。
+  - 新表 `when_index(level, entry_id, when_ctx, updated_at)`，独立于 meow 的七张条目表。与待办原文的一处偏离：原本写的是「七张表加列」，改成了独立表——旧行一个字节不动、回滚只要 `DROP TABLE`、不用碰 `memory_remember` 的工具 schema 和 i18n 文案。
+  - 只认三个键：`tool`（工具名，支持 `write*` 通配）、`pathPattern`（`*.md|*.mjs` 这种）、`timeWindow`（morning/afternoon/evening/night）。`sessionState` 故意没做——现在没有可靠信号源，硬塞就是猜，等 prestep 条件触发落地再说。
+  - `memory/when.mjs`：`normalizeWhen` / `putWhen` / `getWhen` / `removeWhen` / `readWhenMap` / `matchWhen`（纯函数，返回 `hit` / `miss` / `null`）/ `timeWindowOf`。只依赖 `node:sqlite`。
+  - `core/search.mjs` 新增 `searchMemoryByContext(cfg, ctx, limit)`：只返回签过 when 且命中的条目，没签的一律不出现。它不替代相似度检索，是另一条道。
+  - `tools/when.mjs`：`set` / `get` / `del` / `list` / `probe` 命令行入口。
+- **SP7 口径修正**：soul.md 2026-11-21 起在禁令节多了一行「动 lanxi 文件先查路径」（+59 tok，稳定段 658→717），那行防的是同一个错犯了 5 次，故意付这个成本。原断言拿「首轮全量 stable+state」跟 legacy 比，口径错了——拆分收益在稳态（首轮之后只发 state 57 tok）。改成两条：`stable < legacy` 且 `state < legacy × 0.3`。
+- 自测：新增 `tools/selftest-when.mjs` 20 条断言；`check.mjs` 97/97；`check-layers` 依赖方向 25 文件零宿主依赖。
+
 ## 0.2.7 — 2026-11-13
 
 - **规则原文接入（②+③）**：新增 `rulesDir`，稳定段只注入「文件名 + 一句话」索引（`rulesIndexMaxTokens` 默认 120 tok，0 = 关）；细则不常驻，走 `soul_recall` 新加的第⑤源「规则原文」，命中给 `rules/<文件名>:<行号>`。

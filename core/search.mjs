@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import * as builtinMemory from '../memory/builtin.mjs'
 import { readCueMap, scoreCue } from './cue.mjs'
 import { readInjectionRows } from './tier.mjs'
+import * as whenMemory from '../memory/when.mjs'
 import { asText, clip, tableColumns } from './text.mjs'
 import { MEMORY_HEAD_LIMIT, MEMORY_LEVELS } from './constants.mjs'
 import { normalizeConfig } from './config.mjs'
@@ -179,6 +180,63 @@ export function scoreOf(matched, words, entry, content = '') {
  * 没有 cue 的行（凑不满 3 个触发词）在候选不足时补一次**受限**正文扫描
  * （最多 limit×50 行），否则 cue 空值会把老记忆变成搜不到——这是刻意的折中，写进报告。
  */
+/**
+ * 情境检索（2026-11-21 第 1 条）：不靠词，靠「现在在干什么」。
+ * 只返回签过 when 且命中的条目；没签 when 的一律不出现——它是精确召回，
+ * 不是相似度检索的替代品。ctx = { tool, path, timeWindow }。
+ */
+export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
+  const dbPath = cfg?.memoryDbPath
+  if (!dbPath || !existsSync(dbPath)) return { entries: [], note: '记忆库不存在', scanned: 0 }
+  let db
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true })
+    const whenMap = whenMemory.readWhenMap(db)
+    if (whenMap.size === 0) return { entries: [], note: '还没有条目签过 when', scanned: 0 }
+    const out = []
+    let scanned = 0
+    for (const level of MEMORY_LEVELS) {
+      const cols = tableColumns(db, level)
+      if (cols.length === 0) continue
+      const pick = ['id']
+      for (const optional of ['title', 'content', 'keywords', 'project', 'importance', 'status']) {
+        if (cols.includes(optional)) pick.push(optional)
+      }
+      let rows
+      try {
+        rows = db.prepare(`select ${pick.join(', ')} from ${level}`).all()
+      } catch {
+        continue
+      }
+      for (const row of rows) {
+        scanned += 1
+        if (String(row.status ?? 'active') !== 'active') continue
+        const when = whenMap.get(`${level}#${row.id}`)
+        if (!when) continue
+        if (whenMemory.matchWhen(when, ctx) !== 'hit') continue
+        out.push({
+          loc: `记忆库/${level}#${row.id}`,
+          level,
+          title: String(row.title ?? ''),
+          snippet: snippetAround(String(row.content ?? row.title ?? ''), []),
+          importance: Number(row.importance ?? 1),
+          when,
+        })
+      }
+    }
+    out.sort((a, b) => b.importance - a.importance)
+    return { entries: out.slice(0, limit), note: `when 命中 ${out.length} 条 / 扫描 ${scanned}`, scanned }
+  } catch (error) {
+    return { entries: [], note: `情境检索失败：${String(error?.message ?? error)}`, scanned: 0 }
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export function searchMemoryByCue(db, words, limit, cueMap, columnsOf = tableColumns) {
   const need = words.length <= 1 ? 1 : Math.ceil(words.length * 0.5)
   const picked = []
