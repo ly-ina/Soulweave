@@ -40,5 +40,21 @@ ok('empty', eq(pickLastToolCall([]), null))
 ok('bad json', eq(pickLastToolCall([{ role: 'assistant', content: '{oops' }]), null))
 ok('tool only', eq(pickLastToolCall([{ role: 'assistant', content: [{ type: 'tool-call', name: 'x' }] }]), { tool: 'x', input: null, path: '' }))
 
+ok('event form', eq(pickLastToolCall(null, [
+  { type: 'tool/call', data: { name: 'ps', arguments: '{"script":"x"}' } },
+]), { tool: 'ps', input: { script: 'x' }, path: '' }))
+
+ok('event path', eq(pickLastToolCall(null, [
+  { type: 'tool/call', data: { name: 'write', arguments: '{"path":"a.md","content":"y"}' } },
+]).path, 'a.md'))
+
+ok('event beats messages', eq(pickLastToolCall(
+  [{ role: 'assistant', content: [{ type: 'tool-call', name: 'old' }] }],
+  [{ type: 'tool/call', data: { name: 'new', arguments: '{}' } }],
+).tool, 'new'))
+
+ok('event bad args', eq(pickLastToolCall(null, [
+  { type: 'tool/call', data: { name: 'ps', arguments: 'not-json' } },
+]), { tool: 'ps', input: null, path: '' }))
 console.log(`PASS ${pass}/${pass + fail}`)
 process.exit(fail ? 1 : 0)

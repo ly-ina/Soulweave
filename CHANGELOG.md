@@ -7,6 +7,8 @@
   - 新增 `core/toolcall.mjs`：`pickLastToolCall(messages)` 从 payload 尾巴提取最近一次工具调用，兼容 content 是数组 / 对象 / JSON 字符串三种形态，返回 `{tool, input, path}`。
   - `adapters/dsh/prestep.mjs` 接线：`whenInjection` 开才跑；`whenDryRun`（默认 true）只写 `when-dry` 日志不注入；每轮最多 1 条；同 session 同 id 冷却 `whenCooldownMinutes`（默认 90）；压缩重载轮清冷却。
   - **修 `matchWhen` 的 `tool` 不支持 `|` 分隔**（原来只有数组形式能多选，字符串里的 `|` 被当字面量，导致 probe 全 miss）。现在 `tool` 和 `pathPattern` 一样支持 `|`。
+  - 从 `session.v4.jsonl.zstd` 取证到真实事件形状：`{"type":"tool/call","data":{"name":"ps","arguments":"{\"script\":…}"}}`——`arguments` 是 JSON 字符串不是对象。`pickLastToolCall` 因此加了一条 events 通道（先扫 events 尾部，再回落 messages）。
+  - dry-run 加 `when-scan` 诊断行：每轮写 `tool=… path=… scanned=… hit=…`，payload 里认不出工具调用时写 `no-tool-call`。否则「没命中」和「配置没生效」从日志里分不清。
   - 配置：`whenInjection` / `whenDryRun` / `whenBudgetTokens`（默认 80）/ `whenCooldownMinutes`（默认 90）。四个都默认关或宽松，不配置时 `agent/pre-step` 输出逐字节不变。
 - 自测：新增 R13（dry-run 只记日志 / 真发注入 1 条 / 同 id 冷却 / 默认关零调用）；`selftest-when` 20→23 条（`tool` 的 `|` 与数组混用）；`check.mjs` 98/98；`check-layers` 26 文件零宿主依赖。
 ## 0.4.1 — 2026-11-21

@@ -59,8 +59,39 @@ function pathOf(input) {
   return ''
 }
 
-/** 从消息数组尾部找出最近一次工具调用。找不到返回 null。 */
-export function pickLastToolCall(messages) {
+/**
+ * 2026-11-21 v0.4.2 修：从 DSH 的 session 事件里取工具调用。
+ * 真实形状（已从 session.v4.jsonl.zstd 取证）：
+ *   {"type":"tool/call","data":{"turn":4990,"step":3,"callId":"…","name":"ps","arguments":"{\\"script\\":…}"}}
+ * 注意 arguments 是 JSON 字符串，不是对象。
+ */
+function fromEvent(event) {
+  if (!event || typeof event !== 'object') return null
+  const kind = asText(event.type) || asText(event.kind)
+  if (kind !== 'tool/call' && kind !== 'tool-call' && kind !== 'tool_use') return null
+  const data = event.data && typeof event.data === 'object' ? event.data : event
+  const tool = asText(data.name) || asText(data.toolName) || asText(data.tool)
+  if (!tool) return null
+  let input = null
+  const raw = data.arguments ?? data.args ?? data.input
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    input = raw
+  } else if (typeof raw === 'string' && raw.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) input = parsed
+    } catch { /* 参数不是合法 JSON 就当没有 */ }
+  }
+  return { tool, input }
+}
+/** 先看 events（最可靠），再回落到 messages。都找不到返回 null。 */
+export function pickLastToolCall(messages, events) {
+  if (Array.isArray(events)) {
+    for (let index = events.length - 1; index >= 0 && index >= events.length - 12; index -= 1) {
+      const found = fromEvent(events[index])
+      if (found) return { ...found, path: pathOf(found.input) }
+    }
+  }
   if (!Array.isArray(messages)) return null
   const tail = messages.slice(-8)
   for (let index = tail.length - 1; index >= 0; index -= 1) {

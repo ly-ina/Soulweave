@@ -376,13 +376,19 @@ export function createPreStepHandler(options = {}) {
      */
     if (config.whenInjection && statePlan.emit) {
       if (shadowPlan?.injectStable === true) whenCooled.delete(sessionKey)
-      const call = pickLastToolCall(payload?.messages)
+      const call = pickLastToolCall(payload?.messages, events)
+      if (!call?.tool) {
+        // dry-run 诊断：payload 尾部没认出工具调用时也要留痕，否则「没命中」和「没生效」分不清。
+        appendLog(config.logPath, logLine(at, 'when-scan', 'no-tool-call'))
+      }
       if (call?.tool) {
         const ctx = { tool: call.tool, path: call.path || '', timeWindow: timeWindowOf(at) }
         let picked = null
         let failed = ''
+        let scanned = 0
         try {
           const result = whenSearcher(config, ctx, 3)
+          scanned = Number(result?.scanned ?? 0)
           const cooled = whenCooled.get(sessionKey) ?? new Map()
           const nowMs = at.getTime()
           const cooldownMs = config.whenCooldownMinutes * 60_000
@@ -397,6 +403,8 @@ export function createPreStepHandler(options = {}) {
         } catch (error) {
           failed = error instanceof Error ? error.message : String(error)
         }
+        // 每次匹配尝试都留一行（含未命中），dry-run 全靠它看命中率与误报。
+        appendLog(config.logPath, logLine(at, 'when-scan', `tool=${call.tool} path=${call.path || '-'} scanned=${scanned} hit=${picked?.id ?? '-'}${failed ? ` err=${failed}` : ''}`))
         if (picked) {
           const text = clip(String(picked.title || picked.snippet || ''), 60)
           const tokens = estimateTokens(text)
