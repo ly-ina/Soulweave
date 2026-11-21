@@ -37,7 +37,17 @@ function asText(value) {
 function clip(text, max) {
   const chars = [...asText(text)]
   if (chars.length <= max) return chars.join('')
-  return `${chars.slice(0, max).join('')}…`
+  // 优先在标点处收口，别把句子砍成「小汐就是小…」这种半截。
+  const head = chars.slice(0, max).join('')
+  const cut = Math.max(
+    head.lastIndexOf('。'),
+    head.lastIndexOf('；'),
+    head.lastIndexOf('！'),
+    head.lastIndexOf('？'),
+    head.lastIndexOf('，'),
+  )
+  if (cut >= Math.floor(max * 0.6)) return `${head.slice(0, cut + 1)}…`
+  return `${head}…`
 }
 
 /** 毫秒时间戳 → `MM-DD`；解析不了给空串（宁可没有日期，也不编一个）。 */

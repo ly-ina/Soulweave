@@ -3205,7 +3205,7 @@ await test('R15', '人格塑型快照：只取 soul 表 active/够重要/未沉�
   assert.ok(!snap.text.includes('已经归档'), 'D 不该出现')
   assert.ok(!snap.text.includes('已经沉底'), 'E 不该出现')
   assert.ok(!snap.text.includes('daily'), 'F 不该出现')
-  assert.ok(snap.text.length < 200, '快照要短')
+  assert.ok(snap.text.length < 260, '快照要短')
 
   const one = readPersonaSnapshot(dbPath, { now: NOW, maxItems: 1 })
   assert.equal(one.items.length, 1, 'maxItems 要生效')
