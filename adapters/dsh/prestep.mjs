@@ -14,7 +14,7 @@ import { createSoulMessage, resolveWorkspace, zoneRowsOf } from '../../core/prom
 import { loadTriggers, pickTriggerText, resetTriggerCooldownOnReload, selectTriggers } from '../../core/triggers.mjs'
 import { createMemoryBackend, searchMemoryByContext } from '../../core/search.mjs'
 import { pickLastToolCall } from '../../core/toolcall.mjs'
-import { timeWindowOf } from '../../memory/when.mjs'
+import { bumpWhenHit, timeWindowOf } from '../../memory/when.mjs'
 import { readRulesIndex } from '../../core/recall.mjs'
 
 export function createPreStepHandler(options = {}) {
@@ -62,7 +62,11 @@ export function createPreStepHandler(options = {}) {
   /** 2026-11-21 v0.4.2：when 匹配入口；默认走 searchMemoryByContext，check.mjs 用 options.whenSearcher 注入假后端。 */
   const whenSearcher = typeof options.whenSearcher === 'function'
     ? options.whenSearcher
-    : (cfg, ctx, limit) => searchMemoryByContext(cfg, ctx, limit)
+    : (cfg, ctx, limit) => searchMemoryByContext(cfg, ctx, limit)
+  /** 2026-11-21 第 3 条：命中计数入口；默认写 when_index，check.mjs 用 options.whenBump 注入假实现。 */
+  const whenBump = typeof options.whenBump === 'function'
+    ? options.whenBump
+    : (entry) => bumpWhenHit(config.memoryDbPath, entry.level, entry.id)
   // 待办 A：分区行（计数现扫，索引只定顺序），也是 60s 内复用。
   const zoneLoader = typeof options.zoneLoader === 'function' ? options.zoneLoader : () => zoneRowsOf(config)
   let zoneCache = { at: 0, rows: [] }
@@ -400,9 +404,11 @@ export function createPreStepHandler(options = {}) {
             const last = cooled.get(entry.id)
             return cooldownMs <= 0 || !last || nowMs - last >= cooldownMs
           }) ?? null
-          if (picked && !config.whenDryRun) {
+          if (picked) {
             cooled.set(picked.id, nowMs)
-            whenCooled.set(sessionKey, cooled)
+            whenCooled.set(sessionKey, cooled)
+            // 2026-11-21 第 3 条：dry-run 也记账、也冷却 —— 只记日志不冷却的话，同一条每步都命中，数据是假的。
+            whenBump(picked)
           }
         } catch (error) {
           failed = error instanceof Error ? error.message : String(error)

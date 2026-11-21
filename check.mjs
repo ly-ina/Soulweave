@@ -2964,6 +2964,7 @@ await test('R11c', '召回冷却与重载清空、默认关逐字节不变、配
   const logPath = join(root, 'logs/recall-cool.log')
   rmSync(logPath, { force: true })
   let calls = 0
+  const bumps = []
   const searcher = () => {
     calls += 1
     return [{ id: 'm00042', content: '封存 manifest 后行覆盖前行。' }]
@@ -3071,7 +3072,7 @@ await test('R12', '规则原文：索引只取标题层并受预算夹取，第�
 })
 
 const width = Math.max(...results.map((r) => r.title.length))
-await test('R13', 'when 条件触发：dry-run 只记日志、真发注入 1 条、同 id 冷却、默认关零调用', async () => {
+await test('R13', 'when 条件触发：dry-run 只记日志也记账、真发注入 1 条、同 id 冷却、默认关零调用', async () => {
   const fixedNow = () => new Date('2026-11-21T20:00:00+08:00')
   const logPath = join(root, 'logs/when.log')
   rmSync(logPath, { force: true })
@@ -3079,6 +3080,7 @@ await test('R13', 'when 条件触发：dry-run 只记日志、真发注入 1 条
     { role: 'assistant', content: [{ type: 'tool-call', name: 'write', input: { path: 'a.md' } }] },
   ]
   let calls = 0
+  const bumps = []
   const searcher = () => {
     calls += 1
     return { entries: [{ id: 'm00077', title: '改中文源码用 read/write/edit', snippet: '改中文源码用 read/write/edit，别用 ps。' }] }
@@ -3094,6 +3096,7 @@ await test('R13', 'when 条件触发：dry-run 只记日志、真发注入 1 条
     now: fixedNow,
     pendingLoader: () => [],
     whenSearcher: searcher,
+    whenBump: (entry) => bumps.push(entry.id),
   })
 
   const dry = await handlerWith({ whenInjection: true, whenDryRun: true })(mk(1, toolMessages()), async () => fakeDecision)
@@ -3101,6 +3104,7 @@ await test('R13', 'when 条件触发：dry-run 只记日志、真发注入 1 条
   const dryLog = readFileSync(logPath, 'utf8')
   assert.ok(dryLog.includes('when-dry'), 'dry-run 应写 when-dry 日志')
   assert.ok(dryLog.includes('m00077'), '日志应带命中 id')
+  assert.deepEqual(bumps, ['m00077'], 'dry-run 也要记账 —— 不记就白等几天')
 
   const liveHandler = handlerWith({ whenInjection: true, whenDryRun: false })
   const live = await liveHandler(mk(2, toolMessages()), async () => fakeDecision)
@@ -3111,6 +3115,7 @@ await test('R13', 'when 条件触发：dry-run 只记日志、真发注入 1 条
   const again = await liveHandler(mk(3, toolMessages()), async () => fakeDecision)
   assert.equal(again.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, '冷却期内同 id 不该重复注入')
   assert.equal(calls, 3, '冷却仍应照常检索')
+  assert.deepEqual(bumps, ['m00077', 'm00077'], '真发那次也记账；冷却期不再记')
 
   calls = 0
   const off = await handlerWith({})(mk(4, toolMessages()), async () => fakeDecision)
