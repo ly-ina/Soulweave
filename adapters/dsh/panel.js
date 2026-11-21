@@ -69,6 +69,28 @@ export const PANEL_ITEMS = Object.freeze([
     help: '开：稳定段只发一次、压缩后补发；关：legacy 每步全量。',
   },
   {
+    key: 'personaInjection',
+    label: '人格塑型快照（从记忆读，不读 soul.md 设定）',
+    type: 'bool',
+    help: '开：魂引里多一段【我记下的自己】，取自记忆库 soul 表；关：不发。',
+  },
+  {
+    key: 'personaMaxItems',
+    label: '人格快照最多几条',
+    type: 'int',
+    min: 1,
+    max: 8,
+    help: '默认 3，按重要度和更新时间取。',
+  },
+  {
+    key: 'personaMaxChars',
+    label: '人格快照单条字数上限',
+    type: 'int',
+    min: 20,
+    max: 800,
+    help: '默认 400（基本等于全文）；超长会在标点处收口。',
+  },
+  {
     key: 'hybridSearch',
     label: '混合召回（BM25 + 向量）',
     type: 'bool',
