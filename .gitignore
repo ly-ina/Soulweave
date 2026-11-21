@@ -7,9 +7,8 @@ reload-state.json
 *.db
 *.tgz
 
-# 个人数据：人格文件、记忆分区、索引、笔记
+# 个人数据：人格文件、索引、笔记（不要把 memory/ 写进来——那是插件源码层）
 soul.md
-memory/
 index.jsonl
 notes/
 
@@ -18,5 +17,5 @@ notes/
 REPORT.md
 .pnpm-debug.log*
 
-# ��������ڵĸ�����
+# ��������ڵĸ�����
 *.lock
