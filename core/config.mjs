@@ -274,7 +274,7 @@ export function normalizeConfig(config = {}) {
     /** 2026-11-21：人格塑型快照注入（从 soul 表读，不是 soul.md 设定）。默认开。 */
     personaInjection: config.personaInjection !== false,
     personaMaxItems: asInt(config.personaMaxItems, 3, 1, 8),
-    personaMaxChars: asInt(config.personaMaxChars, 200, 20, 600),
+    personaMaxChars: asInt(config.personaMaxChars, 400, 20, 800),
     /** 稳定段预算（tok）：方案 §2.1 定 900。 */
     soulStableMaxTokens: asInt(config.soulStableMaxTokens, DEFAULT_SOUL_STABLE_TOKENS, 40, SOUL_TOKEN_CEILING),
     /** 动态段预算（tok）：方案 §2.1 定 120；另有 200 字硬上限（SOUL_STATE_MAX_CHARS）。 */

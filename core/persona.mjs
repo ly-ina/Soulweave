@@ -22,7 +22,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 export const PERSONA_DEFAULTS = Object.freeze({
   maxItems: 3,
-  maxChars: 200,
+  maxChars: 400,
   minImportance: 2,
   table: 'soul',
 })
