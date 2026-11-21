@@ -12,7 +12,9 @@ import { applyBudgetPlan, countPinnedEntries, countResidentEntries, countSnapsho
 import { isDreamTurn, maybeRunProbe } from '../../core/probe.mjs'
 import { createSoulMessage, resolveWorkspace, zoneRowsOf } from '../../core/prompt.mjs'
 import { loadTriggers, pickTriggerText, resetTriggerCooldownOnReload, selectTriggers } from '../../core/triggers.mjs'
-import { createMemoryBackend } from '../../core/search.mjs'
+import { createMemoryBackend, searchMemoryByContext } from '../../core/search.mjs'
+import { pickLastToolCall } from '../../core/toolcall.mjs'
+import { timeWindowOf } from '../../memory/when.mjs'
 import { readRulesIndex } from '../../core/recall.mjs'
 
 export function createPreStepHandler(options = {}) {
@@ -47,10 +49,18 @@ export function createPreStepHandler(options = {}) {
   /** 2026-11-11 v2：召回冷却与告警节流，形状与 trigger 一致（session → id → ts）。 */
   const recallCooled = new Map()
   const recallWarned = new Set()
+  /** 2026-11-21 v0.4.2 条件触发（when_ctx）冷却，形状同 recall（session → id → ts）。 */
+  const whenCooled = new Map()
+  /** when 注入失败的告警节流（session + 原因）。 */
+  const whenWarned = new Set()
   /** 召回检索入口：默认走记忆后端；check.mjs 用 options.recallSearcher 注入假后端。 */
   const recallSearcher = typeof options.recallSearcher === 'function'
     ? options.recallSearcher
     : (query, limit) => backend.search(query, limit)
+  /** 2026-11-21 v0.4.2：when 匹配入口；默认走 searchMemoryByContext，check.mjs 用 options.whenSearcher 注入假后端。 */
+  const whenSearcher = typeof options.whenSearcher === 'function'
+    ? options.whenSearcher
+    : (cfg, ctx, limit) => searchMemoryByContext(cfg, ctx, limit)
   // 待办 A：分区行（计数现扫，索引只定顺序），也是 60s 内复用。
   const zoneLoader = typeof options.zoneLoader === 'function' ? options.zoneLoader : () => zoneRowsOf(config)
   let zoneCache = { at: 0, rows: [] }
@@ -353,6 +363,54 @@ export function createPreStepHandler(options = {}) {
             const warning = `dsh-soul: 记忆召回失败，本轮跳过（${failed}）`
             appendLog(config.logPath, logLine(at, 'recall-warn', warning))
             logger?.warn?.(warning)
+          }
+        }
+      }
+    }
+    /*
+     * 2026-11-21 v0.4.2 条件触发（待办第 2 条）：看「上一次工具调用」，按 when_ctx 匹配记忆。
+     * 时机限制：DSH 只有 pre-step、没有 pre-tool —— 这里注入的提示作用于**下一个**工具调用，
+     * 不是拦住当前这一次。想更早，只能改宿主，不在本插件范围。
+     * 硬约束：每轮最多 1 条；同 session 同 id 冷却 whenCooldownMinutes。
+     * whenDryRun 默认 true：只写 when-dry 日志、不注入。先量命中率与误报，再接真发。
+     */
+    if (config.whenInjection && statePlan.emit) {
+      if (shadowPlan?.injectStable === true) whenCooled.delete(sessionKey)
+      const call = pickLastToolCall(payload?.messages)
+      if (call?.tool) {
+        const ctx = { tool: call.tool, path: call.path || '', timeWindow: timeWindowOf(at) }
+        let picked = null
+        let failed = ''
+        try {
+          const result = whenSearcher(config, ctx, 3)
+          const cooled = whenCooled.get(sessionKey) ?? new Map()
+          const nowMs = at.getTime()
+          const cooldownMs = config.whenCooldownMinutes * 60_000
+          picked = (result.entries ?? []).find((entry) => {
+            const last = cooled.get(entry.id)
+            return cooldownMs <= 0 || !last || nowMs - last >= cooldownMs
+          }) ?? null
+          if (picked && !config.whenDryRun) {
+            cooled.set(picked.id, nowMs)
+            whenCooled.set(sessionKey, cooled)
+          }
+        } catch (error) {
+          failed = error instanceof Error ? error.message : String(error)
+        }
+        if (picked) {
+          const text = clip(String(picked.title || picked.snippet || ''), 60)
+          const tokens = estimateTokens(text)
+          if (config.whenDryRun) {
+            appendLog(config.logPath, logLine(at, 'when-dry', `tool=${call.tool} id=${picked.id} tokens=${tokens} text=${text}`))
+          } else if (tokens <= config.whenBudgetTokens) {
+            messages.push(createSoulMessage(text, SOUL_TRIGGER_KIND))
+            appendLog(config.logPath, logLine(at, 'when', `tool=${call.tool} id=${picked.id} tokens=${tokens}`))
+          }
+        } else if (failed) {
+          const warnKey = `${sessionKey}\u0000${failed}`
+          if (!whenWarned.has(warnKey)) {
+            whenWarned.add(warnKey)
+            appendLog(config.logPath, logLine(at, 'when-warn', failed))
           }
         }
       }

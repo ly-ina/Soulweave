@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — 2026-11-21
+
+- **prestep 条件触发（记忆系统第 2 条，dry-run 阶段）**：工具调用之后、下一次模型请求之前，用「刚用过的工具 + 参数里的路径」去查 `when_index`，命中就准备一条 ≤60 字的短句。
+  - 时机先说清楚：DSH 只有 `agent/pre-step`、没有 pre-tool 钩子。所以这里注入的提示作用于**下一个**工具调用，不是拦住当前这一次。想更早只能改宿主，不在插件范围。
+  - 新增 `core/toolcall.mjs`：`pickLastToolCall(messages)` 从 payload 尾巴提取最近一次工具调用，兼容 content 是数组 / 对象 / JSON 字符串三种形态，返回 `{tool, input, path}`。
+  - `adapters/dsh/prestep.mjs` 接线：`whenInjection` 开才跑；`whenDryRun`（默认 true）只写 `when-dry` 日志不注入；每轮最多 1 条；同 session 同 id 冷却 `whenCooldownMinutes`（默认 90）；压缩重载轮清冷却。
+  - **修 `matchWhen` 的 `tool` 不支持 `|` 分隔**（原来只有数组形式能多选，字符串里的 `|` 被当字面量，导致 probe 全 miss）。现在 `tool` 和 `pathPattern` 一样支持 `|`。
+  - 配置：`whenInjection` / `whenDryRun` / `whenBudgetTokens`（默认 80）/ `whenCooldownMinutes`（默认 90）。四个都默认关或宽松，不配置时 `agent/pre-step` 输出逐字节不变。
+- 自测：新增 R13（dry-run 只记日志 / 真发注入 1 条 / 同 id 冷却 / 默认关零调用）；`selftest-when` 20→23 条（`tool` 的 `|` 与数组混用）；`check.mjs` 98/98；`check-layers` 26 文件零宿主依赖。
 ## 0.4.1 — 2026-11-21
 
 - **情境签名 `when_ctx`（记忆系统第 1 条）**：记忆条目可以带「什么时候该想起我」，不再只靠相似度。

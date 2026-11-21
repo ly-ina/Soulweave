@@ -299,6 +299,19 @@ export function normalizeConfig(config = {}) {
     recallBudgetTokens: asInt(config.recallBudgetTokens, 180, 80, 400),
     /** 同 session 同记忆 id 的召回冷却分钟数（夹 0–1440；0 = 不冷却）。 */
     recallCooldownMinutes: asInt(config.recallCooldownMinutes, 60, 0, 1440),
+    /**
+     * 2026-11-21 v0.4.2 条件触发（第 2 条）：看到上一次工具调用，按 when_ctx 匹配记忆。
+     * 默认 false —— 关着时 `agent/pre-step` 输出逐字节不变。
+     * 注意：DSH 只有 pre-step 一个请求前钩子，没有 pre-tool；所以这里是「工具调用之后、下一次模型请求之前」，
+     * 命中提示对**下一个**工具调用生效，不是拦住当前这一次。
+     */
+    whenInjection: config.whenInjection === true,
+    /** true = 只写 when-dry 日志，不注入（先量命中率与误报，再接真发）。 */
+    whenDryRun: config.whenDryRun !== false,
+    /** 单轮 when 注入预算（tok，夹 40–200）。 */
+    whenBudgetTokens: asInt(config.whenBudgetTokens, 80, 40, 200),
+    /** 同 session 同记忆 id 的 when 冷却分钟数（夹 0–1440；0 = 不冷却）。 */
+    whenCooldownMinutes: asInt(config.whenCooldownMinutes, 90, 0, 1440),
     /** 模块 C 扫插件的根目录：默认本工作区的 plugins + 当前 profile 的 node_modules。 */
     pluginRoots: Array.isArray(config.pluginRoots) && config.pluginRoots.length > 0
       ? config.pluginRoots.map((item) => asText(item)).filter(Boolean)

@@ -57,4 +57,8 @@ ok('tw.morning', timeWindowOf(new Date(2026, 10, 21, 8, 0)) === 'morning')
 
 try { rmSync(dir, { recursive: true, force: true }) } catch { /* Windows 上偶发 EPERM，临时目录留给系统清 */ }
 if (fails.length > 0) { console.log('FAIL ' + fails.join(', ')); process.exit(1) }
-console.log('PASS 20/20 when.mjs')
+// 8. tool 也支持 | 分隔（2026-11-21 修：原来只支持数组）
+ok('tool.pipe.hit', matchWhen({ tool: 'write*|ops_replace' }, { tool: 'ops_replace' }) === 'hit')
+ok('tool.pipe.miss', matchWhen({ tool: 'write*|ops_replace' }, { tool: 'ps' }) === 'miss')
+ok('tool.array.pipe', matchWhen({ tool: ['ps', 'read|grep'] }, { tool: 'grep' }) === 'hit')
+console.log('PASS 23/23 when.mjs')

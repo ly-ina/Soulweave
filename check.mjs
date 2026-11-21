@@ -3071,6 +3071,52 @@ await test('R12', '规则原文：索引只取标题层并受预算夹取，第�
 })
 
 const width = Math.max(...results.map((r) => r.title.length))
+await test('R13', 'when 条件触发：dry-run 只记日志、真发注入 1 条、同 id 冷却、默认关零调用', async () => {
+  const fixedNow = () => new Date('2026-11-21T20:00:00+08:00')
+  const logPath = join(root, 'logs/when.log')
+  rmSync(logPath, { force: true })
+  const toolMessages = () => [
+    { role: 'assistant', content: [{ type: 'tool-call', name: 'write', input: { path: 'a.md' } }] },
+  ]
+  let calls = 0
+  const searcher = () => {
+    calls += 1
+    return { entries: [{ id: 'm00077', title: '改中文源码用 read/write/edit', snippet: '改中文源码用 read/write/edit，别用 ps。' }] }
+  }
+  const mk = (turn, messages) => ({
+    turn,
+    step: 1,
+    messages,
+    agent: { session: { id: 'when-sess', cwd: FIXTURE_WS, events: [] } },
+  })
+  const handlerWith = (over) => createPreStepHandler({
+    config: { ...config, logPath, triggerInjection: false, autoRecall: false, ...over },
+    now: fixedNow,
+    pendingLoader: () => [],
+    whenSearcher: searcher,
+  })
+
+  const dry = await handlerWith({ whenInjection: true, whenDryRun: true })(mk(1, toolMessages()), async () => fakeDecision)
+  assert.equal(dry.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, 'dry-run 不该注入')
+  const dryLog = readFileSync(logPath, 'utf8')
+  assert.ok(dryLog.includes('when-dry'), 'dry-run 应写 when-dry 日志')
+  assert.ok(dryLog.includes('m00077'), '日志应带命中 id')
+
+  const liveHandler = handlerWith({ whenInjection: true, whenDryRun: false })
+  const live = await liveHandler(mk(2, toolMessages()), async () => fakeDecision)
+  const injected = live.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND)
+  assert.equal(injected.length, 1, '真发应注入 1 条')
+  assert.ok(textOfMessage(injected[0]).includes('read/write/edit'), '正文应是命中的短句')
+
+  const again = await liveHandler(mk(3, toolMessages()), async () => fakeDecision)
+  assert.equal(again.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, '冷却期内同 id 不该重复注入')
+  assert.equal(calls, 3, '冷却仍应照常检索')
+
+  calls = 0
+  const off = await handlerWith({})(mk(4, toolMessages()), async () => fakeDecision)
+  assert.equal(calls, 0, '默认关不该检索')
+  assert.equal(off.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, '默认关不该注入')
+})
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'
   console.log(`${mark} ${r.id.padEnd(6)} ${r.title.padEnd(width)}  ${r.detail}`)
