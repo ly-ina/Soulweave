@@ -83,6 +83,7 @@ import {
 } from './index.js'
 
 import { putMemory } from './memory/builtin.mjs'
+import { previewDecay, applyDecay } from './memory/decay.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
 
 import { bigramsOf, findDuplicatePairs, jaccardOf, lint, readDbEntries, readZoneEntries, soulweaveBlockOf, withTokens } from './core/soul_lint.mjs'
@@ -3121,6 +3122,64 @@ await test('R13', 'when 条件触发：dry-run 只记日志也记账、真发注
   const off = await handlerWith({})(mk(4, toolMessages()), async () => fakeDecision)
   assert.equal(calls, 0, '默认关不该检索')
   assert.equal(off.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, '默认关不该注入')
+})
+
+await test('R14', '阶段衰退：老且没用的沉底（importance-1 + 自家标记），满 30 天转 stale，原文与裸词都不动', async () => {
+  const NOW = 1795263383996
+  const DAY = 86_400_000
+  const dbPath = join(root, 'decay', 'memory.db')
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new DatabaseSync(dbPath)
+  db.exec(`
+    create table fact(id text primary key,title text,content text,keywords text,importance integer,status text,
+      lifecycle text,hit_count integer,last_accessed_at integer,created_at integer,updated_at integer);
+    create table lesson(id text primary key,title text,content text,keywords text,importance integer,status text,
+      lifecycle text,corrected integer,hit_count integer,last_accessed_at integer,created_at integer,updated_at integer);
+    create table topic(id text primary key,title text,content text,keywords text,importance integer,status text,
+      lifecycle text,hit_count integer,last_accessed_at integer,created_at integer,updated_at integer);
+    create table project(id text primary key,title text,content text,keywords text,importance integer,status text,
+      lifecycle text,hit_count integer,last_accessed_at integer,created_at integer,updated_at integer);
+    create table memory_event(id integer primary key autoincrement,at integer,action text,entry_table text,entry_id text,detail text);
+  `)
+  const ins = db.prepare('insert into fact(id,title,content,keywords,importance,status,lifecycle,hit_count,last_accessed_at,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?,?)')
+  ins.run('A', '老 fact', '正文A', '["甲"]', 2, 'active', 'normal', 0, null, NOW - 60 * DAY, NOW - 60 * DAY)
+  ins.run('B', '已沉底', '正文B', '["乙","decay:沉底@2026-09-01"]', 1, 'active', 'normal', 0, null, NOW - 100 * DAY, NOW - 100 * DAY)
+  ins.run('C', '裸沉底（潮档位）', '正文C', '["壬","沉底","潮"]', 2, 'active', 'normal', 0, null, NOW - 80 * DAY, NOW - 80 * DAY)
+  ins.run('D', '新 fact', '正文D', '["丙"]', 2, 'active', 'normal', 0, null, NOW - 5 * DAY, NOW - 5 * DAY)
+  db.close()
+
+  const prev = previewDecay(dbPath, { now: NOW })
+  assert.equal(prev.ok, true)
+  assert.equal(prev.candidates.length, 3, JSON.stringify(prev.candidates))
+  const byId = new Map(prev.candidates.map((c) => [c.id, c]))
+  assert.equal(byId.get('A').stage, 'sink')
+  assert.equal(byId.get('B').stage, 'stale')
+  assert.equal(byId.get('C').stage, 'sink', '裸「沉底」不能被当标记')
+  assert.equal(byId.has('D'), false)
+
+  const res = applyDecay(dbPath, prev.candidates.map((c) => ({ table: c.table, id: c.id, stage: c.stage })), { now: NOW })
+  assert.equal(res.ok, true, JSON.stringify(res))
+  assert.equal(res.changed.length, 3)
+  assert.ok(existsSync(res.backup), '动手前必须留备份')
+
+  const vdb = new DatabaseSync(dbPath, { readOnly: true })
+  const a = vdb.prepare('select * from fact where id=?').get('A')
+  assert.equal(a.importance, 1)
+  assert.ok(String(a.keywords).includes('decay:沉底@2026-11-21'))
+  assert.equal(a.content, '正文A')
+  const b = vdb.prepare('select * from fact where id=?').get('B')
+  assert.equal(b.status, 'stale')
+  assert.equal(b.content, '正文B')
+  const c = vdb.prepare('select * from fact where id=?').get('C')
+  assert.ok(JSON.parse(c.keywords).includes('沉底'), '潮的档位名不能被删')
+  assert.ok(String(c.keywords).includes('decay:沉底@2026-11-21'))
+  const d = vdb.prepare('select * from fact where id=?').get('D')
+  assert.equal(d.importance, 2)
+  vdb.close()
+
+  assert.equal(previewDecay(dbPath, { now: NOW }).candidates.length, 0, '沉底后 30 天内不该重复进名单')
+  const stale = applyDecay(dbPath, prev.candidates.map((c) => ({ table: c.table, id: c.id, stage: c.stage })), { now: NOW })
+  assert.equal(stale.ok, false, '拿过期名单动手必须被拦下')
 })
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'
