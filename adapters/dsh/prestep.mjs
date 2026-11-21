@@ -51,6 +51,8 @@ export function createPreStepHandler(options = {}) {
   const recallWarned = new Set()
   /** 2026-11-21 v0.4.2 条件触发（when_ctx）冷却，形状同 recall（session → id → ts）。 */
   const whenCooled = new Map()
+  /** 每轮最多 1 条 when 注入：记最后一次真发的 turn。 */
+  let whenLastTurn = null
   /** when 注入失败的告警节流（session + 原因）。 */
   const whenWarned = new Set()
   /** 召回检索入口：默认走记忆后端；check.mjs 用 options.recallSearcher 注入假后端。 */
@@ -374,7 +376,9 @@ export function createPreStepHandler(options = {}) {
      * 硬约束：每轮最多 1 条；同 session 同 id 冷却 whenCooldownMinutes。
      * whenDryRun 默认 true：只写 when-dry 日志、不注入。先量命中率与误报，再接真发。
      */
-    if (config.whenInjection && statePlan.emit) {
+    // 2026-11-21：不再跟 statePlan.emit 的门 --- 那个门只在每轮首个请求开，
+    // 会让工具调用后的下一步永远检查不到。改成每步都查（库已优化成只扫签过 when 的几条）。
+    if (config.whenInjection) {
       if (shadowPlan?.injectStable === true) whenCooled.delete(sessionKey)
       const call = pickLastToolCall(payload?.messages, events)
       if (!call?.tool) {
@@ -410,7 +414,8 @@ export function createPreStepHandler(options = {}) {
           const tokens = estimateTokens(text)
           if (config.whenDryRun) {
             appendLog(config.logPath, logLine(at, 'when-dry', `tool=${call.tool} id=${picked.id} tokens=${tokens} text=${text}`))
-          } else if (tokens <= config.whenBudgetTokens) {
+          } else if (tokens <= config.whenBudgetTokens && whenLastTurn !== Number(payload?.turn ?? 0)) {
+            whenLastTurn = Number(payload?.turn ?? 0)
             messages.push(createSoulMessage(text, SOUL_TRIGGER_KIND))
             appendLog(config.logPath, logLine(at, 'when', `tool=${call.tool} id=${picked.id} tokens=${tokens}`))
           }

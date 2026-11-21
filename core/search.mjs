@@ -193,9 +193,21 @@ export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
     db = new DatabaseSync(dbPath, { readOnly: true })
     const whenMap = whenMemory.readWhenMap(db)
     if (whenMap.size === 0) return { entries: [], note: '还没有条目签过 when', scanned: 0 }
+    // 2026-11-21 优化：原来全表扫（实测 1427 条），改成只查签过 when 的那几条。
+    // when_index 的 key 是 `${level}#${id}`，按 level 分组后 where id in (...)。
+    const byLevel = new Map()
+    for (const key of whenMap.keys()) {
+      const cut = String(key).indexOf('#')
+      if (cut <= 0) continue
+      const level = String(key).slice(0, cut)
+      const id = String(key).slice(cut + 1)
+      if (!byLevel.has(level)) byLevel.set(level, [])
+      byLevel.get(level).push(id)
+    }
     const out = []
     let scanned = 0
-    for (const level of MEMORY_LEVELS) {
+    for (const [level, ids] of byLevel) {
+      if (!MEMORY_LEVELS.includes(level) || ids.length === 0) continue
       const cols = tableColumns(db, level)
       if (cols.length === 0) continue
       const pick = ['id']
@@ -204,7 +216,8 @@ export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
       }
       let rows
       try {
-        rows = db.prepare(`select ${pick.join(', ')} from ${level}`).all()
+        const placeholders = ids.map(() => '?').join(', ')
+        rows = db.prepare(`select ${pick.join(', ')} from ${level} where id in (${placeholders})`).all(...ids)
       } catch {
         continue
       }
