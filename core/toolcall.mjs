@@ -87,7 +87,9 @@ function fromEvent(event) {
 /** 先看 events（最可靠），再回落到 messages。都找不到返回 null。 */
 export function pickLastToolCall(messages, events) {
   if (Array.isArray(events)) {
-    for (let index = events.length - 1; index >= 0 && index >= events.length - 12; index -= 1) {
+    // 2026-11-21 修：原来只扫尾部 12 条，实测不够 —— DSH 把一次 assistant 回复拆成很多事件，
+    // 上一轮的工具调用常落在 12 条之外。全量倒序找，找到即停（数组下标访问，成本可忽略）。
+    for (let index = events.length - 1; index >= 0; index -= 1) {
       const found = fromEvent(events[index])
       if (found) return { ...found, path: pathOf(found.input) }
     }
