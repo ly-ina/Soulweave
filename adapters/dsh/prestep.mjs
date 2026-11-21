@@ -51,6 +51,9 @@ export function createPreStepHandler(options = {}) {
   const recallWarned = new Set()
   /** 2026-11-21 v0.4.2 条件触发（when_ctx）冷却，形状同 recall（session → id → ts）。 */
   const whenCooled = new Map()
+  /** 2026-11-21 第 3 条：未命中的 when-scan 每 10 步只留一行（soul.log 已 10 MB）；计数器给命中率留分母。 */
+  let whenScanSteps = 0
+  let whenScanMisses = 0
   /** 每轮最多 1 条 when 注入：记最后一次真发的 turn。 */
   let whenLastTurn = null
   /** when 注入失败的告警节流（session + 原因）。 */
@@ -386,8 +389,13 @@ export function createPreStepHandler(options = {}) {
       if (shadowPlan?.injectStable === true) whenCooled.delete(sessionKey)
       const call = pickLastToolCall(payload?.messages, events)
       if (!call?.tool) {
-        // dry-run 诊断：payload 尾部没认出工具调用时也要留痕，否则「没命中」和「没生效」分不清。
-        appendLog(config.logPath, logLine(at, 'when-scan', 'no-tool-call'))
+        // dry-run 诊断：认不出工具调用时也要留痕，否则「没命中」和「没生效」分不清。
+        // 但同样降噪：首次照写，之后每 10 步一行 —— 每步一行会变成第二种刷屏。
+        whenScanSteps += 1
+        whenScanMisses += 1
+        if (whenScanSteps === 1 || whenScanSteps % 10 === 0) {
+          appendLog(config.logPath, logLine(at, 'when-scan', `no-tool-call steps=${whenScanSteps} miss=${whenScanMisses}`))
+        }
       }
       if (call?.tool) {
         const ctx = { tool: call.tool, path: call.path || '', timeWindow: timeWindowOf(at) }
@@ -413,8 +421,12 @@ export function createPreStepHandler(options = {}) {
         } catch (error) {
           failed = error instanceof Error ? error.message : String(error)
         }
-        // 每次匹配尝试都留一行（含未命中），dry-run 全靠它看命中率与误报。
-        appendLog(config.logPath, logLine(at, 'when-scan', `tool=${call.tool} path=${call.path || '-'} scanned=${scanned} hit=${picked?.id ?? '-'}${failed ? ` err=${failed}` : ''}`))
+        whenScanSteps += 1
+        if (!picked) whenScanMisses += 1
+        // 未命中每 10 步留一行（命中、报错照常写）；steps/miss 给命中率留分母，否则日志降噪就把统计分母也删了。
+        if (picked || failed || whenScanSteps % 10 === 0) {
+          appendLog(config.logPath, logLine(at, 'when-scan', `tool=${call.tool} path=${call.path || '-'} scanned=${scanned} hit=${picked?.id ?? '-'} steps=${whenScanSteps} miss=${whenScanMisses}${failed ? ` err=${failed}` : ''}`))
+        }
         if (picked) {
           const text = clip(String(picked.title || picked.snippet || ''), 60)
           const tokens = estimateTokens(text)
