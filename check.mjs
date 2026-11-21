@@ -1660,13 +1660,14 @@ await test('SP6', 'legacy composeSoul 逐字节不变（sha256 快照）', () =>
 // 基线口径（2026-11-04 伊纳给 627，我实测拆开后差额就是工具入口那一行）：
 //   627 tok  人格 + 【路由】两行（不含「查：soul_recall…」）
 //   658 tok  上面 + 工具入口行  ← 方案 §2.1 把「工具入口」划在稳定段，取这个做基线
+//   643 tok  2026-11-21 晚：soul.md 摘掉手写口味条目（-74 tok），改由 persona 快照从记忆注入
 //   717 tok  2026-11-21 起：禁令节加了一行「动 lanxi 文件先查路径」（日记走 vault/self/<日期>.md
 //            + diary-append.ps1，notes 不是日记位）。那行防的是同一个错犯了 5 次，故意付这 59 tok。
 //            以后改 soul.md 导致这条红了，先判断是新增强度值不值，再改这里的上下限——不要默认放宽。
 // 口径修正（2026-11-21）：原来断言 stable+state < legacy，比的是「首轮全量」，
 // 可拆分的收益在稳态——首轮之后只发 state。改成两条：stable 必须仍小于 legacy
 // （否则稳定段肥成 legacy 的翻版，拆分失去意义）；state 必须只占 legacy 的小头。
-await test('SP7', '真实 soul.md：stable 基线 717 tok（含工具入口），stable 小于 legacy 且 state 只占小头', () => {
+await test('SP7', '真实 soul.md：stable 基线 643 tok（含工具入口），stable 小于 legacy 且 state 只占小头', () => {
   const soulPath = process.env.SOULWEAVE_REAL_SOUL || '<workspace>/lanxi/soul.md'
   const routerPath = process.env.SOULWEAVE_REAL_ROUTER || '<workspace>/lanxi/rules/router.md'
   if (!existsSync(soulPath)) return `SKIP：没有真实 soul.md（${soulPath}）`
@@ -1686,8 +1687,8 @@ await test('SP7', '真实 soul.md：stable 基线 717 tok（含工具入口）�
   assert.ok(stable.text.includes('查：soul_recall'), '稳定段丢了工具入口')
   assert.ok(stable.text.includes('verification.md'), '稳定段丢了安全路由')
   assert.ok(stable.tokens <= 900, `stable ${stable.tokens}tok 超 900`)
-  assert.ok(stable.tokens >= 660, `stable 只有 ${stable.tokens}tok，比基线 717 掉太多，疑似丢节`)
-  assert.ok(stable.tokens <= 740, `stable ${stable.tokens}tok 比基线 717 涨太多，稳定段变胖了`)
+  assert.ok(stable.tokens >= 600, `stable 只有 ${stable.tokens}tok，比基线 643 掉太多，疑似丢节`)
+  assert.ok(stable.tokens <= 700, `stable ${stable.tokens}tok 比基线 643 涨太多，稳定段变胖了`)
   assert.ok(
     stable.tokens < legacy.tokens,
     `稳定段 ${stable.tokens}tok 已经不小于 legacy ${legacy.tokens}tok，拆分失去意义`,

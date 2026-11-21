@@ -424,6 +424,7 @@ export function composeSoulStable(input = {}) {
     inGroup,
     rules,
     router: (safety.length > 0 ? safety : routerAll).slice(0, 6),
+    personaText: asText(input.personaText),
   }
   let take = STABLE_TAKES[0]
   let text = renderSoulStableBody(take, ctx)
