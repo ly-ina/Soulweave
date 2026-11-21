@@ -228,6 +228,8 @@ export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
         if (!when) continue
         if (whenMemory.matchWhen(when, ctx) !== 'hit') continue
         out.push({
+          // 2026-11-21 修：entry 必须带 id，prestep 的冷却（cooled.get(entry.id)）和 when-scan 的 hit= 都靠它。
+          id: String(row.id),
           loc: `记忆库/${level}#${row.id}`,
           level,
           title: String(row.title ?? ''),
