@@ -11,11 +11,12 @@
  * 记忆库路径默认 <workspace>\.dsh-meow\memory.db，可用 --db 覆盖。
  */
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { putWhen, getWhen, removeWhen, readWhenMap, matchWhen, timeWindowOf, WHEN_KEYS } from '../memory/when.mjs'
 
 const argv = process.argv.slice(2)
-let dbPath = 'E:\\dsh_work\\.dsh-meow\\memory.db'
+let dbPath = process.env.DSH_MEOW_DB || join(process.cwd(), '.dsh-meow', 'memory.db')
 const rest = []
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i] === '--db') { dbPath = argv[i + 1]; i += 1; continue }
