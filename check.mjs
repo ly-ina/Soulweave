@@ -433,6 +433,8 @@ await test('L4', '工作区取会话头 cwd（不落到宿主 profile 目录）'
   assert.equal(legacy, 'D:\\project', `session.cwd 兜底失效：${legacy}`)
   const override = resolveWorkspace({ agent: { session: { header: { cwd: FIXTURE_WS } } } }, { workspace: 'F:\\x' })
   assert.equal(override, 'F:\\x', '显式 workspace 没优先')
+  const posix = resolveWorkspace({ agent: { session: { id: 's', header: { cwd: '/home/guyu/project/dsh-soulweave' } } } })
+  assert.equal(posix, '/home/guyu/project/dsh-soulweave', `POSIX 绝对路径没被采纳：${posix}`)
   return `${header} / ${legacy} / ${override}`
 })
 // ---------------------------------------------------------------------------

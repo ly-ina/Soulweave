@@ -2,6 +2,7 @@
  * prompt —— 注入消息、工作区解析、分区行（零宿主依赖）。
  */
 import { MESSAGE_KIND } from './constants.mjs'
+import { isAbsolute } from 'node:path'
 import { asText } from './text.mjs'
 import { scanZones, readZoneIndex, ZONE_IDS, ZONES } from './zones.mjs'
 export function createSoulMessage(text, kind = MESSAGE_KIND) {
@@ -22,6 +23,8 @@ export function createSoulMessage(text, kind = MESSAGE_KIND) {
  * 实测 `agent/pre-step` 的 payload 是 `{ messages, turn, step, signal, agent }`，
  * 工作区在 `agent.session.header.cwd`（`dsh-session` 的会话头记录 cwd，见
  * `liveSource.header.cwd`）。其余候选字段是防御性兜底：宿主换形状时仍能落到真值。
+ * 绝对路径判定跨平台：path.isAbsolute（本平台语义）+ 原 Windows 盘符/UNC 正则兜底，
+ * 这样 Linux 的 /home/... 与 Linux 视角下的 D:\... 都能被采纳，不再回落 process.cwd()。
  */
 export function resolveWorkspace(payload, options = {}) {
   const session = payload?.agent?.session ?? payload?.session
@@ -39,7 +42,7 @@ export function resolveWorkspace(payload, options = {}) {
   ]
   for (const candidate of candidates) {
     const text = asText(candidate)
-    if (text && /^(?:[a-zA-Z]:[\\/]|\\\\)/.test(text)) return text
+    if (text && (isAbsolute(text) || /^(?:[a-zA-Z]:[\\/]|\\\\)/.test(text))) return text
   }
   return asText(process.cwd()) || '未标注工作区'
 }
