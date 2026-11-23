@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.6 — 2026-11-23
+
+- **fix**：`composeSoulStable` 的 ctx 白名单漏了 `personaText`，稳定段（缓存命中路径）一直没注入人格快照，只有非稳定段有。补上后两条路径一致。
+- **fix**：人格快照裁剪优先在标点处收口，不再把句子砍成半截。
+- **tune**：`personaMaxChars` 60 → 400（取全文），`personaMaxItems` 仍 3；稳定段预算同步提到 2000 tok，实测不削魂引条数。
+- **feat(panel)**：设置页加入人格快照三项——开关 / 条数 / 单条字数。
+
 ## 0.4.5 — 2026-11-21
 
 - 新增 `core/persona.mjs`：人格塑型快照。从记忆库 `soul` 表读 active、importance≥2、未沉底（`decay:沉底@`）、非 daily 的条目，带日期渲染成【我记下的自己】。不存新设定；读不到库 / 非 meow 结构就返回空，绝不自己编。
