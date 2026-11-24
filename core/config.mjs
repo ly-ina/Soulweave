@@ -4,14 +4,14 @@
  * 2026-11-19 解耦第 2 块：从 index.js 原样搬出，逻辑未改。
  */
 
-import { env, existsSync, homedir, platform, readFileSync, readdirSync } from '../io.mjs'
+import { env, existsSync, homedir, mkdirSync, platform, readFileSync, readdirSync, writeFileSync } from '../io.mjs'
 import { dirname, join, resolve } from 'node:path'
 import { CHARS_PER_TOKEN, resolveTierBudget } from './tier.mjs'
 import { DEFAULT_SOUL_STABLE_TOKENS, DEFAULT_SOUL_STATE_TOKENS, SOUL_STATE_MAX_CHARS, MESSAGE_KIND, SOUL_SECTIONS, SECTION_ALIASES, FEEDBACK_SECTION, FEEDBACK_ALIASES, SOUL_TOKEN_CEILING, DEFAULT_SOUL_WARN_TOKENS, HARD_SOUL_TOKENS, TOTAL_TOKENS, DEFAULT_SOUL_TOKENS, RECALL_MAX_CHARS, MEMORY_LEVELS, MEMORY_HEAD_LIMIT, INJECTION_CLASSES, YIELD_ORDER, HINTS } from './constants.mjs'
 import { PLUGIN_DIR, asInt, asText, dsHome } from './text.mjs'
 
 // ---------------------------------------------------------------------------
-// 十二期：关系层 / 情绪（都**只读**、默认住在 <stateDir>/ 下，不进记忆库）
+// 十二期：关系层 / 情绪（读 + 写入口、默认住在 <stateDir>/ 下，不进记忆库）
 // ---------------------------------------------------------------------------
 
 /** 关系层最多返回几条（单子 §3.1：≤8 条）。 */
@@ -65,6 +65,86 @@ export function readMood(path) {
   } catch (error) {
     return { ok: false, file, text: '', note: `读不到：${String(error?.message ?? error)}` }
   }
+}
+
+/** 本地时间戳：`YYYY-MM-DD` 或 `YYYY-MM-DD HH:mm`。 */
+function stampOf(now, withTime = false) {
+  const date = now instanceof Date ? now : new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  return withTime ? `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}` : day
+}
+
+/**
+ * 写关系层：追加一条到 `<dir>/<YYYY-MM-DD>.md`，格式固定 `- 正文（YYYY-MM-DD）`。
+ * 同一条当天已存在不重复写；当天满 `RELATIONS_CAP` 条默认拒写，`force:true` 才写。
+ * @returns {{ok:boolean, file:string, date:string, count:number, wrote:boolean, note:string}}
+ */
+export function appendRelation(dir, text, options = {}) {
+  const base = asText(dir)
+  const body = asText(text).trim()
+  if (!base) return { ok: false, file: '', date: '', count: 0, wrote: false, note: '没给关系层目录' }
+  if (!body) return { ok: false, file: '', date: '', count: 0, wrote: false, note: '条目是空的' }
+  const date = asText(options.date) || stampOf(options.now)
+  const file = join(base, `${date}.md`)
+  let existing = ''
+  try {
+    existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
+  } catch {
+    existing = ''
+  }
+  const items = existing
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim())
+  const line = `- ${body}（${date}）`
+  if (items.includes(line.slice(2))) {
+    return { ok: true, file, date, count: items.length, wrote: false, note: '同一条今天已经在了' }
+  }
+  const cap = Number(options.cap ?? RELATIONS_CAP) || RELATIONS_CAP
+  if (items.length >= cap && options.force !== true) {
+    return { ok: false, file, date, count: items.length, wrote: false, note: `当天已有 ${items.length} 条（上限 ${cap}）；要写传 force:true` }
+  }
+  try {
+    mkdirSync(base, { recursive: true })
+    const head = existing.trim() ? `${existing.replace(/\s+$/, '')}\n` : `# 关系层 · ${date}\n\n`
+    writeFileSync(file, `${head}${line}\n`, 'utf8')
+  } catch (error) {
+    return { ok: false, file, date, count: items.length, wrote: false, note: `写不进去：${String(error?.message ?? error)}` }
+  }
+  return { ok: true, file, date, count: items.length + 1, wrote: true, note: '' }
+}
+
+/**
+ * 写 mood.md：只给哪个键就改哪个（at / mood / carry），整文件 ≤ `MOOD_MAX_CHARS`。
+ * @returns {{ok:boolean, file:string, text:string, note:string}}
+ */
+export function writeMood(path, patch = {}) {
+  const file = asText(path)
+  if (!file) return { ok: false, file: '', text: '', note: '没给 mood 路径' }
+  const current = readMood(file)
+  const readKey = (key) => {
+    const hit = new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(current.text || '')
+    return hit ? hit[1].trim() : ''
+  }
+  const at = asText(patch.at) || readKey('at') || stampOf(patch.now, true)
+  const mood = asText(patch.mood) || readKey('mood')
+  const carry = asText(patch.carry) || readKey('carry')
+  if (!mood) return { ok: false, file, text: current.text, note: '至少给 mood' }
+  const lines = [`at: ${at}`, `mood: ${mood}`]
+  if (carry) lines.push(`carry: ${carry}`)
+  const text = `${lines.join('\n')}\n`
+  if (text.length > MOOD_MAX_CHARS) {
+    return { ok: false, file, text, note: `超 ${MOOD_MAX_CHARS} 字（现在 ${text.length}）` }
+  }
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, text, 'utf8')
+  } catch (error) {
+    return { ok: false, file, text, note: `写不进去：${String(error?.message ?? error)}` }
+  }
+  return { ok: true, file, text: text.trim(), note: '' }
 }
 
 /**

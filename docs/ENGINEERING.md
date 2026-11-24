@@ -132,7 +132,7 @@ node core/soul_lint.mjs --json     # 机读
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs               # 单元/集成：期望最后一行 111/111
+node check.mjs               # 单元/集成：期望最后一行 113/113
 node clean-install.mjs       # 干净安装：临时目录 + 默认配置 + 假 harness，期望 R1..R8 OK
 node tools/check-layers.mjs  # 分层依赖守卫，PASS 即 33 个文件全部合规
 node core/soul_lint.mjs           # 只读查双写（不进 npm 包）

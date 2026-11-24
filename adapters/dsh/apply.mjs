@@ -24,7 +24,7 @@ import { searchGamedev } from '../../core/gamedev.mjs'
 import { ZONE_IDS, ZONES, buildZoneIndex, readZoneIndex, renderZoneLine, scanZones, searchZones } from '../../core/zones.mjs'
 import { ALIAS_TO_STANDARD, MEMORY_SECTION, ROUTER_SAFETY, SOUL_SECTION_CAP, DEFAULT_SOUL_STABLE_TOKENS, SOUL_STATE_MAX_CHARS, DEFAULT_SOUL_STATE_TOKENS, MESSAGE_KIND, SOUL_SECTIONS, SECTION_ALIASES, FEEDBACK_SECTION, FEEDBACK_ALIASES, SOUL_TOKEN_CEILING, DEFAULT_SOUL_WARN_TOKENS, HARD_SOUL_TOKENS, TOTAL_TOKENS, DEFAULT_SOUL_TOKENS, RECALL_MAX_CHARS, MEMORY_LEVELS, MEMORY_HEAD_LIMIT, INJECTION_CLASSES, YIELD_ORDER, HINTS } from '../../core/constants.mjs'
 import { PLUGIN_DIR } from '../../core/text.mjs'
-import { MOOD_MAX_CHARS, RELATIONS_CAP, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines } from '../../core/config.mjs'
+import { MOOD_MAX_CHARS, RELATIONS_CAP, appendRelation, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines, writeMood } from '../../core/config.mjs'
 import { EMPTY_SOUL, parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, planSoulSplit } from '../../core/soul.mjs'
 import { SOUL_STATE_KIND, SOUL_TRIGGER_KIND, SOUL_RECALL_KIND, RECALL_TEXT_MAX_CHARS, pickRecallEntry, renderRecall, resetRecallCooldownOnReload, planStateEmit } from '../../core/recall-state.mjs'
 import { soulTargetIndex, classOfKind, measureInjections, SNAPSHOT_MARK, MEOW_KIND, SNAPSHOT_CAPS, snapshotMetaOf, isSnapshotMessage, isConversationMessage, measureRequestBudget, eventsOfSession, countSnapshots, planSnapshotPrune, detectSnapshotDrift, tierStatePath, maybeLogTier, textOfMessage, rememberUserTexts, recentUserQuery, lastUserTexts, planBudget, applyBudgetPlan, countSnapshotEntries, countResidentEntries, loadPendingItems, loadMemoryHeads, loadLessonHead, detectPinnedAnomalies, countPinnedEntries, countSoulNodes, loadCorrectedLessons } from '../../core/budget.mjs'
@@ -528,15 +528,18 @@ const RECALL_TOOL = Object.freeze({
  * 宿主直接报 `invalid output / must be a string`。此后「缺失就整个键不写」，
  * 并用 §2 的断言把五个工具都过一遍。
  */
-/** 十二期：关系层工具（只读；正文不进常驻注入、不进记忆库）。 */
+/** 十二期：关系层工具（读最新一份；`add` 追加一条；正文不进常驻注入、不进记忆库）。 */
 const RELATIONS_TOOL = Object.freeze({
   name: 'soul_relations',
   description:
-    '十二期：读「关系层」——`<stateDir>/relations/*.md` 按文件名倒序取最新一份里的全部条目（≤8 条，第一人称、否定式/阈值、带日期）。只读，不写文件、不进记忆库；魂引里只有入口，正文要自己调这个工具拿。',
+    '十二期：关系层——`<stateDir>/relations/*.md` 按文件名倒序读最新一份里的条目（≤8 条，第一人称、否定式/阈值、带日期）。给 `add` 就追加一条到今天；不给就只读。正文不进记忆库、不进常驻。',
   parameters: {
     type: 'object',
     properties: {
       limit: { type: 'number', description: `最多返回几条（默认 ${RELATIONS_CAP}，上限 ${RELATIONS_CAP}）` },
+      add: { type: 'string', description: '写一条关系条目（第一人称、否定式/阈值，一句话）；给了就追加到今天' },
+      date: { type: 'string', description: '写到哪一天（YYYY-MM-DD），默认今天' },
+      force: { type: 'boolean', description: '当天已满上限仍要写时传 true' },
     },
     additionalProperties: false,
   },
@@ -548,24 +551,34 @@ const RELATIONS_TOOL = Object.freeze({
       count: { type: 'number' },
       file: { type: 'string' },
       date: { type: 'string' },
+      wrote: { type: 'boolean' },
     },
     required: ['ok', 'text'],
     additionalProperties: false,
   },
 })
 
-/** 十二期：情绪 / 跨轮延续（只读 mood.md，≤600 字）。 */
+/** 十二期：情绪 / 跨轮延续（读 mood.md；给 `mood` 就写三键，≤600 字）。 */
 const MOOD_TOOL = Object.freeze({
   name: 'soul_mood',
   description:
-    '十二期：读「情绪状态」`<stateDir>/mood.md`（at / mood / carry 三个键，整文件 ≤600 字）。只读，v1 不写；没有文件就回「未记录」。',
-  parameters: { type: 'object', properties: {}, additionalProperties: false },
+    '十二期：情绪状态 `<stateDir>/mood.md`（at / mood / carry 三个键，整文件 ≤600 字）。给 `mood` 就写（只改给的键，at 缺省为现在）；不给就只读。',
+  parameters: {
+    type: 'object',
+    properties: {
+      mood: { type: 'string', description: '当前心情，一句话' },
+      carry: { type: 'string', description: '要带到下一轮的，一句话' },
+      at: { type: 'string', description: '时间戳，默认现在' },
+    },
+    additionalProperties: false,
+  },
   result: {
     type: 'object',
     properties: {
       ok: { type: 'boolean' },
       text: { type: 'string' },
       file: { type: 'string' },
+      wrote: { type: 'boolean' },
     },
     required: ['ok', 'text'],
     additionalProperties: false,
@@ -696,8 +709,27 @@ export function createTools(config, deps = {}) {
   const capabilitiesExecute = async (args) => createCapabilities({ config: normalized })(args ?? {})
   const tierExecute = async (args) => createTier({ config: normalized })(args ?? {})
 
-  /** 十二期：关系层（只读最新一份，≤8 条）。 */
+  /** 十二期：关系层（读最新一份，≤8 条；给 `add` 就写）。 */
   const relationsExecute = async (args) => {
+    const add = asText(args?.add)
+    if (add) {
+      const written = appendRelation(normalized.relationsDir, add, {
+        date: args?.date,
+        force: args?.force === true,
+      })
+      if (!written.ok) {
+        return { ok: false, text: `【soul_relations】${written.note}`, count: written.count, file: written.file, date: written.date, wrote: false }
+      }
+      const tail = written.note ? `（${written.note}）` : ''
+      return {
+        ok: true,
+        text: `【soul_relations】写好了 · ${basename(written.file)} 第 ${written.count} 条${tail}`,
+        count: written.count,
+        file: written.file,
+        date: written.date,
+        wrote: written.wrote,
+      }
+    }
     const cap = Math.min(Math.max(Number(args?.limit ?? RELATIONS_CAP) || RELATIONS_CAP, 1), RELATIONS_CAP)
     const found = readRelations(normalized.relationsDir)
     if (!found.ok) return { ok: false, text: `【soul_relations】${found.note}` }
@@ -710,8 +742,14 @@ export function createTools(config, deps = {}) {
     return { ok: true, text: [head, ...body].join('\n'), count: items.length, file: found.file, date: found.date }
   }
 
-  /** 十二期：情绪状态（mood.md 全文，≤600 字；只读）。 */
-  const moodExecute = async () => {
+  /** 十二期：情绪状态（读 mood.md；给 `mood` 就写）。 */
+  const moodExecute = async (args) => {
+    const mood = asText(args?.mood)
+    if (mood) {
+      const written = writeMood(normalized.moodPath, { at: args?.at, mood, carry: args?.carry })
+      if (!written.ok) return { ok: false, text: `【soul_mood】${written.note}`, wrote: false }
+      return { ok: true, text: `【soul_mood】写好了 · ${written.file}\n${written.text}`, file: written.file, wrote: true }
+    }
     const found = readMood(normalized.moodPath)
     if (!found.ok) return { ok: false, text: `【soul_mood】${found.note}` }
     if (!found.text) return { ok: true, text: `【soul_mood】${found.note}（${normalized.moodPath}）`, file: '' }

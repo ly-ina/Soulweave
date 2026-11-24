@@ -151,8 +151,8 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 | 工具 | 作用 |
 |---|---|
-| `soul_relations` | 读关系层 |
-| `soul_mood` | 读情绪状态 |
+| `soul_relations` | 读/写关系层（给 `add` 就追加到今天） |
+| `soul_mood` | 读/写情绪状态（给 `mood` 就写三键） |
 | `soul_capabilities` | 能力清单 / 按本轮任务给 3–5 个建议 |
 | `soul_toolout` | 工具输出归档（库不存在时不注册） |
 
@@ -199,7 +199,6 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 ## 已知限制
 
-- **人格层还没做完。** `soul_relations` / `soul_mood` 只有只读入口；关系层和情绪层目前靠手工维护 `<stateDir>` 下的 md 文件，没有写入工具。
 - **旧七层库只归档、没迁移。** `project` / `fact` / `lesson` / `topic` 约 328 条 active 仍在旧库里只读留档，没有搬进 builtin 池。
 - 零 npm 依赖；SQLite 用 Node 自带 `node:sqlite`（Node ≥ 22.5）。
 - `soul_tier --apply` 依赖 meow 七层表结构；`builtin` 下会明确返回「只支持 meow」，不假装成功。
@@ -213,7 +212,7 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 ## 开发
 
 ```bash
-node check.mjs               # 111/111 通过
+node check.mjs               # 113/113 通过
 node clean-install.mjs       # 按 files 白名单复制到临时目录，R1..R8 OK
 node tools/check-layers.mjs  # 分层依赖守卫
 ```

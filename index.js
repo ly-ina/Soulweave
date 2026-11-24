@@ -19,8 +19,8 @@ export { ALIAS_TO_STANDARD, MEMORY_SECTION, ROUTER_SAFETY, SOUL_SECTION_CAP, DEF
 import { PLUGIN_DIR } from './core/text.mjs'
 export { PLUGIN_DIR }
 
-import { MOOD_MAX_CHARS, RELATIONS_CAP, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines } from './core/config.mjs'
-export { MOOD_MAX_CHARS, RELATIONS_CAP, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines }
+import { MOOD_MAX_CHARS, RELATIONS_CAP, appendRelation, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines, writeMood } from './core/config.mjs'
+export { MOOD_MAX_CHARS, RELATIONS_CAP, appendRelation, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines, writeMood }
 
 import { EMPTY_SOUL, parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, planSoulSplit } from './core/soul.mjs'
 export { parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, planSoulSplit }

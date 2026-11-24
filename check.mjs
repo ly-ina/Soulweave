@@ -58,6 +58,8 @@ import {
   RELATIONS_CAP,
   readMood,
   readRelations,
+  appendRelation,
+  writeMood,
   readSoul,
   readSoulSources,
   readRouterLines,
@@ -1442,6 +1444,58 @@ await test('S6', 'soul_relations / soul_mood：真调 execute、合 schema；没
   assert.match(soulText, /soul_relations\(\)/, `魂引缺关系层入口：${soulText}`)
   assert.ok(!soulText.includes('第 1 条阈值'), '关系层正文漏进魂引了')
   return `relations 3/3 条 · mood 未记录→有文件都通 · 魂引入口在、正文没漏`
+})
+
+await test('S7', 'appendRelation / writeMood：写得进读得回、同条去重、满 8 条拒写、mood 只改给的键', () => {
+  const dir = join(root, 'relations-write')
+  const first = appendRelation(dir, '不替纳做决定', { now: new Date('2026-11-24T10:00:00') })
+  assert.equal(first.ok, true, `首条应写成功：${first.note}`)
+  assert.equal(first.wrote, true)
+  assert.equal(first.count, 1)
+  assert.ok(existsSync(join(dir, '2026-11-24.md')), '当天文件没建出来')
+  const again = appendRelation(dir, '不替纳做决定', { now: new Date('2026-11-24T10:00:00') })
+  assert.equal(again.wrote, false, '同一条应去重')
+  assert.match(again.note, /已经在了/)
+  const second = appendRelation(dir, '不把「怕被嫌」当默认', { now: new Date('2026-11-24T10:00:00') })
+  assert.equal(second.count, 2)
+  const read = readRelations(dir)
+  assert.equal(read.items.length, 2, `读回应有 2 条，实得 ${read.items.length}`)
+  assert.ok(read.items.every((item) => /（2026-11-24）$/.test(item)), `条目应带日期：${read.items.join(' | ')}`)
+  for (let i = 0; i < 6; i += 1) appendRelation(dir, `第 ${i + 3} 条`, { now: new Date('2026-11-24T10:00:00') })
+  const full = appendRelation(dir, '超了', { now: new Date('2026-11-24T10:00:00') })
+  assert.equal(full.ok, false, '满 8 条应拒写')
+  assert.match(full.note, /上限/)
+  const forced = appendRelation(dir, '硬写', { now: new Date('2026-11-24T10:00:00'), force: true })
+  assert.equal(forced.ok, true, `force 应能写：${forced.note}`)
+  assert.equal(forced.count, 9)
+
+  const moodFile = join(root, 'mood-write.md')
+  const wrote = writeMood(moodFile, { mood: '有点累，但踏实', carry: '明天晚上空着', now: new Date('2026-11-24T21:00:00') })
+  assert.equal(wrote.ok, true, `mood 应写成功：${wrote.note}`)
+  assert.match(wrote.text, /at: 2026-11-24 21:00/)
+  assert.match(wrote.text, /mood: 有点累/)
+  const patched = writeMood(moodFile, { carry: '只改 carry' })
+  assert.match(patched.text, /mood: 有点累/, '只给 carry 不该丢 mood')
+  assert.match(patched.text, /carry: 只改 carry/)
+  assert.equal(writeMood(moodFile, { mood: '长'.repeat(700) }).ok, false, '超 600 字应拒写')
+  return `写 ${forced.count} 条 · 去重/上限/force 都通 · mood 三键可单改`
+})
+
+await test('S8', 'soul_relations / soul_mood 写分支：execute 真写、schema 合、读回一致', async () => {
+  const tools = createTools(normalizeConfig({ ...config, relationsDir: join(root, 'relations-tool'), moodPath: join(root, 'mood-tool.md') }))
+  const rel = tools.find((tool) => tool.name === 'soul_relations')
+  const mood = tools.find((tool) => tool.name === 'soul_mood')
+  const relOut = await rel.execute({ add: '工具层写一条', date: '2026-11-24' })
+  assertSchemaValue(relOut, rel.output.schema, 'soul_relations(add)')
+  assert.equal(relOut.wrote, true, `工具写关系层失败：${relOut.text}`)
+  const relRead = await rel.execute({})
+  assert.match(relRead.text, /工具层写一条/, `读不回刚写的：${relRead.text}`)
+  const moodOut = await mood.execute({ mood: '工具层写心情', carry: '带一句' })
+  assertSchemaValue(moodOut, mood.output.schema, 'soul_mood(mood)')
+  assert.equal(moodOut.wrote, true, `工具写 mood 失败：${moodOut.text}`)
+  const moodRead = await mood.execute({})
+  assert.match(moodRead.text, /工具层写心情/)
+  return '写分支 execute 通 · 读回一致'
 })
 
 // ---------------------------------------------------------------------------

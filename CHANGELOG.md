@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.9 — 2026-11-24
+
+**人格层写入口**
+
+- **feat**：`soul_relations` 加 `add`——追加一条到今天的关系层文件，格式 `- 正文（YYYY-MM-DD）`；同条去重，当天满 8 条默认拒写、`force:true` 才写。
+- **feat**：`soul_mood` 加 `mood` / `carry` / `at`——写 `mood.md` 三键，只给哪个键就改哪个，整文件 ≤600 字。
+- **test**：新增 S7 / S8（纯函数层 + execute 写分支：去重 / 上限 / force / 只改单键 / 超长拒写），`check.mjs` 111 → 113。
+- **docs**：README 工具表改为「读/写」；「已知限制」删掉人格层只读那条。
+
 ## 0.4.8 — 2026-11-24
 
 **README 重写 + 文档分层**
