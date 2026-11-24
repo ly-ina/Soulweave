@@ -199,6 +199,8 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 ## 已知限制
 
+- **人格层还没做完。** `soul_relations` / `soul_mood` 只有只读入口；关系层和情绪层目前靠手工维护 `<stateDir>` 下的 md 文件，没有写入工具。
+- **旧七层库只归档、没迁移。** `project` / `fact` / `lesson` / `topic` 约 328 条 active 仍在旧库里只读留档，没有搬进 builtin 池。
 - 零 npm 依赖；SQLite 用 Node 自带 `node:sqlite`（Node ≥ 22.5）。
 - `soul_tier --apply` 依赖 meow 七层表结构；`builtin` 下会明确返回「只支持 meow」，不假装成功。
 - `soul_surface` 需要宿主提供会话对象，拿不到就明说。

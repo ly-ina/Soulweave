@@ -8,6 +8,7 @@
 - 新增 `docs/architecture.drawio` + `docs/architecture.png`：魂引两段怎么从三处记忆拼出来——稳定段（人格 / 规则 / 我记下的自己）首轮或压缩后注入，现状（时间 / 工作区 / 在场 / 可检索 5 条）每轮刷新。
 - `package.json` 的 `files` 补 `soul.example.md`、`docs/`、`CHANGELOG.md`。此前发布包里没有 `soul.example.md`，新用户装完无从下手。
 - 修正过时数据：测试 97→111、工具 10→14、DSH 版本 0.2.1-rc.3、包体积 61 文件 / 207.7 kB。
+- **口径修正**：README「已知限制」明确写出人格层（`soul_relations` / `soul_mood` 只读）与旧七层库未迁移；0.4.7 说的是记忆层换代，不等于魂织全部完成。
 ## 0.4.7 — 2026-11-24
 
 记忆层完成换代：从 meow 迁到魂织自己的 builtin 池，并把工程边界收紧。
