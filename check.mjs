@@ -190,6 +190,50 @@ write(
   })}\n`,
 )
 
+
+// 2026-11-24 CI：封存源以前直接指向开发机安装的 dsh-sealed-segments，CI 上必然找不到。
+// 这里造一个遵守同一契约的最小 stub（createManifestReader + searchArchive），
+// 让 §8.4 只验「封存源接进来后能出 loc/snippet」，不验第三方包的实现。
+write('sealed-stub.mjs', `
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+export function createManifestReader({ manifestPath }) {
+  return () => {
+    try {
+      return readFileSync(manifestPath, 'utf8')
+        .trim()
+        .split(/\\r?\\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    } catch {
+      return []
+    }
+  }
+}
+
+export function searchArchive(records, { query, limit, options }) {
+  const words = String(query ?? '').split(/\\s+/).filter(Boolean)
+  const display = []
+  let hits = 0
+  for (const record of records) {
+    let body = ''
+    try {
+      body = readFileSync(join(options.archiveRoot, record.file), 'utf8')
+    } catch {
+      continue
+    }
+    if (!words.every((word) => body.includes(word))) continue
+    hits += 1
+    display.push(\`== \${record.seg_id} · \${record.topic ?? ''} · 命中 1 处\`)
+    const line = body.split(/\\r?\\n/).find((item) => words.every((word) => item.includes(word))) ?? ''
+    display.push(\`> 1| \${line}\`)
+    if (hits >= limit) break
+  }
+  return { display, hits }
+}
+`)
+
 const memoryDbPath = join(root, 'memory.db')
 {
   const db = new DatabaseSync(memoryDbPath)
@@ -245,7 +289,7 @@ const config = normalizeConfig({
   logPath: join(root, 'logs/soul.log'),
   soulMaxTokens: 200,
   // 2026-11-03 开源化：sealed 源默认不注册（§C），测试要显式打开它才能验封存检索。
-  sealedSegmentsModule: 'dsh-sealed-segments',
+  sealedSegmentsModule: join(root, 'sealed-stub.mjs'),
 })
 
 const words = ['封存', 'manifest']
@@ -1019,9 +1063,11 @@ await test('A4', 'T1 预算来源：显式传参 → profile injectBudgetChars�
   assert.deepEqual(cfg.tierPins, ['p1', 'p2', 'p3'])
 
   // 显式配置仍是最高优先级（老用户行为不变）。
-  const cfg2 = normalizeConfig({ ...config, tierConfigPaths: [withBudget], tierBudgetTokens: 600 })
+  // 只覆盖 tokens（700 与旧 chars 不成比例）→ 必须按显式传参，不许回落 profile。
+  // 注：如果 tokens/chars 恰好成比例，无法区分「已解析结果」与「用户显式同名值」，按已解析处理。
+  const cfg2 = normalizeConfig({ ...config, tierConfigPaths: [withBudget], tierBudgetTokens: 700 })
   assert.equal(cfg2.tierBudgetSource, 'arg')
-  assert.equal(cfg2.tierBudgetTokens, 600)
+  assert.equal(cfg2.tierBudgetTokens, 700)
   return `meow 2200 字→1538 tok / 默认 1400 字→979 tok / 兜底 600 tok / 显式传参优先`
 })
 
