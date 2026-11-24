@@ -17,7 +17,7 @@ notes/
 REPORT.md
 .pnpm-debug.log*
 
-# ��������ڵĸ�����
+# 本地锁文件（ops 工具产生）
 *.lock
 
 # 内部工作报告（留在 lanxi，不进仓库）
