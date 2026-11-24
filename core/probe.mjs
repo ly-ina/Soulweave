@@ -3,8 +3,9 @@
  *
  * 2026-11-19 解耦第 6 块：从 index.js 原样搬出，逻辑未改。
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+
 import { join } from 'node:path'
 import { tableColumns } from './text.mjs'
 import { MEMORY_LEVELS } from './constants.mjs'

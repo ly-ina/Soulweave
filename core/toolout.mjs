@@ -1,7 +1,7 @@
 /**
  * 二期模块 B：工具过程归档（只归档、绝不删除）
  *
- * 目标库是 billion-context 的 index.db（默认 C:UsersLenovo/.local/share/billion-context/sessions/index.db，可用 biliDbPath 覆盖）。
+ * 目标库是 billion-context 的 index.db（默认位于 billion-context 的用户数据目录，可用 biliDbPath 覆盖）。
  * 只动两类行：
  *   - `messages`：`role = 'tool'` 或 `kind = 'tool-result'` 的行，正文长度 ≥ minChars，
  *     且 `seq` 早于「最近 N 个 turn」的分界（分界 = 从后往前数第 N 条 user 正文消息的 seq）；
@@ -15,9 +15,10 @@
  *
  * 红线：不 DELETE 任何行；每写一次都要有备份路径 + 日志行 + 报告条目（由调用方负责写报告）。
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+
 import { dirname, join } from 'node:path'
 
 export const TOOLOUT_DIR = 'toolout'

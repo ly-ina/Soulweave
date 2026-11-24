@@ -17,8 +17,8 @@
  * 降权动作只有两种（交办单 A4）：`importance-1`（最低 1）、`keywords` 追加 `沉底`。
  * 永不删、永不 archived、永不改 content。
  */
+import { existsSync, readFileSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, readFileSync } from 'node:fs'
 
 /** 各表行数快照，用来校验 VACUUM INTO 备份与源库一致。 */
 function snapshotCounts(db) {

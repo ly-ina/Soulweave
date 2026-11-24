@@ -12,7 +12,8 @@
  * 边界：不动 soul / user / rules（常驻层由 soul_tier 管）；不动 pinned / daily；
  * 不动 corrected=1 的 lesson（被纠正过的是交过学费的）；不动 status != active。
  */
-import { existsSync, mkdirSync } from 'node:fs'
+
+import { existsSync, mkdirSync } from '../io.mjs'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 

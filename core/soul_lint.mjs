@@ -17,9 +17,10 @@
  * 且与 meow-memory 的检索口径同源。阈值 0.8 只抓「几乎逐字重复」，改写过的近义条目抓不到——
  * 这是刻意的：宁可漏报，不要拿一堆「像但不同」的条目让人一条条看。
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+
+import { env, existsSync, homedir, readFileSync, readdirSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { homedir } from 'node:os'
+
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -194,7 +195,7 @@ export function soulweaveBlockOf(text) {
  * 否则按名字排序取第一个，并把「用了哪个」交给调用方打印——不许悄悄猜。
  */
 export function findProfileConfig({ dshHome, prefer = '' } = {}) {
-  const home = dshHome || process.env.DSH_HOME || join(homedir(), '.dsh')
+  const home = dshHome || env('DSH_HOME') || join(homedir(), '.dsh')
   const profilesDir = join(home, 'profiles')
   if (!existsSync(profilesDir)) return null
   let names = []

@@ -9,7 +9,8 @@
  *   3. join 一次的成本在 11ms 的检索里可以忽略。
  * 只依赖 node:sqlite（方向约束：memory 不 import core）。
  */
-import { existsSync } from 'node:fs'
+
+import { existsSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
 
 export const WHEN_TABLE = 'when_index'

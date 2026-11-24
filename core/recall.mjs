@@ -1,11 +1,12 @@
 /**
  * recall —— 三源检索、原文库/规则/笔记搜索、persist（零宿主依赖）。
  */
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { spawn } from 'node:child_process'
+
+import { envAll, existsSync, platform, readFileSync, readdirSync, spawnProcess, statSync, writeFileSync } from '../io.mjs'
 import { createRequire } from 'node:module'
 import { join, resolve, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import * as builtinMemory from '../memory/builtin.mjs'
 import { PLUGIN_DIR, asText, asInt, clip, estimateTokens, dsHome } from './text.mjs'
 import { RECALL_MAX_CHARS } from './constants.mjs'
 import { createMemoryBackend, hitAll, snippetAround, wordsOf, searchMemoryMeow, scoreOf } from './search.mjs'
@@ -237,37 +238,61 @@ export function searchNotes(options, words, limit) {
 /**
  * 第四源：soul-index 原文库（全量会话原文，2026-11-01 接入）。
  * 现跑 query.py --json；失败只返回 note，不拖累其余三源。
+ *
+ * 熔断（2026-11-24 第九刀）：python 缺失/query.py 坏了时，原先每次 soul_recall 都要
+ * 白等满 15 秒超时。现在失败按指数退避熔断（1min → 5min → 15min，上限 15min），
+ * 熔断期内直接返回 note 不 spawn；成功一次立即复位。
  */
+const indexCircuit = { fails: 0, openUntil: 0, lastNote: '' }
+export function resetIndexCircuit() { indexCircuit.fails = 0; indexCircuit.openUntil = 0; indexCircuit.lastNote = '' }
+export function indexCircuitState() { return { ...indexCircuit, open: Date.now() < indexCircuit.openUntil } }
+const INDEX_BACKOFF_MS = [60_000, 300_000, 900_000]
+
+function tripIndexCircuit(note) {
+  indexCircuit.fails += 1
+  const wait = INDEX_BACKOFF_MS[Math.min(indexCircuit.fails - 1, INDEX_BACKOFF_MS.length - 1)]
+  indexCircuit.openUntil = Date.now() + wait
+  indexCircuit.lastNote = note
+}
+
 export function searchIndexSource(options, words, limit) {
+  if (Date.now() < indexCircuit.openUntil) {
+    const left = Math.ceil((indexCircuit.openUntil - Date.now()) / 1000)
+    return Promise.resolve({ entries: [], note: `原文库熔断中（${left}s 后重试）：${indexCircuit.lastNote}` })
+  }
   return new Promise((resolve) => {
     const dir = options.soulIndexDir
     const script = join(dir, 'query.py')
     if (!existsSync(script)) return resolve({ entries: [], note: '原文库脚本不在' })
     let child
     try {
-      child = spawn(options.soulIndexPython || 'python', [script, words.join(' '), String(limit), '--json'], {
-        cwd: dir, windowsHide: true, env: { ...process.env, SOUL_INDEX_NO_SYNC: '1' },
+      child = spawnProcess(options.soulIndexPython || (platform() === 'win32' ? 'python' : 'python3'), [script, words.join(' '), String(limit), '--json'], {
+        cwd: dir, windowsHide: true, env: { ...envAll(), SOUL_INDEX_NO_SYNC: '1' },
       })
     } catch (e) {
-      return resolve({ entries: [], note: '原文库启动失败：' + (e?.message || e) })
+      const note = '原文库启动失败：' + (e?.message || e)
+      tripIndexCircuit(note)
+      return resolve({ entries: [], note })
     }
     let out = ''
     let err = ''
     let done = false
     const finish = (value) => { if (!done) { done = true; clearTimeout(timer); resolve(value) } }
-    const timer = setTimeout(() => { try { child.kill() } catch { /* 忽略 */ } finish({ entries: [], note: '原文库超时' }) }, 15000)
+    const timer = setTimeout(() => { try { child.kill() } catch { /* 忽略 */ } tripIndexCircuit('原文库超时'); finish({ entries: [], note: '原文库超时' }) }, 15000)
     child.stdout?.on('data', (d) => { out += d })
     child.stderr?.on('data', (d) => { err += d })
-    child.on('error', (e) => finish({ entries: [], note: '原文库不可用：' + (e?.message || e) }))
+    child.on('error', (e) => { const note = '原文库不可用：' + (e?.message || e); tripIndexCircuit(note); finish({ entries: [], note }) })
     child.on('close', (code) => {
-      if (code !== 0) return finish({ entries: [], note: '原文库退出 ' + code + (err ? '：' + clip(err, 80) : '') })
+      if (code !== 0) { const note = '原文库退出 ' + code + (err ? '：' + clip(err, 80) : ''); tripIndexCircuit(note); return finish({ entries: [], note }) }
       try {
         const rows = JSON.parse(out.trim() || '[]')
+        resetIndexCircuit()
         finish({
           entries: rows.slice(0, limit).map((r) => ({ loc: r.when + ' ' + String(r.sid || '').slice(-8) + '#' + r.seq, snippet: r.snippet })),
           note: rows.length === 0 ? '原文库里没有这些词' : '',
         })
       } catch {
+        tripIndexCircuit('原文库输出解析失败')
         finish({ entries: [], note: '原文库输出解析失败' })
       }
     })
@@ -316,6 +341,39 @@ export function createRecallSources(config) {
   const memorySearch = config.hybridSearch === true
     ? createHybridSearch({ search: (query, limit) => backend.search(query, limit), recall: recallForHybrid })
     : (query, limit) => backend.search(query, limit)
+  // 2026-11-24 魂织第一刀：meow 后端时再读同一个库里 soul_remember 写的 memories 表。
+  // 两个池子同库不同表，按 loc 去重；builtin 后端本身读的就是这张表，不重复读。
+  const memoryBoth = async (query, limit) => {
+    const primary = await memorySearch(query, limit)
+    if (config.memoryBackend === 'builtin') {
+      // 第三刀：旧 meow 库只读挂载，双读比对。新池优先，旧库只补位、不改写。
+      if (typeof backend.legacySearch !== 'function') return primary
+      const legacy = await backend.legacySearch(query, limit)
+      if (!legacy || !Array.isArray(legacy.entries) || legacy.entries.length === 0) return primary
+      const seen = new Set((primary.entries ?? []).map((entry) => String(entry.loc)))
+      const extra = legacy.entries
+        .filter((entry) => !seen.has(String(entry.loc)))
+        .slice(0, Math.max(1, Math.ceil(limit / 2)))
+        .map((entry) => ({ ...entry, loc: `旧库/${String(entry.loc)}` }))
+      if (extra.length === 0) return primary
+      const primaryTop = (primary.entries ?? []).slice(0, Math.max(limit - extra.length, 0))
+      return { entries: [...primaryTop, ...extra].slice(0, Math.max(limit, 1)), note: primary.note || '' }
+    }
+    if (!existsSync(config.memoryDbPath)) return primary
+    // builtin.search 对字符串按「整串一个词」匹配，这里必须先拆成词，否则永远空命中。
+    const words = String(query ?? '').split(/\s+/).filter(Boolean)
+    const extra = builtinMemory.search(config.memoryDbPath, words, limit)
+    if (!Array.isArray(extra.entries) || extra.entries.length === 0) return primary
+    const seen = new Set((primary.entries ?? []).map((entry) => String(entry.loc)))
+    // 双读阶段新库优先：至少给 memories 表 ceil(limit/2) 个位置，
+    // 否则 meow 一次就占满 limit，新写的永远露不出来。
+    const extraTop = extra.entries.filter((entry) => !seen.has(String(entry.loc))).slice(0, Math.max(1, Math.ceil(limit / 2)))
+    const primaryTop = (primary.entries ?? []).slice(0, Math.max(limit - extraTop.length, 0))
+    return {
+      entries: [...extraTop, ...primaryTop].slice(0, Math.max(limit, 1)),
+      note: primary.note || extra.note || '',
+    }
+  }
   const archiveSearch = asText(config.sealedModule)
     ? createArchiveSearch({ ...config, manifestPath: join(config.archiveRoot, 'manifest.jsonl') })
     : null
@@ -324,7 +382,7 @@ export function createRecallSources(config) {
       id: 'memory',
       label: '① 记忆库',
       enabled: true,
-      search: (words, n) => memorySearch(words.join(' '), n),
+      search: (words, n) => memoryBoth(words.join(' '), n),
     },
     {
       id: 'archive',
@@ -489,4 +547,3 @@ export function createPersist(config) {
     return { ok: true, mode, added: lines.length, pending: pending.length - lines.length, text: [head, ...lines].join('\n') }
   }
 }
-

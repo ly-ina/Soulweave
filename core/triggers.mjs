@@ -1,7 +1,8 @@
 /**
  * triggers —— 触发词清单加载与选择（零宿主依赖）。
  */
-import { existsSync, readFileSync } from 'node:fs'
+
+import { existsSync, readFileSync } from '../io.mjs'
 import { asText, asInt, estimateTokens } from './text.mjs'
 import { textOfMessage, lastUserTexts } from './budget.mjs'
 
@@ -91,4 +92,3 @@ export function pickTriggerText(messages, events) {
 export function resetTriggerCooldownOnReload(cooledBySession, sessionKey, shadowPlan) {
   if (shadowPlan?.injectStable === true) cooledBySession.delete(sessionKey)
 }
-

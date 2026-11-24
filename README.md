@@ -8,14 +8,15 @@
 
 ## 包结构
 
-单包多入口：零构建、零 npm 依赖、没有 `node_modules`。三层单向依赖，只有最外面那层知道 DSH。
+单包多入口：零构建、零 npm 依赖、没有 `node_modules`。`io.mjs` 是宿主环境底座，上面三层单向依赖，只有最外面那层知道 DSH。
 
 ```text
 index.js                  DSH 插件入口（name / inject / apply / MESSAGE_KIND）
+io.mjs                    宿主环境唯一入口（fs / os / child_process / env），可 configureIo 注入替身
 ├─ adapters/dsh/          唯一允许接触 ctx 的适配层
 │  ├─ prestep.mjs         agent/pre-step：拼魂引、按预算注入
 │  └─ apply.mjs           注册 soul_* 工具、设置面板、同步触发器
-├─ core/                  纯逻辑：只 import node:*、memory 和相对路径
+├─ core/                  纯逻辑：只 import node:* 的纯函数模块、memory 和相对路径
 │  ├─ prompt.mjs          魂引拼装
 │  ├─ budget.mjs          预算与降档
 │  ├─ soul.mjs            解析 soul.md
@@ -220,7 +221,7 @@ BM25（后端自带）  ─┐
 向量模块**不随插件发布**，因为模型约 95MB、还要 transformers 依赖。要用的自己装：
 
 ```powershell
-cd <workspace>\lanxi\tools\semantic-search
+cd <semantic-search 目录>
 node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirror 走代理或镜像
 ```
 
@@ -228,7 +229,7 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 
 ```yaml
     hybridSearch: true
-    embedModule: <workspace>/lanxi/tools/semantic-search/embed.mjs
+    embedModule: /path/to/semantic-search/embed.mjs
     embedCachePath: <workspace>/lanxi/tools/semantic-search/cache.db
 ```
 
@@ -342,6 +343,8 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 - 不引任何 npm 依赖；SQLite 用 Node 自带 `node:sqlite`。
 - `soul_tier --apply`、`soul_cue` 依赖 meow 的表结构。
 - `soul_surface` 需要宿主提供会话对象；拿不到就明说，不直接改 `.zstd`。
+- Linux / macOS 下原文库源默认找 `python3`（Windows 为 `python`），可用 `soulIndexPython` 覆盖。
+- `core/`、`memory/` 不许直接 import `node:fs|os|child_process`，统一走 `io.mjs`；`tools/check-layers.mjs` 会拦住违规。
 - `soul_toolout` 依赖外部 billion-context 的 `index.db`。库不存在时**不注册该工具**（不占工具表、不会在调用时报错），库回来后重启即恢复。
 
 ## 自测
@@ -349,7 +352,7 @@ node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirr
 `check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 88/88 通过（v0.2.1 新增 SP14 pinned 打包断言）
+node check.mjs          # 单元/集成：期望最后一行 111/111 通过（R23-R26：宿主隔离 / 故障降级 / 执行边界 / 熔断）
 node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
 node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报可疑对与总数（不进 npm 包）
 ```

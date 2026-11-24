@@ -11,8 +11,9 @@
  * - 写库前必须 `VACUUM INTO` 备份；默认 preview，append 才动。
  * - 不 delete 任何行（红线 1）。
  */
+import { existsSync, mkdirSync, readFileSync, statSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+
 import { join } from 'node:path'
 
 export const MEMORY_TABLES = Object.freeze(['soul', 'rules', 'user', 'project', 'fact', 'topic', 'lesson'])

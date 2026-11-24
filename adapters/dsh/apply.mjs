@@ -11,9 +11,12 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { applyOverride, registerSoulweavePanel } from './panel.js'
 import * as builtinMemory from '../../memory/builtin.mjs'
+import * as curator from '../../core/curator.mjs'
+import { guardTool } from '../../core/validate.mjs'
 import { createHybridSearch } from '../../memory/hybrid.mjs'
 import { buildCue, cueStats, readCueMap, runCue, scoreCue } from '../../core/cue.mjs'
 import { restoreFromExport, runToolout } from '../../core/toolout.mjs'
+import { remember } from '../../core/remember.mjs'
 import { buildRows, collectPluginTools, countCalls, NO_MATCH_TEXT, renderCapabilities, suggestTools, suggestToolsWithReasons, writeCapabilities } from '../../core/capabilities.mjs'
 import { applyTier, CHARS_PER_TOKEN, planForDb, planTier, readInjectionRows, renderTierPlan, resolveTierBudget } from '../../core/tier.mjs'
 import { applyViaSession, planSurfaceReplace, renderSurfacePlan, surfaceStatsOf, SURFACE_TOOL } from '../../core/surface.mjs'
@@ -330,6 +333,147 @@ const PERSIST_TOOL = Object.freeze({
   },
 })
 
+/** 2026-11-24 魂织第一刀：唯一写入口。 */
+const SOUL_REMEMBER_TOOL = Object.freeze({
+  name: 'soul_remember',
+  description:
+    '魂织记忆唯一写入口：写一条记忆（可带 project / importance / kind / todo / source）。正文 sha 去重，同一条内容变了才留版本。分类缺省由系统保守推断，不用使用者挑表。',
+  parameters: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: '要更新的记忆 id（给了就改这一条；此时 content 可省）' },
+      content: { type: 'string', description: '要记住的内容（一句话说清，别贴整段日志）' },
+      status: { type: 'string', enum: ['active', 'stale', 'archived'], description: '更新状态；stale=完成，archived=作废' },
+      title: { type: 'string', description: '短标题，可省' },
+      kind: {
+        type: 'string',
+        enum: ['soul', 'rules', 'user', 'project', 'fact', 'lesson', 'topic', 'todo'],
+        description: '记忆类型；可省，缺省按内容推断（被纠正优先 lesson，带 project 的待办归 todo）',
+      },
+      project: { type: 'string', description: '归属项目，可省（全局就留空）' },
+      importance: { type: 'number', description: '重要性 1–4，可省（纠正类默认 2，其余 1）' },
+      keywords: { type: 'array', items: { type: 'string' }, description: '检索关键词，可省' },
+      corrected: { type: 'boolean', description: '是不是被纠正后记的（会归成 lesson）' },
+      todo: { type: 'boolean', description: 'true = 同时写一条 todo（pending）' },
+      due: { type: 'string', description: 'todo 到期日 YYYY-MM-DD，可省' },
+      goal: { type: 'string', description: '话题目标句，可省' },
+      why: { type: 'string', description: '为什么写这条/为什么改（版本留痕用），可省' },
+      source: {
+        type: 'object',
+        properties: {
+          session: { type: 'string' },
+          turn: { type: 'string' },
+        },
+        additionalProperties: false,
+        description: '来源会话/轮次，可省',
+      },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  result: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      text: { type: 'string' },
+      id: { type: 'string' },
+      dedup: { type: 'boolean' },
+      version: { type: 'number' },
+      kind: { type: 'string' },
+      level: { type: 'string' },
+      project: { type: 'string' },
+      importance: { type: 'number' },
+      todo: {
+        type: 'object',
+        properties: { id: { type: 'string' }, status: { type: 'string' } },
+        required: ['id', 'status'],
+        additionalProperties: false,
+      },
+    },
+    required: ['ok', 'text'],
+    additionalProperties: false,
+  },
+})
+
+const SOUL_PROJECT_TOOL = Object.freeze({
+  name: 'soul_project',
+  description: '看一个项目的全景：未结 todo、项目级记忆、可检索条数。替代 meow 的 memory_project。',
+  parameters: {
+    type: 'object',
+    properties: { project: { type: 'string', description: '项目名，如 soulweave' } },
+    required: ['project'],
+    additionalProperties: false,
+  },
+  result: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' }, text: { type: 'string' } },
+    required: ['ok', 'text'],
+    additionalProperties: false,
+  },
+})
+
+const SOUL_AUDIT_TOOL = Object.freeze({
+  name: 'soul_audit',
+  description: '记忆库体检（只读）：分层统计、近重复、热词、stale、归档候选。默认把结果追加到 notes/memory-audit/YYYY-MM-DD.md。',
+  parameters: {
+    type: 'object',
+    properties: {
+      writeNote: { type: 'boolean', description: '是否写体检笔记，默认 true' },
+      staleDays: { type: 'number', description: '多少天没更新算 stale，默认 30' },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  result: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' }, text: { type: 'string' } },
+    required: ['ok', 'text'],
+    additionalProperties: false,
+  },
+})
+
+const SOUL_ARCHIVE_TOOL = Object.freeze({
+  name: 'soul_archive',
+  description: '选择性归档：默认 dry-run；显式 mode=apply + ids 才把 status 改成 archived。永不删除，apply 前先 VACUUM INTO 备份。soul/user/rules、项目含 lanxi、含情感词、importance>=4 的条目受保护。',
+  parameters: {
+    type: 'object',
+    properties: {
+      mode: { type: 'string', enum: ['dry-run', 'apply'], description: '默认 dry-run' },
+      ids: { type: 'array', items: { type: 'string' }, description: '要归档的记忆 id' },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  result: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' }, text: { type: 'string' } },
+    required: ['ok', 'text'],
+    additionalProperties: false,
+  },
+})
+
+const SOUL_TODO_TOOL = Object.freeze({
+  name: 'soul_todo',
+  description: '待办入口：列出未结 todo，或把某条标完成 / 恢复未结。todo 正文仍在记忆池，生命周期单列一张表。',
+  parameters: {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['list', 'done', 'reopen'], description: 'list=列未结（默认）/ done=标完成 / reopen=恢复未结' },
+      id: { type: 'string', description: 'done/reopen 时的 todo id（list 结果里带）' },
+      project: { type: 'string', description: 'list 时按项目过滤' },
+      limit: { type: 'number', description: 'list 最多几条，默认 20' },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  result: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' }, text: { type: 'string' } },
+    required: ['ok', 'text'],
+    additionalProperties: false,
+  },
+})
+
 const RECALL_TOOL = Object.freeze({
   name: 'soul_recall',
   description:
@@ -574,7 +718,193 @@ export function createTools(config, deps = {}) {
     return { ok: true, text: `【soul_mood】${found.file}\n${found.text}`, file: found.file }
   }
 
+
+  /** 2026-11-24 魂织第一刀：写记忆（唯一写入口）。 */
+  const rememberExecute = async (args) => {
+    const result = remember(normalized, {
+      id: args?.id,
+      content: args?.content,
+      status: args?.status,
+      title: args?.title,
+      kind: args?.kind,
+      project: args?.project,
+      importance: args?.importance,
+      keywords: args?.keywords,
+      corrected: args?.corrected,
+      todo: args?.todo,
+      due: args?.due,
+      goal: args?.goal,
+      why: args?.why,
+      source: args?.source,
+    })
+    if (!result.ok) return { ok: false, text: String(result.text ?? 'soul_remember 失败') }
+    const out = {
+      ok: true,
+      text: String(result.text),
+      id: String(result.id),
+      dedup: Boolean(result.dedup),
+      version: Number(result.version) || 1,
+      kind: String(result.kind),
+      level: String(result.level),
+      importance: Number(result.importance) || 1,
+    }
+    if (result.project) out.project = String(result.project)
+    if (result.todo) out.todo = { id: String(result.todo.id), status: String(result.todo.status) }
+    return out
+  }
+
+  /** 第四刀：项目全景（读 builtin 的 todos + project 级 memories）。 */
+  const projectExecute = async (args) => {
+    const project = String(args?.project ?? '').trim()
+    if (!project) return { ok: false, text: '【soul_project】project 不能为空' }
+    const present = builtinMemory.listPresent(normalized.memoryDbPath, { project, limit: 8 })
+    const lines = [`【soul_project · ${project}】`]
+    if (present.pending.length > 0) {
+      lines.push('未结：')
+      for (const item of present.pending) lines.push(`- ${item}`)
+    } else lines.push('未结：（无）')
+    if (present.memories.length > 0) {
+      lines.push('项目记忆：')
+      for (const item of present.memories) lines.push(`- ${item}`)
+    } else lines.push('项目记忆：（无）')
+    lines.push(`可检索：${present.searchable} 条 → soul_recall`)
+    return { ok: true, text: lines.join('\n') }
+  }
+
+  /** 第六刀：todo 生命周期入口（列未结 / 标完成 / 恢复）。 */
+  const todoExecute = async (args) => {
+    const action = String(args?.action ?? 'list').trim() || 'list'
+    if (action === 'list') {
+      const limit = Math.max(1, Math.min(100, Number(args?.limit) || 20))
+      const project = String(args?.project ?? '').trim()
+      const rows = builtinMemory.listTodos(normalized.memoryDbPath, { project, status: 'pending', limit })
+      if (rows.length === 0) return { ok: true, text: '【soul_todo】未结：（无）' }
+      const lines = [`【soul_todo】未结 ${rows.length} 条`]
+      for (const row of rows) lines.push(`- ${row.id} · ${row.project || '全局'} · ${row.content}`)
+      return { ok: true, text: lines.join('\n') }
+    }
+    if (action === 'done' || action === 'reopen') {
+      const id = String(args?.id ?? '').trim()
+      if (!id) return { ok: false, text: '【soul_todo】id 不能为空' }
+      const result = builtinMemory.setTodoStatus(normalized.memoryDbPath, id, action === 'done' ? 'done' : 'pending')
+      if (!result.ok) return { ok: false, text: `【soul_todo】${result.error}` }
+      return { ok: true, text: `【soul_todo】${id} → ${result.status}` }
+    }
+    return { ok: false, text: `【soul_todo】不认识的 action：${action}` }
+  }
+
+  /** 第七刀后并入：记忆库体检（只读）。 */
+  const auditExecute = async (args) => {
+    const db = curator.openDatabase(normalized.memoryDbPath)
+    let rows
+    try {
+      rows = curator.loadRows(db)
+    } finally {
+      try {
+        db.close()
+      } catch {
+        /* ignore */
+      }
+    }
+    const staleDays = Math.max(1, Math.min(3650, Number(args?.staleDays) || 30))
+    const report = curator.buildAudit(rows, { staleDays })
+    const candidates = curator.buildCandidates(rows, { limit: 8, staleDays })
+    let note = null
+    if (args?.writeNote !== false && normalized.notesDir) {
+      note = curator.writeAuditNote(report, { notesDir: join(normalized.notesDir, 'memory-audit') })
+    }
+    const layerText = Object.entries(report.layers)
+      .map(([level, v]) => `${level} ${v.active}/${v.total}`)
+      .join(' · ')
+    const lines = [
+      `【soul_audit】总计 ${report.total} · active ${report.active} · 正文 ${report.chars} 字`,
+      `- 分层：${layerText || '（空）'}`,
+      `- 近重复 ${report.duplicateTotal} 对 · stale ${report.staleTotal} 条（>${staleDays} 天）`,
+    ]
+    if (report.duplicates.length > 0) {
+      lines.push('- 重复示例：' + report.duplicates.slice(0, 3).map((p) => `${p.a.id} ↔ ${p.b.id} ${p.score}`).join('；'))
+    }
+    if (report.hotKeywords.length > 0) {
+      lines.push('- 热词：' + report.hotKeywords.slice(0, 8).map((h) => `${h.keyword}(${h.count})`).join(' '))
+    }
+    lines.push(`- 归档候选 ${candidates.total} 条` + (candidates.items.length ? '：' + candidates.items.map((c) => `${c.id}(${c.level})`).join('、') : ''))
+    if (note) lines.push(`- 笔记：${note}`)
+    return { ok: true, text: lines.join('\n') }
+  }
+
+  /** 第七刀后并入：选择性归档。默认 dry-run，apply 前备份。 */
+  const archiveExecute = async (args) => {
+    const db = curator.openDatabase(normalized.memoryDbPath)
+    let rows
+    try {
+      rows = curator.loadRows(db)
+    } finally {
+      try {
+        db.close()
+      } catch {
+        /* ignore */
+      }
+    }
+    const ids = Array.isArray(args?.ids) ? args.ids : []
+    if (args?.mode === 'apply') {
+      const result = curator.applyArchive(rows, ids, {
+        dbPath: normalized.memoryDbPath,
+        backupDir: join(dirname(normalized.memoryDbPath), 'backup'),
+      })
+      if (!result.ok) return { ok: false, text: `【soul_archive】拒绝：${result.error}` }
+      const lines = [
+        `【soul_archive】已归档 ${result.applied.filter((a) => !a.skipped).length} 条（复核 ${result.verified ? '通过' : '失败'}）`,
+        `- 备份：${result.backup.file}（${result.backup.dstRows} 行）`,
+        ...result.applied.map((a) => `- ${a.id}: ${a.from} → ${a.to}${a.skipped ? '（本来就是 archived）' : ''}`),
+      ]
+      return { ok: true, text: lines.join('\n') }
+    }
+    const index = new Map(rows.map((r) => [r.id, r]))
+    const unknown = ids.filter((id) => !index.has(String(id)))
+    if (unknown.length > 0) {
+      return { ok: false, text: `【soul_archive】dry-run：不存在的 id ${unknown.join(', ')}` }
+    }
+    const picked = ids.map((id) => index.get(String(id)))
+    if (picked.length === 0) {
+      return { ok: true, text: '【soul_archive】dry-run：没有传 ids，库一个字节没动。先跑 soul_audit 看候选。' }
+    }
+    return {
+      ok: true,
+      text: [
+        '【soul_archive】dry-run（库未改动）',
+        ...picked.map((r) => {
+          const reason = curator.protectionReason(r)
+          return `- ${r.id} · ${r.level} · ${String(r.title || r.content || '').slice(0, 30)} → ${reason ? `受保护（${reason}）` : '可归档'}`
+        }),
+      ].join('\n'),
+    }
+  }
+
   const tools = [
+    {
+      name: SOUL_AUDIT_TOOL.name,
+      description: SOUL_AUDIT_TOOL.description,
+      parameters: SOUL_AUDIT_TOOL.parameters,
+      isConcurrencySafe: () => true,
+      execute: auditExecute,
+      output: { schema: SOUL_AUDIT_TOOL.result, render: RENDER },
+    },
+    {
+      name: SOUL_ARCHIVE_TOOL.name,
+      description: SOUL_ARCHIVE_TOOL.description,
+      parameters: SOUL_ARCHIVE_TOOL.parameters,
+      isConcurrencySafe: () => false,
+      execute: archiveExecute,
+      output: { schema: SOUL_ARCHIVE_TOOL.result, render: RENDER },
+    },
+    {
+      name: SOUL_TODO_TOOL.name,
+      description: SOUL_TODO_TOOL.description,
+      parameters: SOUL_TODO_TOOL.parameters,
+      isConcurrencySafe: () => false,
+      execute: todoExecute,
+      output: { schema: SOUL_TODO_TOOL.result, render: RENDER },
+    },
     {
       name: RECALL_TOOL.name,
       description: RECALL_TOOL.description,
@@ -582,6 +912,22 @@ export function createTools(config, deps = {}) {
       isConcurrencySafe: () => true,
       execute: recallExecute,
       output: { schema: RECALL_TOOL.result, render: RENDER },
+    },
+    {
+      name: SOUL_PROJECT_TOOL.name,
+      description: SOUL_PROJECT_TOOL.description,
+      parameters: SOUL_PROJECT_TOOL.parameters,
+      isConcurrencySafe: () => true,
+      execute: projectExecute,
+      output: { schema: SOUL_PROJECT_TOOL.result, render: RENDER },
+    },
+    {
+      name: SOUL_REMEMBER_TOOL.name,
+      description: SOUL_REMEMBER_TOOL.description,
+      parameters: SOUL_REMEMBER_TOOL.parameters,
+      isConcurrencySafe: () => false,
+      execute: rememberExecute,
+      output: { schema: SOUL_REMEMBER_TOOL.result, render: RENDER },
     },
     {
       name: PERSIST_TOOL.name,
@@ -649,14 +995,18 @@ export function createTools(config, deps = {}) {
     },
   ]
 
+  // 2026-11-24 第九刀：工具执行边界统一兜底。模型给的参数不保证是对象，
+  // execute 里任何 SQLITE_BUSY / 文件锁 / 未预期字段都不许变成宿主红色报错。
+  const guardedTools = tools.map((tool) => ({ ...tool, execute: guardTool(tool.name, tool.execute) }))
+
   // 模块 B（soul_toolout）只服务 billion-context 的 index.db。库不存在时注册它，
   // 每次调用只会返回「库不存在」，还白占一张工具 schema；这里按库存在与否决定注册。
   if (!existsSync(normalized.biliDbPath)) {
     deps.logger?.warn?.(`dsh-soul: soul_toolout 未注册（目标库不存在：${normalized.biliDbPath}）`)
-    return tools.filter((tool) => tool.name !== TOOLOUT_TOOL.name)
+    return guardedTools.filter((tool) => tool.name !== TOOLOUT_TOOL.name)
   }
 
-  return tools
+  return guardedTools
 }
 
 /** 宿主入口 */
@@ -704,6 +1054,10 @@ export function createSoulIndexSyncTrigger(options = {}) {
 export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?? console
   const baseStateDir = asText(config?.stateDir) || join(PLUGIN_DIR, '.state')
   const normalized = normalizeConfig(applyOverride(config, baseStateDir))
+  // 2026-11-24：数据落点迁移回退必须留痕——用旧路径不是错，但用户要能在 soul.log 看见为什么。
+  if (Array.isArray(normalized.pathNotes) && normalized.pathNotes.length > 0) {
+    for (const note of normalized.pathNotes) appendLog(normalized.logPath, logLine(Date.now(), 'path-migrate', note))
+  }
   const handler = createPreStepHandler({ config: normalized, timeZone: config?.timeZone, logger })
   ctx.on('agent/pre-step', handler, { prepend: true })
 

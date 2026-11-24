@@ -10,7 +10,8 @@
  * 3. `INDEX.json` 不存在 → 返回一行「技能库未安装：<目录>」，不抛错；
  * 4. 一切异常降级为「无相关技能」，绝不影响 soul_capabilities 主流程。
  */
-import { existsSync, readFileSync } from 'node:fs'
+
+import { existsSync, readFileSync } from '../io.mjs'
 import { join } from 'node:path'
 
 /** 中文 → 英文检索词。与 `skills/gamedev/find.mjs` 的 ZH 逐字一致（C14 校验）。 */

@@ -8,8 +8,9 @@
  * 调用次数的唯一来源是 billion-context 的 `index.db`：代理会话里每条工具调用都是一个
  * `"contentType":"tool-call","toolName":"…"` 的消息，数它即可。只读，不改库。
  */
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+
 import { dirname, join } from 'node:path'
 
 export const CAPABILITIES_FILE = join('notes', 'capabilities.md')

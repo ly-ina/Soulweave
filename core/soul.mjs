@@ -3,7 +3,8 @@
  *
  * 2026-11-19 解耦第 3 块：从 index.js 原样搬出，逻辑未改。
  */
-import { readFileSync } from 'node:fs'
+
+import { readFileSync } from '../io.mjs'
 import { join } from 'node:path'
 import { renderZoneLine } from './zones.mjs'
 import { asInt, asText, clip, estimateTokens, sha256 } from './text.mjs'
@@ -459,6 +460,10 @@ export function composeSoulState(input = {}) {
   const maxTokens = asInt(input.maxTokens, DEFAULT_SOUL_STATE_TOKENS, 20, 400)
   const workspace = asText(input.workspace) || '未标注工作区'
   const pending = (Array.isArray(input.pending) ? input.pending : []).filter((item) => asText(item) !== '')
+  // 第二刀：三档里的「在场 / 可检索」，只给指认与计数，正文按需 soul_recall。
+  const present = input.present && typeof input.present === 'object' ? input.present : null
+  const presentProject = present ? clip(asText(present.project), 20) : ''
+  const searchableCount = Math.max(0, Number(input.searchableCount ?? present?.searchable) || 0)
   const zoneRows = (Array.isArray(input.zones) ? input.zones : []).filter((row) => Number(row?.count) >= 0)
   // 2026-11-04 伊纳拍板：pinned 正文只归 meow，且**只对 user/rules 生效**——meow 的 initial
   // 候选是 `[...user, ...globalRules]`，lesson/fact/project 里的 pinned 它根本不看。
@@ -471,7 +476,14 @@ export function composeSoulState(input = {}) {
   const build = (step) => {
     const lines = ['【魂引 · 现状】']
     lines.push(`${stampOf(at, timeZone)} ${weekdayOf(at, timeZone)} · ${workspace}`.trim())
-    if (pending.length > 0) lines.push(`未结 ${pending.length} 条 → soul_recall('未结')`)
+    const presentMarks = []
+    const hasPresentContent = searchableCount > 0 || Boolean(present) && ((present.pending?.length ?? 0) > 0 || (present.memories?.length ?? 0) > 0)
+    if (presentProject !== '' && hasPresentContent) presentMarks.push(`在场：${presentProject}`)
+    if (pending.length > 0) presentMarks.push(`未结 ${pending.length} 条`)
+    if (searchableCount > 0) presentMarks.push(`可检索 ${searchableCount} 条`)
+    if (presentMarks.length > 0) {
+      lines.push(`${presentMarks.join(' · ')} → soul_recall${pending.length > 0 ? "('未结')" : ''}`)
+    }
     if (lessonHead !== '' && step.lesson > 0) lines.push(`- ${lessonHead}`)
     if (zoneLine) {
       if (step.zones >= 2) lines.push(zoneLine)

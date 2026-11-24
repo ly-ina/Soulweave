@@ -3,10 +3,12 @@
  *
  * 2026-11-19 解耦第 10 块（提前搬，probe 需要 searchMemory）：从 index.js 原样搬出，逻辑未改。
  */
+import { existsSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync } from 'node:fs'
+
 import { join } from 'node:path'
 import * as builtinMemory from '../memory/builtin.mjs'
+import { inspectLegacyDb } from '../memory/legacy.mjs'
 import { readCueMap, scoreCue } from './cue.mjs'
 import { readInjectionRows } from './tier.mjs'
 import * as whenMemory from '../memory/when.mjs'
@@ -56,11 +58,16 @@ function createMeowBackend(cfg) {
     putCue: () => ({ ok: false, error: 'meow 后端请走 soul_cue（cue.mjs）' }),
     listCorrectedLessons: (limit = 200) => loadCorrectedLessons(cfg.memoryDbPath, limit),
     countResident: () => countResidentEntries(cfg.memoryDbPath),
+    listPresent: (project, limit = 3) => ({ project: String(project ?? ''), pending: [], memories: [], searchable: 0 }),
+    countSearchable: () => 0,
+    legacyStatus: () => null,
+    legacySearch: () => null,
   }
 }
 
 function createBuiltinBackend(cfg) {
   const dbPath = cfg.memoryDbPath
+  const legacyDbPath = String(cfg.legacyMemoryDbPath ?? '')
   return {
     id: 'builtin',
     dbPath,
@@ -73,6 +80,17 @@ function createBuiltinBackend(cfg) {
     putCue: (id, cue) => builtinMemory.putCue(dbPath, id, cue),
     listCorrectedLessons: (limit = 200) => builtinMemory.listCorrectedLessons(dbPath, limit),
     countResident: () => builtinMemory.countResident(dbPath),
+    listPresent: (project, limit = 3) => builtinMemory.listPresent(dbPath, { project, limit }),
+    countSearchable: () => builtinMemory.countSearchable(dbPath),
+    // 第三刀：旧 meow 库只读挂载。找不到表就返回 null，检索照常只走新池。
+    legacyDbPath,
+    legacyStatus: () => inspectLegacyDb(legacyDbPath),
+    legacySearch: (query, limit = 5) => {
+      const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+      if (words.length === 0 || !legacyDbPath || !existsSync(legacyDbPath)) return null
+      if (!inspectLegacyDb(legacyDbPath).ok) return null
+      return searchMemoryMeow({ memoryDbPath: legacyDbPath }, words, limit)
+    },
   }
 }
 
@@ -89,6 +107,10 @@ function createNoneBackend(cfg) {
     putCue: () => ({ ok: false, error: 'memoryBackend: none 不写 cue' }),
     listCorrectedLessons: () => [],
     countResident: () => 0,
+    listPresent: (project) => ({ project: String(project ?? ''), pending: [], memories: [], searchable: 0 }),
+    countSearchable: () => 0,
+    legacyStatus: () => null,
+    legacySearch: () => null,
   }
 }
 

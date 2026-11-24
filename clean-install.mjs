@@ -125,8 +125,9 @@ try {
   assert.ok(first.sources, 'recall 没返回 sources 计数')
   assert.equal(first.sources.archive, 0, '默认配置不该有封存源')
   assert.equal(first.sources.index, 0, '默认配置不该有原文库源')
-  const dbPath = join(pkgDir, '.state', 'soul-memory.db')
-  assert.ok(existsSync(dbPath), `builtin 库没自动建在包目录的 .state 下：${dbPath}`)
+  // 2026-11-24：数据落点已迁到 <DSH_HOME>/soulweave（config.mjs preferExistingPath），不再写包目录。
+  const dbPath = join(homeDir, 'soulweave', 'soul-memory.db')
+  assert.ok(existsSync(dbPath), `builtin 库没自动建在 <DSH_HOME>/soulweave 下：${dbPath}`)
   ok('R6', `recall 空结果 ok=true；sources=${JSON.stringify(first.sources)}；自动建库 ${relative(root, dbPath)}`)
 
   // ---- R7：往 builtin 库写一条，再查能读回
@@ -153,8 +154,8 @@ try {
     if (now !== stamp) escaped.push(path)
   }
   assert.equal(escaped.length, 0, `临时根外被写了：${escaped.join(', ')}`)
-  const stateEntries = readdirSync(join(pkgDir, '.state')).join(',')
-  ok('R8', `临时根外无写入；包目录 .state 内容：${stateEntries}`)
+  const dataEntries = readdirSync(join(homeDir, 'soulweave')).join(',')
+  ok('R8', `临时根外无写入；<DSH_HOME>/soulweave 内容：${dataEntries}`)
 
   dispose()
 } finally {

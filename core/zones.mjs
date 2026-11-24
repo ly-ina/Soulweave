@@ -12,7 +12,8 @@
  * `index.jsonl` 只当「区目录 + 标签集合」用；**条数每次现扫文件算**，
  * 免得手写完索引忘了重建就对不上（O16 盯的就是这个）。
  */
-import { existsSync, readFileSync, readdirSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from '../io.mjs'
 import { join, basename } from 'node:path'
 
 /** 固定区。区名进不了 tags（§1：区本身不重复写进 tags）。 */

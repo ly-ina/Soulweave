@@ -2,9 +2,10 @@
  * dsh 宿主：pre-step 注入处理器（允许 ctx，业务全在 core）。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { appendLog, asText, clip, estimateTokens, logLine, sha256, PLUGIN_DIR } from '../../core/text.mjs'
 import { MESSAGE_KIND, MEMORY_HEAD_LIMIT } from '../../core/constants.mjs'
+import { buildReflectPrompt, shouldInjectReflect } from '../../core/reflect.mjs'
 import { normalizeConfig, readRouterLines } from '../../core/config.mjs'
 import { EMPTY_SOUL, composeSoul, composeSoulStable, composeSoulState, decideReload, planSoulSplit, readSoulSources } from '../../core/soul.mjs'
 import { readSnapshot as readPersonaSnapshot } from '../../core/persona.mjs'
@@ -33,6 +34,11 @@ export function createPreStepHandler(options = {}) {
     ? options.memoryLoader
     : () => backend.listHeads(MEMORY_HEAD_LIMIT)
   let memoryCache = { at: 0, items: [] }
+  // 第二刀：在场档（当前项目 + 未结 todo）。项目名取 workspace 末段，和记忆里的 project 字段对齐。
+  const presentLoader = typeof options.presentLoader === 'function'
+    ? options.presentLoader
+    : (project) => backend.listPresent(project, MEMORY_HEAD_LIMIT)
+  let presentCache = { at: 0, project: '', value: { project: '', pending: [], memories: [], searchable: 0 } }
   // 2026-11-04 第二阶段：state 只放 lesson 头 1 条，跟其余 loader 一样 60s 一取。
   let lessonCache = { at: 0, text: '' }
   /** 规则索引缓存（2026-11-12）：60s 内复用，避免每一步都扫目录。 */
@@ -66,7 +72,7 @@ export function createPreStepHandler(options = {}) {
   /** 2026-11-21 v0.4.2：when 匹配入口；默认走 searchMemoryByContext，check.mjs 用 options.whenSearcher 注入假后端。 */
   const whenSearcher = typeof options.whenSearcher === 'function'
     ? options.whenSearcher
-    : (cfg, ctx, limit) => searchMemoryByContext(cfg, ctx, limit)
+    : (cfg, ctx, limit) => searchMemoryByContext(cfg, ctx, limit)
   /** 2026-11-21 第 3 条：命中计数入口；默认写 when_index，check.mjs 用 options.whenBump 注入假实现。 */
   const whenBump = typeof options.whenBump === 'function'
     ? options.whenBump
@@ -105,6 +111,11 @@ export function createPreStepHandler(options = {}) {
 
     const session = payload?.agent?.session
     const workspace = resolveWorkspace(payload, options)
+    const rawProject = basename(workspace).toLowerCase()
+    const projectName = rawProject.startsWith('dsh-') ? rawProject.slice(4) : rawProject
+    if (at.getTime() - presentCache.at > 60_000 || presentCache.project !== projectName) {
+      presentCache = { at: at.getTime(), project: projectName, value: presentLoader(projectName) }
+    }
 
     // §5 的顺序：先让别人让步，再拿剩下多少给魂引 —— 绝不先把自己砍到 40 再回头
     // 发现封存目录整块（400tok）还占着位置。这里用「魂引最小 40tok」预估一次，
@@ -224,6 +235,8 @@ export function createPreStepHandler(options = {}) {
       timeZone,
       workspace,
       pending: pendingCache.items,
+      present: presentCache.value,
+      searchableCount: presentCache.value.searchable ?? 0,
       zones: zoneCache.rows,
       lessonHead: lessonCache.text,
       inGroup,
@@ -421,7 +434,7 @@ export function createPreStepHandler(options = {}) {
           }) ?? null
           if (picked) {
             cooled.set(picked.id, nowMs)
-            whenCooled.set(sessionKey, cooled)
+            whenCooled.set(sessionKey, cooled)
             // 2026-11-21 第 3 条：dry-run 也记账、也冷却 —— 只记日志不冷却的话，同一条每步都命中，数据是假的。
             whenBump(picked)
           }
@@ -472,6 +485,11 @@ export function createPreStepHandler(options = {}) {
           return keep
         })
       }
+    }
+
+    // 2026-11-24 第四刀：反思轮（默认关）。只在每 turn 第一步判断，按工具调用数触发。
+    if (shouldInjectReflect({ events, everyTurns: config.reflectEvery, step: payload?.step })) {
+      messages = [...messages, createSoulMessage(buildReflectPrompt({ projectList: projectName, everyTurns: config.reflectEvery }), 'soul-reflect')]
     }
 
     let plan = planBudget(measureInjections(messages), config.totalMaxTokens)

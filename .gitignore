@@ -19,3 +19,6 @@ REPORT.md
 
 # ��������ڵĸ�����
 *.lock
+
+# 内部工作报告（留在 lanxi，不进仓库）
+REPORT-*.md

@@ -3,8 +3,8 @@
  *
  * 2026-11-19 解耦第 2 块：从 index.js 原样搬出，逻辑未改。
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { homedir } from 'node:os'
+
+import { env, existsSync, homedir, platform, readFileSync, readdirSync } from '../io.mjs'
 import { dirname, join, resolve } from 'node:path'
 import { CHARS_PER_TOKEN, resolveTierBudget } from './tier.mjs'
 import { DEFAULT_SOUL_STABLE_TOKENS, DEFAULT_SOUL_STATE_TOKENS, SOUL_STATE_MAX_CHARS, MESSAGE_KIND, SOUL_SECTIONS, SECTION_ALIASES, FEEDBACK_SECTION, FEEDBACK_ALIASES, SOUL_TOKEN_CEILING, DEFAULT_SOUL_WARN_TOKENS, HARD_SOUL_TOKENS, TOTAL_TOKENS, DEFAULT_SOUL_TOKENS, RECALL_MAX_CHARS, MEMORY_LEVELS, MEMORY_HEAD_LIMIT, INJECTION_CLASSES, YIELD_ORDER, HINTS } from './constants.mjs'
@@ -88,7 +88,6 @@ export function profilePatchPaths(home = dsHome()) {
   return paths.sort()
 }
 
-
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
@@ -97,6 +96,20 @@ export function profilePatchPaths(home = dsHome()) {
  * 归一化配置。用户目录下的路径（日志、cue）从 `DSH_HOME` 推出，**不写死**（§9.6）；
  * 本机路径一律由 profile 显式配置（见 README「最小安装」）。
  */
+/**
+ * 2026-11-24：数据落点从「插件源码目录」迁到 `<DSH_HOME>/soulweave`（全局，跨工作区同一份记忆与人格）。
+ * 迁移兼容：新路径不存在而旧路径存在时**继续用旧的**，原因记进 pathNotes 由调用方写 soul.log——
+ * 不允许升级后魂引突然读不到（宁可用旧路径也不要静默换到一个空目录）。
+ */
+function preferExistingPath(explicit, next, legacy, label, notes) {
+  if (explicit) return explicit
+  if (legacy && !existsSync(next) && existsSync(legacy)) {
+    notes.push(`${label}: 新路径 ${next} 尚未建立，继续用旧路径 ${legacy}（迁移到新路径后自动切换）`)
+    return legacy
+  }
+  return next
+}
+
 export function normalizeConfig(config = {}) {
   const home = dsHome()
   /**
@@ -133,12 +146,14 @@ export function normalizeConfig(config = {}) {
    * 开源化（2026-11-03）：默认路径全部从插件目录 / stateDir 派生，配置优先。
    * 交办方本机的旧绝对路径改由 profile 的 cordis.patch.yml 显式给出（§D），不再写死在这里。
    */
-  const stateDir = asText(config.stateDir) || join(PLUGIN_DIR, '.state')
+  const pathNotes = []
+  const dataDir = join(home, 'soulweave')
+  const stateDir = preferExistingPath(asText(config.stateDir), dataDir, join(PLUGIN_DIR, '.state'), 'stateDir', pathNotes)
   const memoryBackend = ['builtin', 'meow', 'none'].includes(asText(config.memoryBackend))
     ? asText(config.memoryBackend)
     : 'builtin'
   const notesDir = asText(config.notesDir) || join(stateDir, 'notes')
-  const soulPath = asText(config.soulPath) || join(PLUGIN_DIR, 'soul.md')
+  const soulPath = preferExistingPath(asText(config.soulPath), join(dataDir, 'soul.md'), join(PLUGIN_DIR, 'soul.md'), 'soulPath', pathNotes)
   /**
    * v0.1.2 P1：多文件常驻。主 soul.md 之后按数组顺序读，原文拼在一起再 parse 一次
    * （不是各 parse 各渲染），所以多份文件和 soul.md 共用同一份预算、同一条降档链。
@@ -151,8 +166,8 @@ export function normalizeConfig(config = {}) {
   const soulRoot = dirname(soulPath)
   const memoryRoot = asText(config.memoryRoot) || join(soulRoot, 'memory')
   const zoneIndexPath = asText(config.zoneIndexPath) || join(soulRoot, 'index.jsonl')
-  const memoryDbPath = asText(config.memoryDbPath)
-    || join(stateDir, memoryBackend === 'meow' ? 'memory.db' : 'soul-memory.db')
+  const legacyDbPath = join(PLUGIN_DIR, '.state', memoryBackend === 'meow' ? 'memory.db' : 'soul-memory.db')
+  const memoryDbPath = preferExistingPath(asText(config.memoryDbPath), join(dataDir, memoryBackend === 'meow' ? 'memory.db' : 'soul-memory.db'), legacyDbPath, 'memoryDbPath', pathNotes)
   /** 工作区根：显式给了记忆库就按它推（meow 本机 = 记忆库上一级）；没给就取插件上一级。 */
   const workspaceRoot = asText(config.memoryDbPath) ? resolve(dirname(memoryDbPath), '..') : dirname(PLUGIN_DIR)
   return Object.freeze({
@@ -169,11 +184,14 @@ export function normalizeConfig(config = {}) {
     archiveRoot: asText(config.archiveRoot) || join(stateDir, 'archive'),
     /** 记忆后端：builtin（默认，自带最小 schema）｜meow（本机七层库适配器）｜none（全部返回空）。 */
     memoryBackend,
-    memoryDbPath: asText(config.memoryDbPath)
-      || join(stateDir, memoryBackend === 'meow' ? 'memory.db' : 'soul-memory.db'),
+    memoryDbPath,
+    /** 第三刀：旧 meow 库只读挂载（空 = 不挂）；builtin 模式双读比对用，不写。 */
+    legacyMemoryDbPath: asText(config.legacyMemoryDbPath),
+    pathNotes,
     // 2026-11-01：第四源 soul-index 原文库（全量会话原文）；空 = 不注册该源
     soulIndexDir: asText(config.soulIndexDir),
-    soulIndexPython: asText(config.soulIndexPython) || 'python',
+    // 2026-11-24 第九刀：Linux/macOS 通常只有 python3，没有 python。
+    soulIndexPython: asText(config.soulIndexPython) || (platform() === 'win32' ? 'python' : 'python3'),
     /**
      * 交办单 A3（2026-11-04）：原文库增量触发。
      * 脚本默认取 `<soulIndexDir>/auto-sync.mjs`；没配 soulIndexDir 就是空，不注册监听。
@@ -209,7 +227,7 @@ export function normalizeConfig(config = {}) {
     /** 2026-11-01：路由层文件——魂引只放「该去哪查」，不放内容，这样库怎么长魂引都不涨。 */
     routerPath: asText(config.routerPath) || '',
     /**
-     * 2026-11-12：规则原文目录（本机 = <workspace>\lanxi\rules）。
+     * 2026-11-12：规则原文目录（示例：~/notes/rules）。
      * 稳定段只注入「文件名 + 标题」索引（受 rulesIndexMaxTokens 管），细则走 soul_recall 第⑤源。
      * 单源原则：原文只在那个目录里有一份，插件不复制进记忆库、也不整段抄进注入。
      */
@@ -233,7 +251,7 @@ export function normalizeConfig(config = {}) {
      */
     biliDbPath:
       asText(config.biliDbPath) ||
-      asText(process.env.BILI_SESSIONS_DIR) ||
+      asText(env('BILI_SESSIONS_DIR')) ||
       join(homedir(), '.local', 'share', 'billion-context', 'sessions', 'index.db'),
     /** 模块 B 的下界：最近 N 个 turn 内的工具输出不动。 */
     tooloutRecentTurns: asInt(config.tooloutRecentTurns, 8, 1, 100),
@@ -271,6 +289,8 @@ export function normalizeConfig(config = {}) {
      * 第一阶段只落了渲染函数与测试，接线在第二阶段；回滚就是把它改回 false。
      */
     soulSplitInjection: config.soulSplitInjection === true,
+    /** 第四刀：每 N 次工具调用插一条反思提示；0 = 关（默认关，行为不变）。 */
+    reflectEvery: Math.max(0, Math.min(100, asInt(config.reflectEvery, 0))),
     /** 2026-11-21：人格塑型快照注入（从 soul 表读，不是 soul.md 设定）。默认开。 */
     personaInjection: config.personaInjection !== false,
     personaMaxItems: asInt(config.personaMaxItems, 3, 1, 8),
@@ -347,4 +367,3 @@ export function readRouterLines(path) {
     return []
   }
 }
-

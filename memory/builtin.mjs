@@ -10,8 +10,10 @@
  *
  * 这不是 meow-memory 的替代品，只是「本机没装任何记忆插件也能单跑」的兜底。
  */
-import { existsSync, mkdirSync } from 'node:fs'
+
+import { existsSync, mkdirSync } from '../io.mjs'
 import { dirname } from 'node:path'
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
 /** 与 meow 的七层同名，便于上层逻辑不分叉。 */
@@ -32,13 +34,36 @@ create table if not exists memories (
   project     text default '',
   level       text default 'fact',
   created_at  integer,
-  updated_at  integer
+  updated_at  integer,
+  sha           text default '',
+  source_session text default '',
+  source_turn   text default '',
+  goal          text default '',
+  version       integer default 1
 );
 create table if not exists cues (
   id  text primary key,
   cue text default ''
 );
+create table if not exists memory_versions (
+  memory_id  text not null,
+  version    integer not null,
+  content    text not null,
+  changed_at integer,
+  why        text default '',
+  primary key (memory_id, version)
+);
+create table if not exists todos (
+  id         text primary key,
+  project    text default '',
+  content    text not null,
+  status     text default 'pending',
+  due        text default '',
+  created_at integer,
+  done_at    integer
+);
 create index if not exists idx_memories_level on memories(level, status);
+create index if not exists idx_todos_status on todos(status, project);
 `
 
 export function clipText(text, max) {
@@ -61,12 +86,19 @@ export function ensureDb(dbPath, { create = true } = {}) {
       return null
     }
   }
-  const db = new DatabaseSync(dbPath)
+  let db
+  try {
+    db = new DatabaseSync(dbPath)
+  } catch {
+    // 损坏 / 被锁 / 无权限：返回 null，让读路径走 fallback，绝不把异常抛给宿主
+    return null
+  }
   try {
     db.exec(SCHEMA)
   } catch {
     /* 建表失败让读操作自己降级 */
   }
+  migrateColumns(db)
   return db
 }
 
@@ -88,14 +120,21 @@ function tableNames(db) {
   }
 }
 
-/** 这个文件是不是 meow 的老库（有 soul/user 等七层表、没有 memories）。 */
+/**
+ * 这个文件是不是 meow 的老库（有 soul/user 等七层表）。
+ *
+ * 2026-11-24 魂织第一刀：memories 表与七层表**允许共存于同一文件**
+ *（soul_remember 写 memories，meow 继续写七层）。所以不能再用「有 memories 就不算 meow」，
+ * 改成数七层表：≥3 张才认，避免单表单名误判。
+ */
 export function looksLikeMeowDb(dbPath) {
   const db = openDb(dbPath)
   if (!db) return false
   try {
     const tables = tableNames(db)
-    if (tables.has('memories')) return false
-    return ['soul', 'user', 'fact', 'topic', 'lesson', 'rules', 'project'].some((name) => tables.has(name))
+    const meowTables = ['soul', 'user', 'fact', 'topic', 'lesson', 'rules', 'project']
+    // 任意一张七层表在，就当 meow（测试靶子可能只造一张表）；纯 builtin 库只有 memories/cues/todos。
+    return meowTables.some((name) => tables.has(name))
   } finally {
     try {
       db.close()
@@ -143,44 +182,107 @@ function withDbCreating(dbPath, fn, fallback) {
 }
 
 /** 写入/更新一条记忆。O4 的「写入并读回」就走它，也给未来的 import 工具留口子。 */
+function sha256Of(text) {
+  return createHash('sha256').update(String(text ?? ''), 'utf8').digest('hex')
+}
+
+/** 2026-11-24 魂织第一刀：老库补列（create table if not exists 不会给已存在的表加列）。 */
+const MEMORY_EXTRA_COLUMNS = [
+  ['sha', "text default ''"],
+  ['source_session', "text default ''"],
+  ['source_turn', "text default ''"],
+  ['goal', "text default ''"],
+  ['version', 'integer default 1'],
+]
+
+function migrateColumns(db) {
+  let cols
+  try {
+    cols = new Set(db.prepare('pragma table_info(memories)').all().map((row) => String(row.name)))
+  } catch {
+    return
+  }
+  for (const [name, decl] of MEMORY_EXTRA_COLUMNS) {
+    if (cols.has(name)) continue
+    try {
+      db.exec(`alter table memories add column ${name} ${decl}`)
+    } catch {
+      /* 并发或只读：读操作按旧结构降级，不抛 */
+    }
+  }
+  try {
+    db.exec('create index if not exists idx_memories_sha on memories(sha)')
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 写入/更新一条记忆。O4 的「写入并读回」就走它，也给未来的 import 工具留口子。
+ *
+ * 2026-11-24 魂织第一刀：
+ *  - 不传 id 时按正文 sha 去重（只跟 active 比，archived/stale 允许重写）；
+ *  - 同 id 内容变了才写 memory_versions 并把 version+1；
+ *  - 写 source_session / source_turn / goal。
+ */
 export function putMemory(dbPath, memory = {}) {
   const db = ensureDb(dbPath)
   if (!db) return { ok: false, error: '无法创建 builtin 库' }
   const now = Date.now()
-  const row = {
-    id: String(memory.id ?? '').trim() || `m-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-    title: String(memory.title ?? ''),
-    content: String(memory.content ?? ''),
-    keywords: Array.isArray(memory.keywords) ? memory.keywords.join(' ') : String(memory.keywords ?? ''),
-    importance: Number(memory.importance ?? 1) || 1,
-    status: String(memory.status ?? 'active'),
-    corrected: memory.corrected === true || Number(memory.corrected) === 1 ? 1 : 0,
-    project: String(memory.project ?? ''),
-    level: BUILTIN_LEVELS.includes(String(memory.level)) ? String(memory.level) : 'fact',
-    created_at: Number(memory.created_at ?? now),
-    updated_at: Number(memory.updated_at ?? now),
-  }
+  const wantsId = String(memory.id ?? '').trim()
+  let existing = null
   try {
+    existing = wantsId ? db.prepare('select * from memories where id=?').get(wantsId) : null
+  } catch {
+    existing = null
+  }
+  // 2026-11-24 第四刀：id 更新时未给的字段沿用旧值，别再被默认值清空。
+  const pick = (key, fallback) => (memory[key] !== undefined ? memory[key] : existing?.[key] ?? fallback)
+  const content = String(pick('content', ''))
+  const sha = sha256Of(content.trim())
+  try {
+    if (!wantsId) {
+      const hit = db.prepare("select id, version from memories where sha=? and status='active' limit 1").get(sha)
+      if (hit) return { ok: true, id: String(hit.id), dedup: true, version: Number(hit.version ?? 1) }
+    }
+    const row = {
+      id: wantsId || `m-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      title: String(pick('title', '')),
+      content,
+      keywords: Array.isArray(pick('keywords', [])) ? pick('keywords', []).join(' ') : String(pick('keywords', existing?.keywords ?? '')),
+      importance: Number(pick('importance', 1)) || 1,
+      status: String(pick('status', 'active')),
+      corrected: pick('corrected', false) === true || Number(pick('corrected', 0)) === 1 ? 1 : 0,
+      project: String(pick('project', '')),
+      level: BUILTIN_LEVELS.includes(String(pick('level', 'fact'))) ? String(pick('level', 'fact')) : 'fact',
+      created_at: Number(existing?.created_at ?? memory.created_at ?? now),
+      updated_at: Number(memory.updated_at ?? now),
+      sha,
+      source_session: String(memory.source_session ?? memory.source?.session ?? pick('source_session', '')),
+      source_turn: String(memory.source_turn ?? memory.source?.turn ?? pick('source_turn', '')),
+      goal: String(pick('goal', '')),
+      version: Number(existing?.version ?? 1),
+    }
+    if (existing && String(existing.content ?? '') !== content) {
+      row.version = Number(existing.version ?? 1) + 1
+      db.prepare(
+        'insert or replace into memory_versions (memory_id,version,content,changed_at,why) values (?,?,?,?,?)',
+      ).run(row.id, Number(existing.version ?? 1), String(existing.content ?? ''), now, String(memory.why ?? 'update'))
+    }
     db.prepare(
-      `insert into memories (id,title,content,keywords,importance,status,corrected,project,level,created_at,updated_at)
-       values (?,?,?,?,?,?,?,?,?,?,?)
+      `insert into memories (id,title,content,keywords,importance,status,corrected,project,level,created_at,updated_at,sha,source_session,source_turn,goal,version)
+       values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        on conflict(id) do update set title=excluded.title, content=excluded.content, keywords=excluded.keywords,
          importance=excluded.importance, status=excluded.status, corrected=excluded.corrected,
-         project=excluded.project, level=excluded.level, updated_at=excluded.updated_at`,
+         project=excluded.project, level=excluded.level, updated_at=excluded.updated_at, sha=excluded.sha,
+         source_session=excluded.source_session, source_turn=excluded.source_turn, goal=excluded.goal,
+         version=excluded.version`,
     ).run(
-      row.id,
-      row.title,
-      row.content,
-      row.keywords,
-      row.importance,
-      row.status,
-      row.corrected,
-      row.project,
-      row.level,
-      row.created_at,
-      row.updated_at,
+      row.id, row.title, row.content, row.keywords, row.importance, row.status, row.corrected,
+      row.project, row.level, row.created_at, row.updated_at, row.sha,
+      row.source_session, row.source_turn, row.goal, row.version,
     )
-    return { ok: true, id: row.id }
+    return { ok: true, id: row.id, dedup: false, version: row.version, updated: Boolean(existing) }
   } catch (error) {
     return { ok: false, error: String(error?.message ?? error) }
   } finally {
@@ -192,7 +294,115 @@ export function putMemory(dbPath, memory = {}) {
   }
 }
 
+/** 读一条（验收/调试用）。 */
+export function getMemory(dbPath, id) {
+  return withDb(
+    dbPath,
+    (db) => {
+      const row = db.prepare('select * from memories where id=?').get(String(id))
+      return row ? { ...row } : null
+    },
+    null,
+  )
+}
+
+/** 读一条的版本历史（旧的在前）。 */
+export function listVersions(dbPath, memoryId, limit = 50) {
+  return withDb(
+    dbPath,
+    (db) =>
+      db
+        .prepare('select memory_id,version,content,changed_at,why from memory_versions where memory_id=? order by version asc limit ?')
+        .all(String(memoryId), limit)
+        .map((row) => ({ ...row })),
+    [],
+  )
+}
+
+/** todo：生命周期只有 pending / done / stale。 */
+export function putTodo(dbPath, todo = {}) {
+  const db = ensureDb(dbPath)
+  if (!db) return { ok: false, error: '无法创建 builtin 库' }
+  const now = Date.now()
+  const id = String(todo.id ?? '').trim() || `t-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const status = ['pending', 'done', 'stale'].includes(String(todo.status)) ? String(todo.status) : 'pending'
+  try {
+    db.prepare(
+      `insert into todos (id,project,content,status,due,created_at,done_at) values (?,?,?,?,?,?,?)
+       on conflict(id) do update set project=excluded.project, content=excluded.content, status=excluded.status,
+         due=excluded.due, done_at=excluded.done_at`,
+    ).run(
+      id, String(todo.project ?? ''), String(todo.content ?? ''), status, String(todo.due ?? ''),
+      Number(todo.created_at ?? now), status === 'done' ? Number(todo.done_at ?? now) : null,
+    )
+    return { ok: true, id, status }
+  } catch (error) {
+    return { ok: false, error: String(error?.message ?? error) }
+  } finally {
+    try {
+      db.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function setTodoStatus(dbPath, id, status) {
+  const db = ensureDb(dbPath)
+  if (!db) return { ok: false, error: '无法创建 builtin 库' }
+  const next = ['pending', 'done', 'stale'].includes(String(status)) ? String(status) : 'pending'
+  try {
+    const info = db.prepare('update todos set status=?, done_at=? where id=?').run(next, next === 'done' ? Date.now() : null, String(id))
+    if (Number(info.changes) === 0) return { ok: false, error: '没有这个 todo' }
+    return { ok: true, id: String(id), status: next }
+  } catch (error) {
+    return { ok: false, error: String(error?.message ?? error) }
+  } finally {
+    try {
+      db.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function listTodos(dbPath, { project = '', status = 'pending', limit = 20 } = {}) {
+  return withDbCreating(
+    dbPath,
+    (db) => {
+      const where = []
+      const args = []
+      if (status && status !== 'all') { where.push('status=?'); args.push(String(status)) }
+      if (project) { where.push("(project=? or project='')"); args.push(String(project)) }
+      const sql = `select id,project,content,status,due,created_at,done_at from todos${where.length ? ` where ${where.join(' and ')}` : ''} order by created_at desc limit ?`
+      args.push(limit)
+      return db.prepare(sql).all(...args).map((row) => ({ ...row }))
+    },
+    [],
+  )
+}
+
 /** 常驻口径条数：soul 全量 + user 全量 + rules 里全局 scope 且 importance>=2。 */
+/** 魂引「我记得」用的单条教训头（第三刀预算回退口）。 */
+export function lessonHead(dbPath) {
+  return withDb(
+    dbPath,
+    (db) => {
+      try {
+        const row = db
+          .prepare(
+            "select content from memories where status='active' and level='lesson' order by importance desc, updated_at desc limit 1",
+          )
+          .get()
+        return clipText(String(row?.content ?? '').replace(/\s+/g, ' ').trim(), 40)
+      } catch {
+        return ''
+      }
+    },
+    '',
+  )
+}
+
 export function countResident(dbPath) {
   return withDb(
     dbPath,
@@ -210,23 +420,107 @@ export function countResident(dbPath) {
   )
 }
 
-/** 「手头未结」：level=project 且没标完成（builtin 没有 subcategory，用 project/关键词里的 todo 代替）。 */
-export function listPending(dbPath, limit = 3) {
+/** 「手头未结」：优先读 todos 表（新模型）；老库没有 todo 行时退回 memories 的 project 待办。 */
+export function listPending(dbPath, limit = 3, options = {}) {
   if (limit <= 0) return []
+  const project = String(options?.project ?? '').trim()
   return withDbCreating(
     dbPath,
-    (db) =>
-      db
+    (db) => {
+      const args = []
+      let where = "status='pending'"
+      if (project) {
+        where += " and (project is null or trim(project) in ('','全局','global') or lower(trim(project))=lower(?))"
+        args.push(project)
+      }
+      let rows = []
+      try {
+        rows = db
+          .prepare(
+            `select content from todos where ${where}
+             order by case when due is null or trim(due)='' then 1 else 0 end, due asc, created_at desc limit ?`,
+          )
+          .all(...args, limit)
+      } catch {
+        rows = []
+      }
+      const out = rows
+        .map((row) => clipText(String(row.content ?? '').replace(/\s+/g, ' ').trim(), 48))
+        .filter((text) => text !== '')
+      if (out.length > 0) return out
+      return db
         .prepare(
           `select content from memories
            where status='active' and level='project'
-             and (lower(trim(project))='todo' or lower(keywords) like '%todo%' or lower(title) like '%todo%')
+             and (project is null or trim(project) in ('','全局','global') or lower(trim(project))=lower(?))
            order by updated_at desc limit ?`,
         )
-        .all(limit)
-        .map((row) => clipText(String(row.content ?? ''), 40))
-        .filter((text) => text !== ''),
+        .all(project, limit)
+        .map((row) => clipText(String(row.content ?? '').replace(/\s+/g, ' ').trim(), 48))
+        .filter((text) => text !== '')
+    },
     [],
+  )
+}
+
+/**
+ * 在场档（第二刀）：当前项目 + 全局的未结 todo、当前项目的项目记忆、可检索条数。
+ * 一次查完，避免 prestep 每轮多开几次库。
+ */
+export function listPresent(dbPath, options = {}) {
+  const project = String(options?.project ?? '').trim()
+  const limit = Math.max(1, Number(options?.limit) || 3)
+  const empty = { project, pending: [], memories: [], searchable: 0 }
+  if (project === '') return empty
+  return withDbCreating(
+    dbPath,
+    (db) => {
+      let pending = []
+      try {
+        pending = db
+          .prepare(
+            `select content from todos
+             where status='pending'
+               and (project is null or trim(project) in ('','全局','global') or lower(trim(project))=lower(?))
+             order by case when due is null or trim(due)='' then 1 else 0 end, due asc, created_at desc limit ?`,
+          )
+          .all(project, limit)
+          .map((row) => clipText(String(row.content ?? '').replace(/\s+/g, ' ').trim(), 48))
+          .filter(Boolean)
+      } catch {
+        pending = []
+      }
+      const memories = db
+        .prepare(
+          `select content from memories
+           where status='active' and level='project' and lower(trim(project))=lower(?)
+           order by updated_at desc limit ?`,
+        )
+        .all(project, limit)
+        .map((row) => clipText(String(row.content ?? '').replace(/\s+/g, ' ').trim(), 48))
+        .filter(Boolean)
+      const searchable = Number(
+        db
+          .prepare("select count(*) c from memories where status='active' and level in ('fact','lesson','topic')")
+          .get()?.c ?? 0,
+      )
+      return { project, pending, memories, searchable }
+    },
+    empty,
+  )
+}
+
+/** 可检索档条数：内容池里除常驻/在场之外的部分。 */
+export function countSearchable(dbPath) {
+  return withDb(
+    dbPath,
+    (db) =>
+      Number(
+        db
+          .prepare("select count(*) c from memories where status='active' and level in ('fact','lesson','topic')")
+          .get()?.c ?? 0,
+      ),
+    0,
   )
 }
 

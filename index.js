@@ -46,10 +46,14 @@ export { createPreStepHandler }
 import { createMemoryBackend, searchMemory, searchMemoryByCue, wordsOf, hitAll, snippetAround, searchMemoryMeow, scoreOf } from './core/search.mjs'
 export { createMemoryBackend, searchMemory, searchMemoryByCue }
 
-import { resolveSealedModule, createArchiveSearch, walkMarkdown, readRulesIndex, searchRules, searchNotes, searchIndexSource, createRecallSources, createRecall, createPersist } from './core/recall.mjs'
-export { resolveSealedModule, createArchiveSearch, walkMarkdown, readRulesIndex, searchRules, searchNotes, searchIndexSource, createRecallSources, createRecall, createPersist }
+import { resolveSealedModule, createArchiveSearch, walkMarkdown, readRulesIndex, searchRules, searchNotes, searchIndexSource, createRecallSources, createRecall, createPersist, resetIndexCircuit, indexCircuitState } from './core/recall.mjs'
+export { resolveSealedModule, createArchiveSearch, walkMarkdown, readRulesIndex, searchRules, searchNotes, searchIndexSource, createRecallSources, createRecall, createPersist, resetIndexCircuit, indexCircuitState }
 
 import { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools } from './adapters/dsh/apply.mjs'
 export { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools }
 
 export default { name, inject, apply, MESSAGE_KIND }
+
+export { configureIo, resetIo, ioStatus } from './io.mjs'
+export { guardTool, sanitizeArgs, isRecord } from './core/validate.mjs'
+

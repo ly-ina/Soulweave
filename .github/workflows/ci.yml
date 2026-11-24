@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  node: "22.x", nodeOptions: "--experimental-sqlite" }
+          - { os: ubuntu-latest,  node: "24.x", nodeOptions: "" }
+          - { os: windows-latest, node: "22.x", nodeOptions: "--experimental-sqlite" }
+          - { os: windows-latest, node: "24.x", nodeOptions: "" }
+    env:
+      NODE_OPTIONS: ${{ matrix.nodeOptions }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 环境
+        run: |
+          node --version
+          npm --version
+
+      - name: 依赖方向守卫（core/memory 零宿主依赖）
+        run: node tools/check-layers.mjs
+
+      - name: 自测
+        run: node check.mjs
+
+      - name: 干净安装（按 files 白名单装进临时根）
+        run: node clean-install.mjs
+
+      - name: 打包清单（确认 io.mjs 进包）
+        run: npm pack --dry-run
+

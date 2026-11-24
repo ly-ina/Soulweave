@@ -2,6 +2,7 @@
  * prompt —— 注入消息、工作区解析、分区行（零宿主依赖）。
  */
 import { MESSAGE_KIND } from './constants.mjs'
+import { cwd } from '../io.mjs'
 import { isAbsolute } from 'node:path'
 import { asText } from './text.mjs'
 import { scanZones, readZoneIndex, ZONE_IDS, ZONES } from './zones.mjs'
@@ -44,7 +45,7 @@ export function resolveWorkspace(payload, options = {}) {
     const text = asText(candidate)
     if (text && (isAbsolute(text) || /^(?:[a-zA-Z]:[\\/]|\\\\)/.test(text))) return text
   }
-  return asText(process.cwd()) || '未标注工作区'
+  return asText(cwd()) || '未标注工作区'
 }
 
 /**

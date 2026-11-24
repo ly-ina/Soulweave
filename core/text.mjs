@@ -3,9 +3,10 @@
  *
  * 2026-11-19 解耦第 1 块：从 index.js 原样搬出，逻辑未改。
  */
-import { appendFileSync, mkdirSync } from 'node:fs'
+
+import { appendFileSync, env, homedir, mkdirSync } from '../io.mjs'
 import { createHash } from 'node:crypto'
-import { homedir } from 'node:os'
+
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -38,7 +39,7 @@ export function clip(text, max) {
 }
 
 export function dsHome() {
-  return asText(process.env.DSH_HOME) || join(homedir(), '.dsh')
+  return asText(env('DSH_HOME')) || join(homedir(), '.dsh')
 }
 
 export function sha256(text) {

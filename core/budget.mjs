@@ -3,13 +3,15 @@
  *
  * 2026-11-19 解耦第 5 块：从 index.js 原样搬出，逻辑未改。
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+
 import { dirname, join } from 'node:path'
 import { planForDb } from './tier.mjs'
 import { asText, clip, estimateTokens, tableColumns } from './text.mjs'
 import { INJECTION_CLASSES, MESSAGE_KIND, TOTAL_TOKENS, YIELD_ORDER } from './constants.mjs'
 import { SOUL_STATE_KIND } from './recall-state.mjs'
+import * as builtinMemory from '../memory/builtin.mjs'
 
 // ---------------------------------------------------------------------------
 // 预算：统计与让步计划（纯函数，便于 check.mjs 断言）
@@ -200,7 +202,6 @@ export function detectSnapshotDrift(snapshots) {
   return [...hits]
 }
 
-
 // ---------------------------------------------------------------------------
 // 文本 / 预算计划 / 记忆库读取
 // ---------------------------------------------------------------------------
@@ -323,11 +324,9 @@ export function applyBudgetPlan(messages, plan) {
 // 日志
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // 「现在在哪 → 手头未结」：读记忆库 project 表的 todo（只读，短期缓存）
 // ---------------------------------------------------------------------------
-
 
 /**
  * 本轮快照里实际注入了几条记忆（数 `- ` 开头的条目行；「（其余 N 条…」那行不算）。
@@ -353,6 +352,10 @@ export function countResidentEntries(memoryDbPath) {
   let db
   try {
     db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    // 第三刀：纯 builtin 库没有七层表，回退到 memories 口径。
+    if (!tableColumns(db, 'soul').length && !tableColumns(db, 'rules').length) {
+      return builtinMemory.countResident(memoryDbPath)
+    }
     const activeCount = (table) => {
       try {
         return db.prepare(`select count(*) c from ${table} where status='active'`).get().c
@@ -386,7 +389,8 @@ export function loadPendingItems(memoryDbPath, limit = 3) {
   try {
     db = new DatabaseSync(memoryDbPath, { readOnly: true })
     const cols = tableColumns(db, 'project')
-    if (!cols.includes('content')) return []
+    // 第三刀：没有 project 表时读 todos（builtin 的未结口径）。
+    if (!cols.includes('content')) return builtinMemory.listPending(memoryDbPath, limit)
     const hasSub = cols.includes('subcategory')
     const hasStatus = cols.includes('status')
     const where = [hasSub ? "subcategory = 'todo'" : "content like '%todo%'"]
@@ -417,6 +421,10 @@ export function loadMemoryHeads(memoryDbPath, limit = 3) {
   let db
   try {
     db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    // 第三刀：没有七层表时读 memories 的 rules/lesson。
+    if (!tableColumns(db, 'rules').length && !tableColumns(db, 'lesson').length) {
+      return builtinMemory.listHeads(memoryDbPath, limit)
+    }
     const rows = []
     for (const table of ['rules', 'lesson']) {
       const cols = tableColumns(db, table)
@@ -478,7 +486,8 @@ export function loadLessonHead(memoryDbPath) {
   try {
     db = new DatabaseSync(memoryDbPath, { readOnly: true })
     const cols = tableColumns(db, 'lesson')
-    if (!cols.includes('content')) return ''
+    // 第三刀：没有 lesson 表时读 memories 里最高重要性的 lesson。
+    if (!cols.includes('content')) return builtinMemory.lessonHead(memoryDbPath)
     const where = ['importance >= 3']
     if (cols.includes('status')) where.push("status = 'active'")
     if (cols.includes('lifecycle')) where.push("(lifecycle is null or lifecycle != 'archived')")
@@ -602,4 +611,3 @@ export function loadCorrectedLessons(memoryDbPath, limit = 200) {
     }
   }
 }
-

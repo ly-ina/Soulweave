@@ -15,9 +15,10 @@
  *
  * 安全边界：默认 dry-run；apply 必须 confirm + 先整文件备份 + 写完立刻自检（不通过就自动还原）。
  */
-import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, appendFileSync } from 'node:fs'
+
+import { appendFileSync, copyFileSync, env, existsSync, homedir, readFileSync, readdirSync, statSync } from '../io.mjs'
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
+
 import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
@@ -541,7 +542,7 @@ function userFileExists(path) {
 
 /** 会话根目录：`<DSH_HOME>/sessions`。 */
 export function dsSessionsRoot() {
-  const home = process.env.DSH_HOME ? process.env.DSH_HOME : join(homedir(), '.dsh')
+  const home = env('DSH_HOME') ? env('DSH_HOME') : join(homedir(), '.dsh')
   return join(home, 'sessions')
 }
 

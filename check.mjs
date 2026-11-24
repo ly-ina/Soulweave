@@ -61,6 +61,8 @@ import {
   readSoul,
   readSoulSources,
   readRouterLines,
+  countResidentEntries,
+  loadPendingItems,
   loadLessonHead,
   loadMemoryHeads,
   detectPinnedAnomalies,
@@ -70,6 +72,7 @@ import {
   createSoulIndexSyncTrigger,
   apply,
   createMemoryBackend,
+  createRecallSources,
   loadTriggers,
   selectTriggers,
   pickTriggerText,
@@ -80,9 +83,19 @@ import {
   pickRecallEntry,
   renderRecall,
   resetRecallCooldownOnReload,
+  configureIo,
+  resetIo,
+  ioStatus,
+  guardTool,
+  searchIndexSource,
+  resetIndexCircuit,
+  indexCircuitState,
 } from './index.js'
 
 import { putMemory } from './memory/builtin.mjs'
+import * as builtinMemory from './memory/builtin.mjs'
+import { buildReflectPrompt, shouldInjectReflect, REFLECT_MARK } from './core/reflect.mjs'
+import { remember } from './core/remember.mjs'
 import { previewDecay, applyDecay } from './memory/decay.mjs'
 import { readSnapshot as readPersonaSnapshot } from './core/persona.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
@@ -722,7 +735,7 @@ function assertSchemaValue(schema, value, path) {
   }
 }
 
-await test('D1', '九个工具的 execute：无损 JSON + 合 output.schema（不许 undefined/null 塞非 nullable 键）', async () => {
+await test('D1', '十四个工具的 execute：无损 JSON + 合 output.schema（不许 undefined/null 塞非 nullable 键）', async () => {
   const toolConfig = normalizeConfig({
     ...config,
     biliDbPath: tooloutDb,
@@ -732,7 +745,7 @@ await test('D1', '九个工具的 execute：无损 JSON + 合 output.schema（�
     logPath: join(root, 'logs/d1.log'),
   })
   const tools = createTools(toolConfig)
-  assert.equal(tools.length, 9, `工具数 ${tools.length} ≠ 9`)
+  assert.equal(tools.length, 14, `工具数 ${tools.length} ≠ 14`)
   const calls = {
     soul_recall: { query: '封存 manifest', limit: 1 },
     soul_persist: { mode: 'preview', limit: 1 },
@@ -744,6 +757,11 @@ await test('D1', '九个工具的 execute：无损 JSON + 合 output.schema（�
     soul_surface: { mode: 'preview' },
     soul_relations: { limit: 2 },
     soul_mood: {},
+    soul_remember: { content: 'D1 冒烟写入：工具面检查', project: 'd1' },
+    soul_project: { project: 'd1' },
+    soul_todo: { action: 'list', limit: 2 },
+    soul_audit: { writeNote: false },
+    soul_archive: { mode: 'dry-run', ids: [] },
   }
   const details = []
   for (const tool of tools) {
@@ -3224,6 +3242,369 @@ await test('R15', '人格塑型快照：只取 soul 表 active/够重要/未沉�
   assert.equal(empty.text, '', '非 meow 结构返回空而不是抛错')
   assert.ok(empty.note.includes('soul'), 'note 要说清为什么空')
 })
+await test('R16', '数据落点：默认 <DSH_HOME>/soulweave，旧路径存在则回退并留 note，显式配置最高优先', async () => {
+  const oldHome = process.env.DSH_HOME
+  const pluginDir = dirname(fileURLToPath(import.meta.url))
+  const legacyState = join(pluginDir, '.state')
+  const hadLegacy = existsSync(legacyState)
+
+  // 1) 新路径存在 -> 用全局目录，且不该报迁移
+  const homeA = join(root, 'home-r16a')
+  mkdirSync(join(homeA, 'soulweave'), { recursive: true })
+  process.env.DSH_HOME = homeA
+  try {
+    const fresh = normalizeConfig({ tierConfigPaths: [join(root, 'no-such-tier.yml')] })
+    assert.equal(fresh.stateDir, join(homeA, 'soulweave'), '新路径存在时 stateDir 用全局目录')
+    assert.equal(fresh.soulPath, join(homeA, 'soulweave', 'soul.md'), 'soul.md 跟着全局目录')
+    // 本机 .state/soul-memory.db 真的存在时，回退旧路径才是正确行为——断言不能假设环境里没有旧库。
+    const legacyDb = join(legacyState, 'soul-memory.db')
+    if (!existsSync(legacyDb)) {
+      assert.equal(fresh.memoryDbPath, join(homeA, 'soulweave', 'soul-memory.db'), 'builtin 库跟着全局目录')
+      assert.equal(fresh.pathNotes.length, 0, '没有迁移就不该有 note')
+    }
+  } finally {
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+  }
+
+  // 2) 显式配置优先，任何默认都不该覆盖
+  const explicit = normalizeConfig({
+    stateDir: 'X:/explicit-state',
+    soulPath: 'X:/explicit-soul.md',
+    memoryDbPath: 'X:/explicit/memory.db',
+    tierConfigPaths: [join(root, 'no-such-tier.yml')],
+  })
+  assert.equal(explicit.stateDir, 'X:/explicit-state', '显式 stateDir 优先')
+  assert.equal(explicit.soulPath, 'X:/explicit-soul.md', '显式 soulPath 优先')
+  assert.equal(explicit.memoryDbPath, 'X:/explicit/memory.db', '显式 memoryDbPath 优先')
+  assert.equal(explicit.pathNotes.length, 0, '显式配置不该产生迁移 note')
+
+  // 3) 旧路径（插件目录 .state / soul.md）存在、新路径不存在 -> 回退旧路径并留 note
+  if (!hadLegacy) mkdirSync(legacyState, { recursive: true })
+  const homeB = join(root, 'home-r16b')
+  mkdirSync(homeB, { recursive: true })
+  process.env.DSH_HOME = homeB
+  try {
+    const migrated = normalizeConfig({ tierConfigPaths: [join(root, 'no-such-tier.yml')] })
+    assert.equal(migrated.stateDir, legacyState, '旧 stateDir 存在时继续用旧的')
+    assert.ok(migrated.pathNotes.some((n) => n.includes('stateDir')), '回退必须留 note')
+  } finally {
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+    if (!hadLegacy) rmSync(legacyState, { recursive: true, force: true })
+  }
+})
+
+await test('R17', '魂织第一刀：soul_remember 写入/去重/版本/todo/检索/溯源，且只写临时靶子', async () => {
+  const dir = join(root, 'r17')
+  mkdirSync(dir, { recursive: true })
+  const dbPath = join(dir, 'memory.db')
+  const cfg = { memoryDbPath: dbPath, memoryBackend: 'builtin' }
+
+  const first = remember(cfg, { content: 'R17 内容池写入', project: 'r17', keywords: ['r17'] })
+  assert.equal(first.ok, true, '首次写入应成功')
+  assert.equal(first.dedup, false, '首次写入不该是去重')
+  assert.equal(first.version, 1, '首次版本 1')
+
+  const again = remember(cfg, { content: 'R17 内容池写入', project: 'r17' })
+  assert.equal(again.dedup, true, '同正文应命中 sha 去重')
+  assert.equal(again.id, first.id, '去重返回同一条 id')
+
+  const changed = remember(cfg, { id: first.id, content: 'R17 内容池写入（改）', why: 'r17-update' })
+  assert.equal(changed.version, 2, '内容变了版本 +1')
+  const row = builtinMemory.getMemory(dbPath, first.id)
+  assert.equal(row.version, 2)
+  assert.equal(row.content, 'R17 内容池写入（改）')
+  const versions = builtinMemory.listVersions(dbPath, first.id)
+  assert.equal(versions.length, 1, '旧正文留一条版本记录')
+  assert.equal(versions[0].content, 'R17 内容池写入')
+
+  const sourced = remember(cfg, {
+    content: 'R17 溯源与目标句',
+    goal: 'g-r17',
+    source: { session: 's-r17', turn: '42' },
+  })
+  const srow = builtinMemory.getMemory(dbPath, sourced.id)
+  assert.equal(srow.source_session, 's-r17')
+  assert.equal(srow.source_turn, '42')
+  assert.equal(srow.goal, 'g-r17')
+
+  const todo = remember(cfg, { content: 'R17 待办：接上 todo 表', project: 'r17', todo: true, due: '2026-11-30' })
+  assert.equal(todo.kind, 'todo', 'todo=true 归 todo')
+  assert.equal(todo.todo.status, 'pending')
+  assert.equal(builtinMemory.listTodos(dbPath, { status: 'pending' }).length, 1)
+  builtinMemory.setTodoStatus(dbPath, todo.todo.id, 'done')
+  assert.equal(builtinMemory.listTodos(dbPath, { status: 'pending' }).length, 0)
+  assert.equal(builtinMemory.listTodos(dbPath, { status: 'done' }).length, 1)
+
+  const hit = builtinMemory.search(dbPath, 'R17', 10)
+  assert.ok(hit.entries.length >= 3, 'search 应能命中内容池')
+  assert.ok(hit.entries.some((e) => e.loc.includes(first.id)), '命中里应有更新过的那条')
+})
+await test('R18', '魂织第二刀：三档注入（常驻/在场/可检索）读 builtin 库，不碰 meow', async () => {
+  const dir = join(root, 'r18')
+  mkdirSync(dir, { recursive: true })
+  const dbPath = join(dir, 'memory.db')
+  const cfg = { memoryDbPath: dbPath, memoryBackend: 'builtin' }
+
+  remember(cfg, { content: 'R18 常驻：我是蓝汐', kind: 'soul', importance: 4 })
+  remember(cfg, { content: 'R18 常驻：偏好表格', kind: 'user', importance: 3 })
+  remember(cfg, { content: 'R18 项目：第二刀在做注入', project: 'r18', kind: 'project', importance: 2 })
+  remember(cfg, { content: 'R18 资料：一条 fact', kind: 'fact' })
+  remember(cfg, { content: 'R18 资料：一条 lesson', kind: 'lesson', importance: 2 })
+  remember(cfg, { content: 'R18 待办：接三档', project: 'r18', todo: true, due: '2026-12-01' })
+  remember(cfg, { content: 'R18 全局待办：别忘了', todo: true })
+
+  // 常驻：人格快照从 memories.level=soul 读
+  const snap = readPersonaSnapshot(dbPath)
+  assert.ok(snap.text.includes('R18 常驻'), '人格快照应读到 soul 级记忆')
+  assert.equal(snap.items.length, 1)
+
+  // 在场：todo 表 + 项目记忆，项目过滤
+  const present = builtinMemory.listPresent(dbPath, { project: 'r18' })
+  assert.equal(present.project, 'r18')
+  assert.ok(present.pending.some((x) => x.includes('接三档')), '在场待办应命中本项目')
+  assert.ok(present.pending.some((x) => x.includes('别忘了')), '在场待办应含全局 todo')
+  assert.ok(present.memories.some((x) => x.includes('第二刀')), '在场项目记忆应命中')
+  assert.ok(present.searchable >= 2, '可检索计数应含 fact/lesson')
+
+  // listPending 走 todos 表，不再靠 memories 关键词
+  const pending = builtinMemory.listPending(dbPath, 5, { project: 'r18' })
+  assert.equal(pending.length, 2, '待办只该有本项目 + 全局两条')
+
+  // 魂引现状段：三档指认
+  const state = composeSoulState({
+    pending,
+    present,
+    searchableCount: present.searchable,
+    workspace: 'E:\\dsh_work\\plugins\\dsh-soulweave',
+    at: new Date('2026-11-24T12:00:00+08:00'),
+  })
+  assert.ok(state.text.includes('在场：r18'), '魂引应指认在场项目')
+  assert.ok(state.text.includes('未结 2 条'), '魂引应报未结条数')
+  assert.ok(state.text.includes('可检索'), '魂引应给出可检索计数')
+  assert.ok(!state.text.includes('R18 待办：接三档'), '魂引不该塞待办正文')
+})
+
+await test('R19', '魂织第三刀：旧 meow 库只读挂载 + 双读回退 + 预算回退口', async () => {
+  const dir = join(root, 'r19')
+  mkdirSync(dir, { recursive: true })
+  const dbPath = join(dir, 'soul.db')
+  const legacyPath = join(dir, 'legacy.db')
+
+  // 旧 meow 库靶子：只有 lesson 一张七层表
+  const legacy = new DatabaseSync(legacyPath)
+  legacy.exec('create table lesson (id text primary key, content text, importance integer, status text, lifecycle text, created_at text)')
+  legacy
+    .prepare('insert into lesson values (?,?,?,?,?,?)')
+    .run('l1', '旧库教训：先开代理再查网页', 3, 'active', 'normal', '2026-11-01')
+  legacy.close()
+
+  // 新池靶子：纯 builtin，只有 memories/todos
+  putMemory(dbPath, { id: 'n1', content: '新池事实：第三刀只读挂载旧库', level: 'fact', keywords: ['第三刀'] })
+  putMemory(dbPath, { id: 'n2', content: '新池教训：先开代理再查网页', level: 'lesson', keywords: ['代理'], importance: 3 })
+  putMemory(dbPath, { id: 'n3', content: '新池规则：验证后再宣布完成', level: 'rules', importance: 3 })
+  builtinMemory.putTodo(dbPath, { id: 't1', content: 'R19 待办：接第三刀', project: 'soulweave' })
+
+  const cfg = { memoryBackend: 'builtin', memoryDbPath: dbPath, legacyMemoryDbPath: legacyPath }
+  const backend = createMemoryBackend(cfg)
+  assert.equal(backend.id, 'builtin', '新池只该识别为 builtin')
+  const status = backend.legacyStatus()
+  assert.equal(status.ok, true, '旧库应能被只读挂载')
+  assert.equal(status.counts.lesson.active, 1, '旧库 lesson 应有一条 active')
+  const legacyHit = backend.legacySearch('代理', 5)
+  assert.ok(legacyHit.entries.some((entry) => String(entry.snippet ?? '').includes('旧库教训')), '旧库检索应命中')
+
+  const sources = createRecallSources(cfg)
+  const memorySource = sources.find((source) => source.id === 'memory')
+  assert.ok(memorySource, '应有 memory 检索源')
+  const merged = await memorySource.search(['代理'], 5)
+  assert.ok(merged.entries.some((entry) => String(entry.loc).startsWith('旧库/')), '双读应带出旧库条目并标注来源')
+  assert.ok(merged.entries.some((entry) => !String(entry.loc).startsWith('旧库/')), '新池仍应优先在场')
+  assert.equal(merged.entries[0].loc.startsWith('旧库/'), false, '新池条目应排在第一')
+
+  // 预算回退口：七层表缺失时读 memories / todos
+  assert.ok(loadLessonHead(dbPath).includes('先开代理'), 'loadLessonHead 应回退读 memories')
+  assert.ok(loadMemoryHeads(dbPath, 3).length >= 1, 'loadMemoryHeads 应回退读 memories')
+  assert.equal(countResidentEntries(dbPath), builtinMemory.countResident(dbPath), '常驻条数应与 builtin 口径一致')
+  assert.ok(loadPendingItems(dbPath, 3).some((item) => String(item).includes('R19 待办')), 'loadPendingItems 应回退读 todos')
+
+  // 旧库只读：比对前后文件字节数不变
+  const before = readFileSync(legacyPath).length
+  backend.legacySearch('代理', 5)
+  assert.equal(readFileSync(legacyPath).length, before, '旧库不该被写')
+})
+
+await test('R20', '魂织第四刀：单写入口支持 id 更新/状态归档，soul_project 读全景，反思轮纯函数', async () => {
+  const dir = join(root, 'r20')
+  mkdirSync(dir, { recursive: true })
+  const dbPath = join(dir, 'soul.db')
+  const cfg = { memoryDbPath: dbPath, memoryBackend: 'builtin' }
+
+  const first = remember(cfg, { content: 'R20 旧内容：待更新', kind: 'fact', project: 'soulweave' })
+  assert.ok(first.ok, '首次写入应成功')
+  const updated = remember(cfg, { id: first.id, content: 'R20 新内容：更新后' })
+  assert.ok(updated.ok, '按 id 更新应成功')
+  assert.equal(updated.version, 2, '正文变化应升版本')
+  const row = builtinMemory.getMemory(dbPath, first.id)
+  assert.equal(row.content, 'R20 新内容：更新后', '正文应更新')
+  assert.equal(row.project, 'soulweave', '更新时没给的 project 应沿用旧值')
+
+  const stale = remember(cfg, { id: first.id, status: 'stale' })
+  assert.ok(stale.ok, '只改状态应成功')
+  assert.equal(builtinMemory.getMemory(dbPath, first.id).status, 'stale', '状态应改为 stale')
+
+  remember(cfg, { content: 'R20 项目待办：接第四刀', kind: 'todo', project: 'soulweave' })
+  const tools = createTools(normalizeConfig({ ...config, memoryDbPath: dbPath, memoryBackend: 'builtin' }))
+  const projectTool = tools.find((tool) => tool.name === 'soul_project')
+  assert.ok(projectTool, '应注册 soul_project')
+  const panorama = await projectTool.execute({ project: 'soulweave' })
+  assert.ok(panorama.text.includes('R20 项目待办'), '项目全景应带出未结 todo')
+
+  assert.equal(shouldInjectReflect({ events: [], everyTurns: 0, step: 1 }), false, 'reflectEvery=0 应永不触发')
+  const calls = [
+    { type: 'assistant/message', data: { message: { content: [{ type: 'tool-call', name: 'x' }, { type: 'tool-call', name: 'y' }] } } },
+  ]
+  assert.equal(shouldInjectReflect({ events: calls, everyTurns: 2, step: 2 }), false, '非首步不插')
+  assert.equal(shouldInjectReflect({ events: calls, everyTurns: 2, step: 1 }), true, '够次数应插')
+  const prompt = buildReflectPrompt({ projectList: 'soulweave', everyTurns: 2 })
+  assert.ok(prompt.includes(REFLECT_MARK) && prompt.includes('soul_remember'), '反思提示应含标记与写入口')
+  const withMark = [...calls, { type: 'user/message', data: { content: [{ type: 'text', text: prompt }] } }]
+  assert.equal(shouldInjectReflect({ events: withMark, everyTurns: 1, step: 1 }), false, '有反思标记后应重置计数')
+})
+
+await test('R21', '魂织第六刀：soul_todo 列未结、标完成、恢复', async () => {
+  const dbPath = join(root, 'soul-r21.db')
+  const cfg = normalizeConfig({ ...config, memoryDbPath: dbPath, memoryBackend: 'builtin' })
+  const written = remember(cfg, { content: 'R21 待办：把 todo 标完成', kind: 'todo', project: 'soulweave' })
+  assert.ok(written.todo?.id, 'remember 应写出 todo id')
+  const todoId = written.todo.id
+  const tools = createTools(cfg)
+  const todoTool = tools.find((tool) => tool.name === 'soul_todo')
+  assert.ok(todoTool, '应注册 soul_todo')
+  const listed = await todoTool.execute({ action: 'list', project: 'soulweave' })
+  assert.ok(listed.text.includes(todoId) && listed.text.includes('R21 待办'), '列表应带未结 todo')
+  const done = await todoTool.execute({ action: 'done', id: todoId })
+  assert.ok(done.ok && done.text.includes('done'), '标完成应成功')
+  assert.equal(builtinMemory.listTodos(dbPath, { project: 'soulweave' }).length, 0, '完成后未结应为空')
+  const reopened = await todoTool.execute({ action: 'reopen', id: todoId })
+  assert.ok(reopened.ok, '恢复应成功')
+  assert.equal(builtinMemory.listTodos(dbPath, { project: 'soulweave' }).length, 1, '恢复后应回到未结')
+  const missing = await todoTool.execute({ action: 'done', id: 'no-such-todo' })
+  assert.equal(missing.ok, false, '不存在的 id 应报错')
+  const noId = await todoTool.execute({ action: 'done' })
+  assert.equal(noId.ok, false, 'done 缺 id 应报错')
+})
+
+await test('R22', '魂织第七刀：curator 并入（体检/候选/归档保护/备份）', async () => {
+  const dbPath = join(root, 'soul-r22.db')
+  const cfg = normalizeConfig({ ...config, memoryDbPath: dbPath, memoryBackend: 'builtin', notesDir: join(root, 'notes-r22') })
+  const a = remember(cfg, { content: 'R22 普通事实：可归档', kind: 'fact', importance: 1 })
+  const b = remember(cfg, { content: 'R22 人格条目：受保护', kind: 'soul', importance: 2 })
+  remember(cfg, { content: 'R22 lanxi 项目：受保护', kind: 'project', project: 'lanxi', importance: 1 })
+  const tools = createTools(cfg)
+  const audit = tools.find((tool) => tool.name === 'soul_audit')
+  const archive = tools.find((tool) => tool.name === 'soul_archive')
+  assert.ok(audit && archive, '应注册 soul_audit / soul_archive')
+  const auditOut = await audit.execute({ writeNote: false })
+  assert.ok(auditOut.ok && auditOut.text.includes('总计 3'), auditOut.text)
+  const dry = await archive.execute({ ids: [a.id] })
+  assert.ok(dry.ok && dry.text.includes('可归档'), dry.text)
+  const drySoul = await archive.execute({ ids: [b.id] })
+  assert.ok(drySoul.ok && drySoul.text.includes('受保护'), drySoul.text)
+  const applied = await archive.execute({ mode: 'apply', ids: [a.id] })
+  assert.ok(applied.ok && applied.text.includes('已归档 1 条'), applied.text)
+  assert.equal(builtinMemory.getMemory(dbPath, a.id)?.status, 'archived', '普通条目应归档')
+  assert.equal(builtinMemory.getMemory(dbPath, b.id)?.status, 'active', '受保护条目不能被动')
+  const rejected = await archive.execute({ mode: 'apply', ids: [b.id] })
+  assert.equal(rejected.ok, false, '保护条目 apply 必须拒绝')
+  const unknown = await archive.execute({ mode: 'apply', ids: ['no-such-id'] })
+  assert.equal(unknown.ok, false, '未知 id 整单拒绝')
+  const backupDir = join(dirname(dbPath), 'backup')
+  assert.ok(readdirSync(backupDir).some((f) => f.endsWith('.db')), 'apply 应生成备份')
+})
+
+await test('R23', '魂织第九刀：core 宿主隔离（io 单入口，机器守卫）', async () => {
+  const projDir = dirname(fileURLToPath(import.meta.url))
+  const coreDir = join(projDir, 'core')
+  const violations = []
+  for (const name of readdirSync(coreDir).filter((n) => n.endsWith('.mjs') && n !== 'io.mjs')) {
+    const text = readFileSync(join(coreDir, name), 'utf8')
+    if (/from 'node:(fs|os|child_process)'/.test(text)) violations.push(name + ':host-import')
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim()
+      if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) continue
+      if (/\bprocess\.(env|cwd)\b/.test(line)) violations.push(name + ':process')
+    }
+  }
+  assert.deepEqual(violations, [], '违规：' + violations.join(', '))
+  assert.ok(existsSync(join(projDir, 'io.mjs')), 'io.mjs 必须存在')
+})
+
+await test('R24', '魂织第九刀：库打不开时读/写都优雅降级，不抛给宿主', async () => {
+  // 1) 目录只读（mkdir 失败）：写路径返回 ok:false，不抛
+  configureIo({ mkdirSync: () => { throw new Error('EACCES: read-only file system') } })
+  try {
+    assert.ok(ioStatus().injected, '应处于注入态')
+    const put = builtinMemory.putMemory(join(root, 'r24-missing', 'x.db'), { content: 'x' })
+    assert.equal(put.ok, false, '建库失败应返回 ok:false')
+    assert.ok(String(put.error || '').length > 0, '应带错误说明')
+  } finally {
+    resetIo()
+  }
+  assert.equal(ioStatus().injected, false, 'resetIo 后必须恢复真实实现')
+  // 2) 库路径是目录：DatabaseSync 构造必抛，ensureDb 应兜住返回 null
+  const dirAsDb = join(root, 'r24-not-a-db')
+  mkdirSync(dirAsDb, { recursive: true })
+  assert.equal(builtinMemory.getMemory(dirAsDb, 'x'), null, '损坏库读应返回 null')
+  const miss = builtinMemory.search(dirAsDb, ['x'], 3)
+  assert.ok(miss && Array.isArray(miss.entries) && miss.entries.length === 0, '损坏库召回应返回空集')
+  const badPut = builtinMemory.putMemory(dirAsDb, { content: 'x' })
+  assert.equal(badPut.ok, false, '损坏库写应返回 ok:false')
+})
+
+await test('R25', '魂织第九刀：工具执行边界兜底（非对象入参 / execute 抛错）', async () => {
+  const guard = guardTool('soul_probe', async (args) => {
+    if (args.boom) throw new Error('SQLITE_BUSY: database is locked')
+    return { ok: true, text: 'args=' + JSON.stringify(args) }
+  })
+  const fromNull = await guard(null)
+  assert.ok(fromNull.ok, 'null 入参应被归一为空对象')
+  const fromStr = await guard('not-an-object')
+  assert.equal(fromStr.ok, true, '字符串入参不应崩')
+  assert.ok(fromStr.text.includes('{}'), '字符串应被当成空对象')
+  const crashed = await guard({ boom: true })
+  assert.equal(crashed.ok, false, 'execute 抛错应转成 ok:false')
+  assert.ok(crashed.text.includes('SQLITE_BUSY'), '错误原文要带出来')
+})
+
+await test('R26', '魂织第九刀：原文库失败熔断（坏一次后不再每次白等 15 秒）', async () => {
+  resetIndexCircuit()
+  const idxDir = join(root, 'r26-soul-index')
+  mkdirSync(idxDir, { recursive: true })
+  writeFileSync(join(idxDir, 'query.py'), '# fake query.py for fault injection\n')
+  let spawns = 0
+  configureIo({
+    spawnProcess: () => {
+      spawns += 1
+      throw new Error('spawn python ENOENT')
+    },
+  })
+  try {
+    const first = await searchIndexSource({ soulIndexDir: idxDir, soulIndexPython: 'python' }, ['x'], 3)
+    assert.ok(first.note.includes('原文库启动失败'), first.note)
+    const second = await searchIndexSource({ soulIndexDir: idxDir, soulIndexPython: 'python' }, ['x'], 3)
+    assert.ok(second.note.includes('熔断'), '第二次应命中熔断：' + second.note)
+    assert.equal(spawns, 1, '熔断期内不许再 spawn')
+    assert.ok(indexCircuitState().open, '熔断器应为打开态')
+    assert.equal(indexCircuitState().fails, 1, '只记一次失败')
+  } finally {
+    resetIo()
+    resetIndexCircuit()
+  }
+  assert.equal(indexCircuitState().open, false, '复位后熔断器应关闭')
+})
+
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'
   console.log(`${mark} ${r.id.padEnd(6)} ${r.title.padEnd(width)}  ${r.detail}`)
@@ -3240,3 +3621,4 @@ if (failed > 0) {
   console.error(`失败 ${failed} 条`)
   process.exit(1)
 }
+
