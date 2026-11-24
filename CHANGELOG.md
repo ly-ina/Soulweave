@@ -8,6 +8,8 @@
 - **feat**：`soul_mood` 加 `mood` / `carry` / `at`——写 `mood.md` 三键，只给哪个键就改哪个，整文件 ≤600 字。
 - **test**：新增 S7 / S8（纯函数层 + execute 写分支：去重 / 上限 / force / 只改单键 / 超长拒写），`check.mjs` 111 → 113。
 - **docs**：README 工具表改为「读/写」；「已知限制」删掉人格层只读那条。
+- **feat(tools)**：新增 `tools/migrate-legacy.mjs`——meow 七层 active 记忆迁进 builtin 池，沿用旧 id、sha 去重、支持 `--dry-run`，旧库只读。
+- **data**：主库 492 条 + lumi-game 168 条 active 迁入新池，active 总数 56 → 672。
 
 ## 0.4.8 — 2026-11-24
 
