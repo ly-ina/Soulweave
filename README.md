@@ -1,381 +1,223 @@
 # Soulweave · 魂织
 
-> 给 DeepSeek Harness 加一层「人格 / 记忆 / 能力」的最小实现：每轮往上下文里放一小段「魂引」（我是谁、现在在哪、怎么查），再提供几个只读的检索工具。
->
-> 包名：`@ly-ina/dsh-soulweave` · 插件 id：`soulweave` · 工具名一律保留 `soul_*` 前缀。
->
-> **默认不依赖本机任何其它插件**：不装 meow-memory 也能跑（用自带的最小 SQLite 后端），不装封存/原文库也能跑（对应检索源直接不注册）。
+[![CI](https://github.com/ly-ina/Soulweave/actions/workflows/ci.yml/badge.svg)](https://github.com/ly-ina/Soulweave/actions/workflows/ci.yml)
+![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933)
+![deps](https://img.shields.io/badge/npm%20deps-0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## 包结构
+> 给 DeepSeek Harness 装一层**人格 + 记忆**：每次开会话，AI 先想起自己是谁；平时干活，它知道该去哪儿翻旧账。
 
-单包多入口：零构建、零 npm 依赖、没有 `node_modules`。`io.mjs` 是宿主环境底座，上面三层单向依赖，只有最外面那层知道 DSH。
+![魂织架构](docs/architecture.png)
+
+DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对话。昨天定的规矩、上周骂过它的毛病，一样不剩。
+
+魂织在**会话开头**（或上下文压缩之后）注入一小段「魂引」，之后每轮只换其中的「现状」部分：
 
 ```text
-index.js                  DSH 插件入口（name / inject / apply / MESSAGE_KIND）
-io.mjs                    宿主环境唯一入口（fs / os / child_process / env），可 configureIo 注入替身
-├─ adapters/dsh/          唯一允许接触 ctx 的适配层
-│  ├─ prestep.mjs         agent/pre-step：拼魂引、按预算注入
-│  └─ apply.mjs           注册 soul_* 工具、设置面板、同步触发器
-├─ core/                  纯逻辑：只 import node:* 的纯函数模块、memory 和相对路径
-│  ├─ prompt.mjs          魂引拼装
-│  ├─ budget.mjs          预算与降档
-│  ├─ soul.mjs            解析 soul.md
-│  ├─ recall.mjs          检索源编排
-│  ├─ triggers.mjs        触发词/冷却
-│  ├─ hybrid.mjs          RRF 混合召回
-│  └─ index.mjs           汇总出口（对应 exports "./core"）
-└─ memory/                记忆后端：只依赖 node:sqlite
-   ├─ builtin.mjs         自带最小 SQLite 后端
-   ├─ hybrid.mjs          RRF 混合召回（与 core/hybrid.mjs 同哈希副本）
-   └─ index.mjs           汇总出口（对应 exports "./memory"）
+【魂引 · 人格】
+身份：蓝汐，伊纳叫我小汐，我喊伊纳。中文；直接执行，结论在前。
+认知：先取证；人比任务重。省在轮数不省话。
+禁令：未验证不写成已修复；不动 vault、不删原文。
 
-panel-client.js           设置面板前端（包根，声明的 id 必须等于包名）
-tools/check-layers.mjs    分层守卫：core / memory 出现非 node:* 外部 import 即失败
-examples/node-cli.mjs     不装 DSH 也能跑通 core 的最小示例
+【魂引 · 现状】
+2026-11-24 21:23 周二 · <workspace>
+在场：dsh_work · 可检索 5 条 → soul_recall
+【分区】work 334 · intimacy 18 · relations 3 · rules 22 · misc 23
 ```
 
-| 入口 | 文件 | 用途 |
-|---|---|---|
-| `@ly-ina/dsh-soulweave` | `index.js` | DSH bundle 加载的插件本体 |
-| `@ly-ina/dsh-soulweave/core` | `core/index.mjs` | 不依赖宿主的纯逻辑，可单独引用 |
-| `@ly-ina/dsh-soulweave/memory` | `memory/index.mjs` | 自带 SQLite 后端与混合召回 |
-| `@ly-ina/dsh-soulweave/client` | `panel-client.js` | 设置面板前端 |
+一共两千字上下，只占上下文很小一角，但足够让模型认出「这是我待过的地方」。
 
-三条规则：
+---
 
-- `core` 不知道 DSH，可以用 `memory` 后端；`memory` 不许反向依赖 `core`。
-- 只有 `adapters/dsh/` 能拿到 `ctx`。换一个宿主，只需要重写这一层。
-- `core/hybrid.mjs` 与 `memory/hybrid.mjs` 是**有意保留的同哈希副本**：`./memory` 子入口要能独立使用，就不能反向 import `core`。守卫会校验两份哈希一致，改一份必须同步另一份。
+## 它解决什么
 
-验证：
+| 问题 | 魂织的做法 |
+|---|---|
+| 新会话就失忆 | `soul.md` 三节（身份 / 认知 / 禁令）首轮注入，永不丢 |
+| 旧事想不起来 | `soul_recall` 五源检索：记忆库 · 封存段 · 笔记 · 规则原文 · 原文库 |
+| 同一个错反复犯 | 被纠正的事写进 `soul.md` 的「反哺」节，长期生效 |
+| 上下文塞满无关记忆 | 只注入索引和计数，正文按需查；预算不够就按固定顺序降档 |
+| 依赖一堆插件 | 零 npm 依赖，不装 meow / 封存 / 原文库也能跑（对应源直接不注册） |
 
-```bash
-npm run check-layers   # 期望：PASS 依赖方向：24 个文件，core/memory 全部零宿主依赖
-npm run check          # 期望：97/97
-npm run example        # 期望：exit 0
-npm run clean-install  # 期望：R1..R8 OK（按 files 白名单复制到临时目录再跑）
+---
+
+## 30 秒跑起来
+
+需要 **Node.js ≥ 22.5**（用自带的 `node:sqlite`，不装任何依赖）。
+
+**1. 挂进 profile**（`~/.dsh/profiles/<名字>/package.json`）：
+
+```json
+{
+  "dependencies": {
+    "@ly-ina/dsh-soulweave": "link:/path/to/dsh-soulweave"
+  },
+  "dsh": { "profile": { "bundles": ["@ly-ina/dsh-soulweave"] } }
+}
 ```
 
-## 最小安装
+再在 `node_modules` 下建链接（Windows 用 junction，macOS/Linux 用 symlink）指向源码目录。
 
-只要三样东西：一个 `soul.md`、一个能挂 bundle 的 profile、一条 `soulPath`。
+**2. 指人格路径**——先把 `soul.example.md` 复制成 `soul.md`（格式见 [ENGINEERING.md](docs/ENGINEERING.md#soulmd-格式)），再在 profile 的 `cordis.patch.yml` 里指过去：
 
-运行环境：**Node.js ≥ 22.5**（内置 `node:sqlite` 需要这个版本，不引任何 npm 依赖）。
+```yaml
+- id: soulweave
+  name: "@ly-ina/dsh-soulweave"
+  config:
+    soulPath: /path/to/soul.md
+```
 
-1. 把包放进 profile 的 `dependencies`（本地开发用 `link:` 指到源码目录）：
+> `config` 是**整体替换**，不是深合并。要调参数就一次写全，参考包里的 `cordis.patch.yml`。
 
-   ```json
-   {
-     "dependencies": {
-       "@ly-ina/dsh-soulweave": "link:/path/to/dsh-soulweave"
-     },
-     "dsh": { "profile": { "bundles": ["@ly-ina/dsh-soulweave"] } }
-   }
-   ```
+**3. 重启 DSH**（整进程重启，不是热重载）。`soul.md` 不存在也不报错，只是少了人格那一节。
 
-2. 在 profile 的 `cordis.patch.yml` 里给它一条配置（不写就全用默认值）：
+<details>
+<summary>不想手动折腾？把安装交给 DSH 里的 AI</summary>
 
-   ```yaml
-   - id: soulweave
-     name: "@ly-ina/dsh-soulweave"
-     config:
-       soulPath: /path/to/soul.md
-   ```
-
-   注意：`config` 是**整体替换**，不是深合并。上面这条会把插件自带 patch 里的字段全部覆盖掉，所以要调参数就在这里一次写全（可参考 `cordis.patch.yml`）。
-
-3. 重启 DSH。如果 `soul.md` 不存在，魂引里只有「现在在哪 / 怎么查」两节，不报错。
-
-`<插件目录>/soul.md` 也可以直接当人格文件——把 `soul.example.md` 复制成 `soul.md` 改内容即可。
-
-npm 发布后（v0.2.0 起）：`dsh plugin add @ly-ina/dsh-soulweave`（发布前这一行装不上，别以为是命令写错了）。
-
-## 让 AI 帮你装
-
-上面三步对不熟 DSH 的人是硬门槛。更省事的方式：把下面这段整段复制给你 DSH 里的 AI，它需要文件读写权限。
+把下面这段整段复制给有文件读写权限的 AI：
 
 ```
 请帮我在本机安装 DSH 插件 Soulweave（https://github.com/ly-ina/Soulweave）。
 
-1. 先找到当前 DSH 的 profile 目录：通常是 ~/.dsh/profiles/<名字>，以其中 package.json 含 dsh.profile.bundles 的那份为准。找不到就问我，不要猜。
+1. 先找到当前 DSH 的 profile 目录：通常是 ~/.dsh/profiles/<名字>，以其中 package.json
+   含 dsh.profile.bundles 的那份为准。找不到就问我，不要猜。
 2. 把仓库 clone 到本地固定目录，比如 ~/.dsh/plugins/dsh-soulweave。
 3. 在 profile 的 package.json 里改两处：
    - dependencies 里加 "@ly-ina/dsh-soulweave": "link:<clone 路径>"
    - dsh.profile.bundles 数组里追加 "@ly-ina/dsh-soulweave"
    改之前先备份 package.json。
-4. 在 profile 的 node_modules 下建链接：Windows 用 junction，macOS/Linux 用 symlink，指向 clone 目录。
-5. 把 <clone 目录>/soul.example.md 复制成 <clone 目录>/soul.md。内容先别写死，过来问我希望它记住什么。
+4. 在 profile 的 node_modules 下建链接：Windows 用 junction，macOS/Linux 用 symlink。
+5. 把 <clone 目录>/soul.example.md 复制成 <clone 目录>/soul.md。
+   内容先别写死，过来问我希望它记住什么。
 6. 整进程重启 DSH，不是热重载。
 7. 重启后验证两件事：
-   - ~/.dsh/soul/soul.log 在重启后有新的 inject 行；
-   - 八个 soul_* 工具（soul_recall / soul_persist / soul_cue / soul_capabilities / soul_tier / soul_surface / soul_relations / soul_mood）都在；`soul_toolout` 只在 `biliDbPath` 指向的库存在时注册。
+   - <DSH_HOME>/soulweave/soul.log 在重启后有新的 inject 行；
+   - 14 个 soul_* 工具都在（soul_toolout 只在 biliDbPath 指向的库存在时注册）。
 任何一步失败，把报错原文贴出来，不要猜着改。
 ```
 
-这条路走完，人格文件在 `<clone 目录>/soul.md`，随时可以自己改。等插件发布到 npm 之后，也可以直接用 `dsh plugin add @ly-ina/dsh-soulweave` 一行装完。
+</details>
 
-## soul.md 长什么样
+---
 
-只认 `## 标题` 分节 + 每行一条 bullet（`-` / `*` / `+` / `1.`）：
+## 魂引是怎么拼的
 
-```markdown
-## 身份
-- 名字、称呼、说话方式
+魂引分两段，注入时机不同：
 
-## 认知
-- 做判断的顺序、优先级
-
-## 禁令
-- 红线、禁止项
-
-## 反哺
-（只由 soul_persist 往这里追加）
-```
-
-认不出的内容不注入（宁可少说，不可乱说），原文件字节不动。`## 外交` 可选，用于群聊场景。
-
-### soul.md 和 memory/ 怎么分工
-
-一句话：**缺了它我还是不是我——是，就写 `soul.md`；只是活干得更好——就写分区。**
-
-| 写 `soul.md` | 写 `memory/<zone>.md` |
-|---|---|
-| 名字、称呼、语言 | 工具用法、命令习惯 |
-| 做判断的顺序、价值排序 | 具体项目的流程和踩坑 |
-| 红线、禁止项 | 某次事件的细节 |
-| 群聊/私聊的说话方式 | 待办、临时约定 |
-
-`soul.md` 应该越写越短，不是越写越长。它每轮整份进上下文，分区只在魂引里占一行索引。往 `soul.md` 加一条之前先问：这是「我是谁」，还是「我该怎么干活」。
-
-外交那节也不必挤在主文件里：`extraSoulPaths: ["E:/.../diplomacy.md"]` 会把额外文件按数组顺序拼在 `soul.md` 之后，**共用同一份预算、同一条降档链**；某个文件缺失只写一条 `soul-warn` 然后跳过，不影响其余。
-
-## 三处数据写哪里
-
-同一条内容只许存在一处。三个位置装的是三种东西：
-
-| 位置 | 装什么 | 判据 |
+| 段 | 内容 | 什么时候注入 |
 |---|---|---|
-| `soul.md` | 人格：身份 / 认知 / 禁令 / 外交 / 反哺 | 缺了它，「我是谁」就变了 |
-| `memory/<zone>.md` | 分区经验：work / intimacy / relations / rules / misc | 只影响活干得好不好；有对应记忆时条目里用 `<!-- id:... -->` 留锚点 |
-| `memory.db`（meow） | 需要被 `soul_recall` 跨会话命中的原子事实 / 教训 | 一句话能说完、要能被检索到 |
+| **稳定段** | 人格 · 规则索引 · 我记下的自己 | 会话首轮，或上下文压缩后 |
+| **现状** | 时间 · 工作区 · 在场 · 可检索 5 条 | 每一轮 |
 
-规则：
+稳定段不重复注入，省下的 token 给对话。现状每轮刷新，模型因此知道「现在几点、在哪、手上有什么」。
 
-- 只影响「我是谁」的 → `soul.md`，别的都不写。
-- 工作方法、项目知识、踩坑 → `memory/<zone>.md`。
-- 需要跨会话被 `soul_recall` 命中的原子事实 / 教训 → `memory.db`。
-- **同一条内容不许两处都写。** 迁移时先写新处，再在旧处标 `deprecated`，不直接删。
+---
 
-上面三条是约定，靠人守；`soul_lint.mjs` 只负责把明显违背的那部分指出来（只读，不改任何文件）：
+## 四个概念
 
-```bash
-node soul_lint.mjs            # 用本机 profile 里的 soulPath / memoryRoot / memoryDbPath
-node soul_lint.mjs --json     # 机读
-```
+**`soul.md`** — 人格。只认 `## 标题` 分节 + 每行一条 bullet。缺了它「我是谁」就变了，才写这里；越写越短。
 
-它扫 `memory/*.md` 与 `memory.db`（只取 `active` 条目），把「标题 + 正文」算成字符 bigram 求 Jaccard，`≥ 0.8` 的列成「可能双写」，报条目数、可疑对数与清单，**不自动改**。不传参数时先找本机 profile 的 soulweave 配置，找不到才回落插件目录；也可以用 `--soul-path` / `--memory-root` / `--db` / `--threshold` 显式指定。阈值刻意收紧到 0.8：只抓几乎逐字重复的，改写过的近义条目抓不到——宁可漏报，不拿一堆「像但不同」的条目让人一条条看。
+**`memory/<zone>.md`** — 分区经验。`work` / `intimacy` / `relations` / `rules` / `misc` 一区一个文件。只影响活干得好不好。
 
-## 记忆后端
+**记忆库** — SQLite，一句话能说完、要能被检索到的原子事实与教训。写入只走 `soul_remember`。
 
-`config.memoryBackend` 三档：
+**预算** — 魂引默认 1000 token 上限。不够时按固定顺序让位：先砍【路由】【怎么查】和「我记得」，再削每节条数（5→3→2→1），最后才截单条字数。**任何档位三节都至少留 1 条**——缺一节就不是完整的我，这条比省 token 优先。
 
-| 值 | 说明 |
-|---|---|
-| `builtin`（默认） | 自带最小 SQLite，表 `memories`，库路径 `memoryDbPath`，默认 `<stateDir>/soul-memory.db`；首次访问自动建库 |
-| `meow` | 只读适配 meow-memory 的七层库（`soul/user/rules/project/fact/topic/lesson` + cue 表）；库路径必须自己给 |
-| `none` | 所有依赖记忆的功能返回空数组，不报错 |
+---
 
-`builtin` 打开一个**其实是 meow 老库**的文件时（有 `soul`/`user` 表、没有 `memories` 表）会自动按 meow 语义读——这是给老用户的兼容口子，新用户不用管。
+## 工具（14 个）
 
-`soul_tier --apply`（降权）与 `soul_cue`（cue 刷新）只会写 meow 的结构；在 builtin/none 下它们会明确返回「只支持 meow」，不会假装成功。
-
-## 检索源（soul_recall）
-
-五源注册制，没配置的源不注册：
-
-| 源 | 开关 | 默认 |
-|---|---|---|
-| 记忆库 | `memoryBackend` ≠ `none` | 开 |
-| 封存段 | `sealedSegmentsModule` 非空 | 空（不注册） |
-| 笔记 | `notesDir` 存在 | 开（目录不存在就空） |
-| 原文库 | `soulIndexDir` 非空（`python query.py --json`，Python + FTS5） | 空（不注册） |
-| 规则原文 | `rulesDir` 非空（只读 `*.md`，命中给 `rules/<文件>:<行号>`） | 空（不注册） |
-
-封存模块的解析顺序：显式路径 → 包名 `import` → 用 `$DSH_HOME/profiles/*/node_modules` 解析包名 → 都失败就跳过并在结果里写「封存源不可用」。**没有**写死的同级目录回落。
-
-单个源抛错只写 note，不拖累其余源。结果里 `sources` 给各源命中数，`active` 给本轮真正启用的源 id。
-
-### 混合召回（可选）
-
-`hybridSearch: true` 时，记忆源的候选不是只来自 BM25，而是两路各召回一批再合并：
-
-```
-BM25（后端自带）  ─┐
-                   ├─ RRF: 1/(60+bm25名次) + 1/(60+向量名次) ─→ 前 N 条
-向量（可选模块）  ─┘
-```
-
-只对 BM25 的候选做重排是不行的——BM25 没召回的条目，重排也救不回来，所以取并集。
-也不做分数加权：BM25 分和余弦相似度不在一个量纲，系数只能拍脑袋，RRF 只用名次。
-
-向量模块**不随插件发布**，因为模型约 95MB、还要 transformers 依赖。要用的自己装：
-
-```powershell
-cd <semantic-search 目录>
-node setup.mjs                    # 下模型 + 装依赖；加 --proxy / --mirror 走代理或镜像
-```
-
-然后在 profile 里给 soulweave 配：
-
-```yaml
-    hybridSearch: true
-    embedModule: /path/to/semantic-search/embed.mjs
-    embedCachePath: <workspace>/lanxi/tools/semantic-search/cache.db
-```
-
-模块缺失、模型加载失败、编码抛错，一律原样退回 BM25，只写一行 `console.error`，不影响召回。
-模型与参数的细节见 `lanxi/tools/semantic-search/README.md`。
-
-## 完整配置表
-
-| 配置项 | 默认值 | 说明 |
-|---|---|---|
-| `soulPath` | `<插件目录>/soul.md` | 人格文件（只读；只有 `soul_persist` 追加第四节） |
-| `extraSoulPaths` | `[]` | 额外常驻文件，按数组顺序拼在 `soul.md` 之后；共用预算与降档，缺失时跳过并写 `soul-warn` |
-| `notesDir` | `<stateDir>/notes` | 笔记根目录 |
-| `stateDir` | `<插件目录>/.state` | 运行态目录（日志、cue 状态、`soul-memory.db`） |
-| `logPath` | `<stateDir>/soul.log` | 只追加的 UTF-8 日志 |
-| `relationsDir` | `<stateDir>/relations` | 关系层 `*.md`（按文件名倒序取最新一份） |
-| `moodPath` | `<stateDir>/mood.md` | 情绪状态 |
-| `routerPath` | 空 | 路由层：一行一条「触发 → 去哪」 |
-| `rulesDir` | 空 | 规则原文目录：稳定段只注入标题索引，细则走第⑤源 |
-| `rulesIndexMaxTokens` | 120 | 规则索引预算（tok）；0 = 不注入索引，第⑤源仍可用 |
-| `archiveRoot` | `<stateDir>/archive` | 封存根目录（给 sealed 模块校验 manifest 路径） |
-| `memoryBackend` | `builtin` | 见上 |
-| `memoryDbPath` | `<stateDir>/soul-memory.db`（meow 时 `<stateDir>/memory.db`） | 记忆库路径 |
-| `sealedSegmentsModule` | 空 | 封存模块（路径或包名） |
-| `sealedModule` | 空 | 旧名，仍兼容 |
-| `soulIndexDir` | 空 | 原文库目录（含 `query.py`） |
-| `soulIndexPython` | `python` | 跑 `query.py` 的解释器 |
-| `soulMaxTokens` | 1000（可调到 8000） | 魂引 token 上限；上界只是防手滑，成本自己担 |
-| `soulWarnTokens` | 1100 | 魂引超过这条线写一条 `soul-warn`，不夹、不降档；设 0 关闭 |
-| `totalMaxTokens` | 950 | 四类注入合计上限 |
-| `fixedMaxTokens` | 2500 | 快照超这个值才在末行申报 |
-| `enforceBudget` | `false` | true 才真把目录型注入从本轮剔掉 |
-| `pendingLimit` | 3 | 「现在在哪 → 手头未结」条数 |
-| `pendingMode` | `count` | 未结只报条数；`full` 为旧行为 |
-| `recallLimit` | 3 | `soul_recall` 默认条数（上限 5） |
-| `hybridSearch` | `false` | true 时记忆源走「BM25 + 向量」名次合并（RRF），见下节 |
-| `embedModule` | 空 | 向量模块路径或包名；空 = 纯 BM25 |
-| `embedCachePath` | 模块自带 | 向量缓存 SQLite 路径 |
-| `embedModelDir` | 模块自带 | 模型根目录（要含 `<org>/<model>` 两层） |
-| `gamedevSkillsDir` | `<工作区>/skills/gamedev` | 可选游戏开发技能库（只读 `INDEX.json`） |
-| `biliDbPath` | 环境变量 `BILI_SESSIONS_DIR` 或 XDG 路径 | `soul_toolout` 的目标库 |
-| `pluginRoots` | 工作区 `plugins` + profile `node_modules` | `soul_capabilities` 扫插件用 |
-
-`<插件目录>` 由 `import.meta.url` 推出，不用 `process.cwd()`。
-
-## 设置面板（可选）
-
-装好后侧边栏会出现「魂织」图标，可以直接改八项常用配置：
-
-| 项 | 键 | 说明 |
-|---|---|---|
-| 魂引上限 | `soulMaxTokens` | 每轮注入的魂引 token 上限，最高 8000 |
-| 魂引警示线 | `soulWarnTokens` | 超线只写日志提醒，不夹、不降档 |
-| 四类注入合计上限 | `totalMaxTokens` | 魂引、记忆、现状、路由合计 |
-| 超预算时裁剪别人的注入 | `enforceBudget` | 关着只申报超支，不静默裁 |
-| 「现在在哪」条目上限 | `pendingLimit` | 超限只留最近 3 条 |
-| soul_recall 默认条数 | `recallLimit` | 上限 5 |
-| 稳定段 / 动态段拆分注入 | `soulSplitInjection` | 关掉退回 legacy 每步全量 |
-| 混合召回（BM25 + 向量） | `hybridSearch` | embed 缺失时自动退回 BM25 |
-
-面板**不改 profile 的 `cordis.patch.yml`**，只写 `<stateDir>/panel-override.json`；启动时在 `normalizeConfig` 之前合并，所以优先级是「面板覆盖 > profile > 默认值」。保存后重启生效；「恢复 profile」会删掉覆盖文件。
-
-## 工具
+**读写**
 
 | 工具 | 作用 |
 |---|---|
 | `soul_recall` | 五源检索，≤1200 字，带定位 |
-| `soul_persist` | 把 corrected lesson 追加到 `soul.md` 的「反哺记录」；默认 preview |
-| `soul_tier` | 常驻名单审计（preview 只读；apply 仅 meow） |
-| `soul_cue` | cue 刷新（仅 meow） |
-| `soul_toolout` | 工具输出归档（只归档不删；`biliDbPath` 指向的库不存在时不注册） |
-| `soul_capabilities` | 能力清单 / 按需建议；可选 `source:'gamedev'` |
-| `soul_surface` | 把旧注入从模型视图里遮掉（走会话 API） |
+| `soul_remember` | 写记忆的唯一入口；给 `id` 就是更新 |
+| `soul_persist` | 把被纠正过的 lesson 追加到 `soul.md` 的「反哺」节，默认 preview |
+| `soul_todo` | 列未结待办 / 标记完成 / 恢复 |
+| `soul_project` | 一个项目的全景：未结 todo · 项目记忆 · 可检索条数 |
+
+**审计与维护**
+
+| 工具 | 作用 |
+|---|---|
+| `soul_audit` | 记忆体检：分层统计 · 近重复 · 关键词 · 过旧 · 归档候选 |
+| `soul_archive` | 选择性归档（默认 dry-run，apply 前先 VACUUM 备份，永不删除） |
+| `soul_tier` | 常驻名单审计（降权只对 meow 七层库有效） |
+| `soul_cue` | 补全记忆 cue（规则生成，不调模型；只对 meow 七层库有效） |
+| `soul_surface` | 把旧注入从模型视图里遮掉（只遮不删，日志原文一条不动） |
+
+**其它**
+
+| 工具 | 作用 |
+|---|---|
 | `soul_relations` | 读关系层 |
 | `soul_mood` | 读情绪状态 |
+| `soul_capabilities` | 能力清单 / 按本轮任务给 3–5 个建议 |
+| `soul_toolout` | 工具输出归档（库不存在时不注册） |
 
 注入消息的 `source.kind` 固定是 `soul`，历史识别依赖它。
 
-## 分区与标签（zone / tags）
+---
 
-魂引不展开记忆正文：它只渲染一行计数 + 指路，正文留在 `memory/<zone>.md` 里按需查。
+## 配置
 
-```
-<soulRoot>/soul.md          人格层
-<soulRoot>/memory/work.md   一区一个文件（work / intimacy / relations / rules / misc）
-<soulRoot>/index.jsonl      一行一区（不是一条记忆一行）
-```
+最常用的几项，写在 profile 的 `cordis.patch.yml`：
 
-- **魂引**：`【分区】work 42 · intimacy 8 · relations 3 · rules 12 · misc 5` + 一行命令示例；full 与 reload 档都一样，不出现任何区正文。
-- **条数**：每次现扫 `memory/*.md` 算，手改文件后不用重建索引也不会报错数；`index.jsonl` 只定顺序与标题。
-- **条目格式**：`## 标题` + 空一行 + `tags: 场景, 类型` + 正文。标签只有两个维度：场景（工作/亲密/群聊/日常）、类型（规则/事实/偏好/教训），每条最多三个，区名不写进 tags。
-- **检索**：`soul_recall({zone:"work", tags:["工作","工具"]})` 先按区与标签过滤再打分，返回项带 `zone` 与 `tags`。
-- **迁移**：`node scripts/migrate-zones.mjs --db <memory.db> --root <soulRoot>`（只追加、按 id 去重；映射不确定的一律进 `misc.md`；结尾会报各区文件大小）。
-- **什么时候拆子区**：不看条数，看可测判据——单文件 > 1 MB，或 `soul_recall({zone:"work"})` 实测 > 500 ms。没到线就别拆（拆了会让索引从一行变四行）。
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `soulPath` | `<插件目录>/soul.md` | 人格文件（只读） |
+| `memoryBackend` | `builtin` | `builtin` / `meow`（只读老库）/ `none` |
+| `memoryDbPath` | `<stateDir>/soul-memory.db` | 记忆库路径 |
+| `soulMaxTokens` | `1000` | 魂引上限，最高 8000 |
+| `totalMaxTokens` | `950` | 四类注入合计上限 |
+| `recallLimit` | `3` | `soul_recall` 默认条数（上限 5） |
+| `rulesDir` | 空 | 规则原文目录；稳定段只注入标题索引 |
+| `soulIndexDir` | 空 | 原文库目录（含 `query.py`） |
+| `sealedSegmentsModule` | 空 | 封存模块路径或包名 |
+| `hybridSearch` | `false` | BM25 + 向量名次合并（RRF） |
+
+完整配置表、混合召回、设置面板说明见 [docs/CONFIG.md](docs/CONFIG.md)。
+
+---
+
 ## 权限边界
 
-装之前先看清这三条，它们都是**默认就会发生**的：
+装之前先看清，这几条都是**默认就会发生**的：
 
 | 能力 | 默认行为 | 边界 |
 |---|---|---|
-| 注入 | 每轮往上下文里放一段 ≤ `soulMaxTokens` 的魂引 | 只读 `soul.md`，不改它；认不出的内容不注入 |
-| `soul_persist` | **会写 `soul.md`**：把 corrected lesson 追加到「## 反哺」一节 | 只追加、不重写前三节；默认 `preview`，落盘前先备份 |
-| `soul_surface` | **能折叠会话历史**：把旧注入从模型视图里遮掉（surface replace，只遮不删，日志原文一条不动） | 需要宿主提供会话对象；拿不到就报错，不直接改 `.zstd` |
-| 记忆库 | 默认后端是 `builtin`：自带 SQLite，落在 `<stateDir>/soul-memory.db`，首次读取自动建库 | 不联网、不外发；`memoryBackend: "none"` 可整个关掉 |
+| 注入 | 会话首轮注入魂引，之后每轮更新现状 | 只读 `soul.md`；认不出的内容不注入 |
+| `soul_persist` | **会写 `soul.md`**：把 lesson 追加到「## 反哺」 | 只追加、不重写前三节；默认 preview，落盘前备份 |
+| 记忆库 | 自带 SQLite，落 `<stateDir>/soul-memory.db` | 不联网、不外发；`memoryBackend: "none"` 可全关 |
+| `soul_archive` | 只改 `status` 字段 | 永不删除；apply 前 `VACUUM INTO` 备份 |
+| `soul_surface` | 折叠会话历史（surface replace） | 只遮不删；拿不到会话对象就报错，不直接改 `.zstd` |
 
-其余工具（`soul_tier` / `soul_cue` / `soul_toolout`）都是显式 preview 优先，apply 需要 `confirm: true`。
+其余改数据的工具都显式 `preview` 优先，`apply` 要 `confirm: true`。
+
+---
 
 ## 已知限制
 
-- 只读 `soul.md`，唯一写入通道是 `soul_persist`（只追加「## 反哺」一节，落盘前备份）。
-- 不引任何 npm 依赖；SQLite 用 Node 自带 `node:sqlite`。
-- `soul_tier --apply`、`soul_cue` 依赖 meow 的表结构。
-- `soul_surface` 需要宿主提供会话对象；拿不到就明说，不直接改 `.zstd`。
-- Linux / macOS 下原文库源默认找 `python3`（Windows 为 `python`），可用 `soulIndexPython` 覆盖。
-- `core/`、`memory/` 不许直接 import `node:fs|os|child_process`，统一走 `io.mjs`；`tools/check-layers.mjs` 会拦住违规。
-- `soul_toolout` 依赖外部 billion-context 的 `index.db`。库不存在时**不注册该工具**（不占工具表、不会在调用时报错），库回来后重启即恢复。
+- 零 npm 依赖；SQLite 用 Node 自带 `node:sqlite`（Node ≥ 22.5）。
+- `soul_tier --apply` 依赖 meow 七层表结构；`builtin` 下会明确返回「只支持 meow」，不假装成功。
+- `soul_surface` 需要宿主提供会话对象，拿不到就明说。
+- `soul_toolout` 依赖外部 billion-context 的 `index.db`；库不存在时不注册该工具。
+- Linux / macOS 下原文库默认找 `python3`（Windows 为 `python`），可用 `soulIndexPython` 覆盖。
+- 没有在真实 Linux / macOS 机器上长期跑过；CI 已在 Ubuntu + Windows × Node 22/24 四格验证。
 
-## 自测
+---
 
-`check.mjs`、`clean-install.mjs`、`gamedev-golden.json` 是开发期测试物，不进 npm 包（见 `files` 白名单）。源码目录里直接跑：
+## 开发
 
 ```bash
-node check.mjs          # 单元/集成：期望最后一行 111/111 通过（R23-R26：宿主隔离 / 故障降级 / 执行边界 / 熔断）
-node clean-install.mjs  # 干净安装：临时目录 + 默认配置 + 假 harness，期望最后一行 R1..R8 OK
-node soul_lint.mjs      # 只读查双写：扫 memory/*.md 与 memory.db，报可疑对与总数（不进 npm 包）
+node check.mjs               # 111/111 通过
+node clean-install.mjs       # 按 files 白名单复制到临时目录，R1..R8 OK
+node tools/check-layers.mjs  # 分层依赖守卫
 ```
 
-`clean-install.mjs` 不读、不写本机任何真实目录（`DSH_HOME` 也临时指到空目录），跑完自删。
+CI 跑以上三项 + `npm pack --dry-run`，矩阵 Windows / Ubuntu × Node 22 / 24。
 
-## 本机实测环境
+包结构、分层约束、io.mjs 单入口、混合召回、完整自测清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md)。
 
-Windows 11（NT 10.0.26200）、Node v24.22.1、DSH 0.1.0-rc.7；
-`check.mjs` 88/88（v0.1.2 为 71/71）、`clean-install.mjs` R1..R8、`npm pack --dry-run` 17 文件（v0.1.2 起；v0.1.1 为 16 文件 / 90.2 kB）。
-
-其他系统与 DSH 版本未实测，见 REPORT 的「未验证」一节。
-
-## 变更记录
-
-见 `CHANGELOG.md`。
-
-### 降档顺序（2026-11-03 定）
-
-预算不够时按这个顺序让位，**任何档位三节都至少留 1 条**——缺一节就不是完整的我，这条比省 token 优先：
-
-1. 先砍【路由】【怎么查】和「我记得」；
-2. 再削每节条数（5 → 3 → 2 → 1，每节下限 1）；
-3. 最后才 clip 单条字数（48 → 32 → 20 → 12 字）。
-
-真到物理上装不下的极端预算（如 40 tok），会硬裁并在末行写「（魂引超限，已截断；核心已压到极限）」，不静默降级。
+变更记录：[CHANGELOG.md](CHANGELOG.md)。

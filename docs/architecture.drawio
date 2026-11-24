@@ -1,0 +1,104 @@
+<mxfile host="dsh-drawai" agent="dsh-drawai" type="device">
+  <diagram id="dsh-drawai-page-1" name="Page-1">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        <mxCell id="n1" value="soul.md
+人格：我是谁、信什么、不做什么" style="rounded=1;fontSize=16;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="20" y="40" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="n2" value="分区记忆
+work · intimacy · rules …" style="rounded=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="360" y="40" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" value="记忆库
+原子事实 · 教训 · 待办" style="rounded=1;fontSize=16;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="670" y="40" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" value="魂引
+稳定段 · 首轮 / 压缩后
+人格 · 规则 · 我记下的自己
+
+现状 · 每轮
+时间 · 工作区 · 在场 · 可检索 5 条" style="rounded=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="275" y="225" width="420" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" value="模型上下文" style="rounded=1;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="360" y="450" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="n6" value="soul_recall
+记忆库 · 封存段 · 笔记 · 规则 · 原文" style="rounded=1;fontSize=15;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="680" y="490" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="rounded=1;html=1;strokeColor=#3B6FB6;edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;endArrow=none;drawaiRoutingMode=manual;" edge="1" parent="1" source="n1" target="n7">
+          <mxGeometry relative="1" as="geometry">
+  <Array as="points">
+    <mxPoint x="170" y="165" />
+    <mxPoint x="485" y="165" />
+  </Array>
+</mxGeometry>
+        </mxCell>
+        <mxCell id="e2" style="rounded=1;html=1;strokeColor=#2E7D42;edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;endArrow=none;drawaiRoutingMode=manual;" edge="1" parent="1" source="n2" target="n7">
+          <mxGeometry relative="1" as="geometry"></mxGeometry>
+        </mxCell>
+        <mxCell id="e3" style="rounded=1;html=1;strokeColor=#B0762A;edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;endArrow=none;drawaiRoutingMode=manual;" edge="1" parent="1" source="n3" target="n7">
+          <mxGeometry relative="1" as="geometry">
+  <Array as="points">
+    <mxPoint x="795" y="165" />
+  </Array>
+</mxGeometry>
+        </mxCell>
+        <mxCell id="e4" value="" style="rounded=1;html=1;strokeColor=#7B61A8;edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;endArrow=classic;drawaiRoutingMode=manual;" edge="1" parent="1" source="n7" target="n4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="需要时查" style="rounded=1;html=1;fontSize=14;dashed=1;edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;endArrow=classic;drawaiRoutingMode=manual;" edge="1" parent="1" source="n5" target="n6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="n7" style="ellipse=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="477" y="157" width="16" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="注入" style="rounded=1;html=1;fontSize=14;strokeColor=#7B61A8;edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;endArrow=classic;drawaiRoutingMode=manual;" edge="1" parent="1" source="n4" target="n5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
