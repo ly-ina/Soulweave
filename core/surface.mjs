@@ -323,7 +323,10 @@ export function applySurfaceReplace(file, plan, { confirm = false, now = Date.no
   if (plan.ranges.length === 0) return { ok: false, error: '没有可遮的区间（候选为空或只剩最新一条）' }
   if (!existsSync(file)) return { ok: false, error: `会话日志不存在：${file}` }
   const age = Date.now() - statSync(file).mtimeMs
-  if (age < quietMs) return { ok: false, error: `日志 ${Math.round(age / 1000)}s 前还在写（<${quietMs / 1000}s），疑似会话正在运行，拒绝写入` }
+  // quietMs <= 0 表示关闭新鲜度检查（自测会传 0）。
+  // 注意 age 可能为负：文件系统的 mtime 精度比 Date.now() 粗，同一毫秒内写入的文件
+  // 可能被记成「未来 1ms」，此时 age = -1，`age < 0` 会成立并误判成"正在写"（Windows CI 实测）。
+  if (quietMs > 0 && age < quietMs) return { ok: false, error: `日志 ${Math.round(age / 1000)}s 前还在写（<${quietMs / 1000}s），疑似会话正在运行，拒绝写入` }
 
   const stamp = new Date(now).toISOString().slice(0, 16).replace(/[-:T]/g, '')
   const backup = `${file}.bak-surface-${stamp}`

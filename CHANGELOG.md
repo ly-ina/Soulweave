@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 — 2026-11-25
+
+**修 Windows CI 上的误拒**
+
+- **fix(core/surface)**：`applySurfaceReplace()` 的新鲜度检查是 `if (age < quietMs)`，而 `quietMs: 0`（自测用来关闭检查）在 `age` **为负**时仍然命中。文件系统的 mtime 精度比 `Date.now()` 粗，同一毫秒内写入的文件可能被记成「未来 1ms」，于是 `-1 < 0` 成立 —— Windows CI 上把刚写完的测试文件误判成「会话正在运行」并拒绝写入，S2 失败。
+- 改为 `if (quietMs > 0 && age < quietMs)`：`quietMs <= 0` 明确表示关闭检查，不受负 age 影响。
+- **test**：S2 里用 `utimesSync` 把 mtime 设到未来 5 秒再 apply，锁住这个修复。本地无法自然复现，只能伪造 mtime。
+- `check` 118/118，`check-layers` 不变。
+
 ## 0.5.0 — 2026-11-25
 
 **待办闭环：记 / 办 / 结**

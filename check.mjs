@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1311,6 +1311,10 @@ await test('S2', 'surface apply：没 confirm 拒、刚写过拒；带 confirm �
   assert.equal(tooFresh.ok, false, '刚写完的日志（疑似在跑）不该被写')
   assert.match(tooFresh.error, /还在写|拒绝写入/, `提示不对：${tooFresh.error}`)
 
+  // 复现 CI 上栽的坑：文件系统 mtime 精度比 Date.now() 粗，同一毫秒内写入的文件
+  // 可能被记成「未来 1ms」，age 变负数，`age < quietMs` 会误判成正在运行。
+  // quietMs:0 必须表示「不检查」，不受负 age 影响。
+  utimesSync(file, new Date(), new Date(Date.now() + 5000))
   const applied = applySurfaceReplace(file, plan, { confirm: true, quietMs: 0 })
   assert.equal(applied.ok, true, `apply 失败：${applied.error ?? applied.verify?.problems?.join('；')}`)
   assert.ok(applied.backup && existsSync(applied.backup), '没留备份')
