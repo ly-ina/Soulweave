@@ -237,7 +237,7 @@ import { parseSoul } from '@ly-ina/dsh-soulweave/core'
 ## 开发
 
 ```bash
-node check.mjs                 # 118/118 通过
+node check.mjs                 # 自测；项数随用例增加，全绿才算数
 node clean-install.mjs         # 按 files 白名单复制到临时目录，R1..R8 OK
 node tools/check-layers.mjs    # 分层依赖守卫
 node tools/gen-api.mjs --check # API 文档是否与源码同步
