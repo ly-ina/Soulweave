@@ -81,11 +81,17 @@ function docBlockBefore(text, index) {
   return { body: before.slice(open + 3, close), start: open }
 }
 
-/** index.js 里显式导出的名字 + 是否 export * memory。 */
+/**
+ * 公开面在 sdk.mjs 里（index.js 只是插件入口 + 向后兼容的 `export * from './sdk.mjs'`）。
+ * 读 index.js 会漏掉 `export *` 后面的所有名字——0.5.4 拆 SDK 时踩过一次。
+ */
+const SURFACE_FILE = existsSync(join(ROOT, 'sdk.mjs')) ? 'sdk.mjs' : 'index.js'
+
+/** sdk.mjs 里显式导出的名字 + 是否 export * memory。 */
 function readPublicSurface() {
   let text = ''
   try {
-    text = readFileSync(join(ROOT, 'index.js'), 'utf8')
+    text = readFileSync(join(ROOT, SURFACE_FILE), 'utf8')
   } catch {
     return { names: new Set(), starMemory: false }
   }

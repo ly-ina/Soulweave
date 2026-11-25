@@ -100,6 +100,18 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 ---
 
+## 当库用（不装 DSH）
+
+`import ... from '@ly-ina/dsh-soulweave'` 拿到的是 DSH 插件入口，会连带拉进 `adapters/dsh/*`。只想用数据层就走 `./sdk` 子路径：
+
+```js
+import { putMemory, search, parseSoul } from '@ly-ina/dsh-soulweave/sdk'
+```
+
+`sdk.mjs` 里一个宿主模块都不 import，单独用 node 就能加载。`check.mjs` 的 R33 把这条钉住：静态走一遍依赖图，越界直接红。可跑的样例见 [examples/node-cli.mjs](examples/node-cli.mjs)。
+
+---
+
 ## 魂引是怎么拼的
 
 魂引分两段，注入时机不同：

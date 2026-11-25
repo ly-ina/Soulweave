@@ -4076,6 +4076,54 @@ await test('R31', '记录路由：记/办/结 各走各的，认不出就降级'
   assert.ok(renderRouteResult(r2).includes('待办 1'), renderRouteResult(r2))
 })
 
+await test('R33', 'SDK 出口与宿主解耦：sdk.mjs 的依赖图里没有 adapters/，且能单独被 node 加载', async () => {
+  // 起因：index.js 同时是 dsh 插件入口和公开 API 出口。外部消费者 import 'soulweave'
+  // 会被 adapters/dsh/apply.mjs 的宿主依赖拖住；routeRecords 明明已公开，却只能绕去
+  // import memory/route.mjs。所以拆出 sdk.mjs，并在这里把「不碰宿主」变成断言。
+
+  const { execFileSync } = await import('node:child_process')
+  const { pathToFileURL } = await import('node:url')
+  const HERE = dirname(fileURLToPath(import.meta.url))
+
+  // ① 静态：从 sdk.mjs 出发递归解析相对 import，不许出现 adapters/ 或裸包名
+  const seen = new Set()
+  const bad = []
+  const walk = (file) => {
+    if (seen.has(file)) return
+    seen.add(file)
+    const src = readFileSync(file, 'utf8')
+    // 只认真正的模块说明符：行首 import/export ... from 'x' 或 import 'x'。
+    // 注释和 SQL 模板（from ${table}）不算——上一版就是被它们坑了。
+    const specs = [
+      ...src.matchAll(/^\s*(?:import|export)\b[^\n]*?\bfrom\s+['"]([^'"$]+)['"]/gm),
+      ...src.matchAll(/^\s*import\s+['"]([^'"$]+)['"]/gm),
+    ].map((m) => m[1])
+    for (const spec of specs) {
+      if (spec.startsWith('node:')) continue
+      if (!spec.startsWith('.')) { bad.push(`${basename(file)} -> ${spec}`); continue }
+      const next = join(dirname(file), spec)
+      if (next.includes('adapters')) { bad.push(`${basename(file)} -> ${spec}`); continue }
+      if (existsSync(next)) walk(next)
+    }
+  }
+  walk(join(HERE, 'sdk.mjs'))
+  assert.deepEqual(bad, [], 'SDK 依赖图越界：' + bad.join('、'))
+  assert.ok(seen.size > 20, `依赖图只走到 ${seen.size} 个文件，可能没真正解析`)
+
+  // ② 运行时：单独起 node 加载 sdk.mjs。能加载 = 真的不依赖宿主
+  const out = execFileSync(
+    process.execPath,
+    ['-e', `import(${JSON.stringify(pathToFileURL(join(HERE, 'sdk.mjs')).href)}).then(m => console.log(Object.keys(m).length))`],
+    { encoding: 'utf8' },
+  )
+  const n = Number(out.trim())
+  assert.ok(Number.isFinite(n) && n > 100, `sdk.mjs 单独加载成功但导出只有 ${out.trim()} 个`)
+
+  // ③ 向后兼容：index.js 仍然把 sdk 的公开面全带出来
+  assert.equal(typeof routeRecords, 'function', 'index.js 应继续导出 routeRecords')
+  assert.equal(typeof anchorOf, 'function')
+})
+
 for (const r of results) {
   const mark = r.ok ? 'PASS' : 'FAIL'
   console.log(`${mark} ${r.id.padEnd(6)} ${r.title.padEnd(width)}  ${r.detail}`)

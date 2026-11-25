@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4 — 2026-11-25
+
+**拆出 `sdk.mjs`：公开 API 不再必须经过插件入口**
+
+- **refactor**：`index.js` 之前同时是 dsh 插件入口（`export default { name, inject, apply }`）和公开 API 出口。外部消费者 `import 'soulweave'` 会被 `adapters/dsh/apply.mjs` 的宿主依赖拖住 —— `routeRecords` 明明已公开，实际只能绕去 `import memory/route.mjs`。
+- **feat**：新增 `sdk.mjs` + `package.json` 的 `exports["./sdk"]`，只 re-export `core/`、`memory/`、`io.mjs`，一个 `adapters/dsh/*` 都不 import。单独 `node -e "import('./sdk.mjs')"` 能加载（130 个导出）。
+- `index.js` 保留全部旧导出（`export * from './sdk.mjs'`），现有消费者零改动。
+- **test**：新增 R33 —— 静态递归走 `sdk.mjs` 的 import 图，断言不出现 `adapters/` 和裸包名；再起独立 node 进程加载一次。首版曾因注释和 SQL 模板里的 `from` 字样假红，正则已收窄到行首。
+- **fix(tools)**：`gen-api --check` 改读 `sdk.mjs`。读 `index.js` 时 `export *` 后面的名字全丢，公开数会变成 0。
+- `check` 120/120、`check-layers` 37 文件、`gen-api --check` PASS。
+
 ## 0.5.3 — 2026-11-25
 
 **修 API 文档校验在 Windows 上的换行符失败**
