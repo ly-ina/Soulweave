@@ -16,7 +16,8 @@
  *   靠 stdin 喂 JSON-RPC，stdout 只出协议数据，日志一律走 stderr。
  */
 import { createInterface } from 'node:readline'
-import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 
 import {
@@ -28,6 +29,7 @@ import {
   putMemory,
   search,
 } from '../../memory/builtin.mjs'
+import { health, isBrokenSearchResult, renderHealth } from '../../memory/health.mjs'
 import { composeSoulState } from '../../core/soul.mjs'
 
 // ── 参数（不读环境变量做隐式配置，显式优先） ──
@@ -37,7 +39,7 @@ function argOf(flag, fallback) {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback
 }
 
-const DB_PATH = argOf('--db', process.env.SOULWEAVE_DB || join(homedir(), '.dsh', 'soulweave', 'soul-memory.db'))
+const DB_PATH = argOf('--db', process.env.SOULWEAVE_DB || join(homedir(), '.soulweave', 'mcp', 'soul-memory.db'))
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'soulweave-memory', version: '0.1.0' }
 
@@ -70,6 +72,12 @@ const TOOLS = [
       },
       required: ['content'],
     },
+  },
+  {
+    name: 'soul_health',
+    description:
+      '检查记忆库是否可用。返回路径、记录数、journal_mode、busy_timeout、文件大小；不可用时给出失败阶段（不存在/是目录/打不开/缺表/读失败）与原因。只读。用来区分「没有相关记忆」和「记忆库坏了」。',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'soul_state',
@@ -130,6 +138,21 @@ async function callTool(name, args = {}) {
       })
       if (saved && saved.ok === false) throw new Error(saved.error || '写入失败')
       return { content: [{ type: 'text', text: `已写入 ${level}${saved?.id ? ` · ${saved.id}` : ''}` }] }
+    }
+
+    case 'soul_health': {
+      const h = health(DB_PATH)
+      const text = h.ok
+        ? [
+            '状态：可用',
+            `路径：${h.path}`,
+            `记录：${h.records} 条`,
+            `日志模式：${h.journalMode}`,
+            `busy_timeout：${h.busyTimeout} ms`,
+            `大小：${Math.round((h.sizeBytes ?? 0) / 1024)} KB`,
+          ].join('\n')
+        : ['状态：不可用', `阶段：${h.stage}`, `原因：${h.reason}`, `路径：${h.path}`].join('\n')
+      return { content: [{ type: 'text', text }] }
     }
 
     case 'soul_state': {
@@ -193,7 +216,12 @@ async function handle(msg) {
       return reply(msg.id, result)
     } catch (e) {
       return reply(msg.id, {
-        content: [{ type: 'text', text: `执行失败：${e?.message ?? e}` }],
+        content: [
+          {
+            type: 'text',
+            text: `执行失败：${e?.message ?? e}\n（若连续失败，先跑 node adapters/mcp/server.mjs --selftest 判断是库坏了还是协议断了）`,
+          },
+        ],
         isError: true,
       })
     }
@@ -202,7 +230,47 @@ async function handle(msg) {
   return fail(msg.id, -32601, `Method not found: ${method}`)
 }
 
+// ── 自检：不起协议，只跑一次读路径，判断这个进程还健康吗 ──
+// 用法：node adapters/mcp/server.mjs --selftest [--db <path>]
+// 退出码 0 = 全部通过；1 = 有项失败。宿主侧调工具连续失败时，先用它定位是库的问题还是协议的问题。
+async function selftest() {
+  const checks = []
+  // 用 core 之外的 health()：读路径是静默降级的，光看「没抛异常」判断不了好坏
+  const h = health(DB_PATH)
+  checks.push(['库可用', h.ok, h.ok ? renderHealth(h) : `[${h.stage}] ${h.reason}`])
+
+  try {
+    const r = search(DB_PATH, ['selftest'], 1)
+    const broken = isBrokenSearchResult(r)
+    checks.push(['检索可跑', !broken, broken ? (r?.note || '返回形状异常') : `正常（${r.entries.length} 条命中）`])
+  } catch (e) {
+    checks.push(['检索可跑', false, e?.message ?? String(e)])
+  }
+  try {
+    const s = composeSoulState({ at: new Date(), workspace: 'selftest' })
+    checks.push(['现状可渲染', typeof s?.text === 'string' && s.text.length > 0, `${s?.chars ?? 0} 字`])
+  } catch (e) {
+    checks.push(['现状可渲染', false, e?.message ?? String(e)])
+  }
+  for (const [name, ok, detail] of checks) console.log(`${ok ? 'PASS' : 'FAIL'} ${name} — ${detail}`)
+  return checks.every(([, ok]) => ok)
+}
+
+if (argv.includes('--selftest')) {
+  const ok = await selftest()
+  process.exit(ok ? 0 : 1)
+}
+
 // ── 启动 ──
+// 默认落到中性路径，但**强烈建议用 --db 显式指向 dsh 的库**，让所有宿主共享同一份记忆：
+// 经验能跨宿主复用，才叫记忆引擎。真要隔离再指到别的文件。
+// 目录不存在时自己建，别让 DatabaseSync 因为父目录缺失而直接抛。
+try {
+  mkdirSync(dirname(DB_PATH), { recursive: true })
+} catch (e) {
+  log('目录创建失败：', e?.message ?? e)
+}
+
 try {
   ensureDb(DB_PATH)
 } catch (e) {
@@ -212,6 +280,22 @@ log('已启动，库 =', DB_PATH)
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
 let queue = Promise.resolve()
+
+// ── 进程守卫 ──
+// 这个进程是被宿主 spawn 的，崩了宿主只会看到「工具调用失败」，看不到原因。
+// 所以任何逃出 handle 的异常都记一行到 stderr（宿主日志通常会收），然后退出，
+// 交给宿主重启——带着坏状态硬撑比退出更危险。
+process.on('uncaughtException', (e) => {
+  log('未捕获异常，退出：', e?.stack ?? e?.message ?? String(e))
+  process.exit(1)
+})
+process.on('unhandledRejection', (e) => {
+  log('未处理的 Promise 拒绝：', e?.stack ?? e?.message ?? String(e))
+})
+
+// stdin 关闭 = 宿主没了（或重启中），立刻退出，别留僵尸进程
+process.on('SIGTERM', () => process.exit(0))
+process.on('SIGINT', () => process.exit(0))
 
 rl.on('line', (line) => {
   const text = line.trim()

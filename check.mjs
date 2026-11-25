@@ -99,6 +99,7 @@ import * as builtinMemory from './memory/builtin.mjs'
 import { buildReflectPrompt, shouldInjectReflect, REFLECT_MARK } from './core/reflect.mjs'
 import { remember } from './core/remember.mjs'
 import { previewDecay, applyDecay } from './memory/decay.mjs'
+import { health, isBrokenSearchResult, renderHealth } from './memory/health.mjs'
 import { readSnapshot as readPersonaSnapshot } from './core/persona.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
 
@@ -3714,6 +3715,49 @@ await test('R26', '魂织第九刀：原文库失败熔断（坏一次后不再�
     resetIndexCircuit()
   }
   assert.equal(indexCircuitState().open, false, '复位后熔断器应关闭')
+})
+
+await test('R27', '记忆库健康检查：能区分「没命中」与「库坏了」', async () => {
+  // ① 正常库：可用、能读出诊断信息
+  const okDb = join(root, 'r27-ok.db')
+  builtinMemory.ensureDb(okDb)?.close() // ensureDb 返回的活连接必须显式关，否则 Windows 上删不掉文件
+  putMemory(okDb, { content: '健康检查靶子', level: 'fact' })
+  const h1 = health(okDb)
+  assert.equal(h1.ok, true, '正常库应可用：' + JSON.stringify(h1))
+  assert.equal(h1.stage, 'done', '阶段应为 done')
+  assert.ok(h1.records >= 1, '记录数应 >= 1，实际 ' + h1.records)
+  assert.ok(typeof h1.journalMode === 'string' && h1.journalMode.length > 0, '应读出 journal_mode')
+  assert.ok(typeof h1.busyTimeout === 'number', '应读出 busy_timeout')
+  assert.ok(renderHealth(h1).includes('可用'), '摘要应写明可用')
+
+  // ② 正常「没命中」不算坏库 —— 这正是今天踩过的坑
+  assert.equal(isBrokenSearchResult(builtinMemory.search(okDb, ['绝不存在的词'], 1)), false, '没命中不等于坏库')
+
+  // ③ 真坏库要能被识别。注意别用「不存在的路径」测：search→withDbCreating→ensureDb 会把它建出来，
+  //    建出来的空库是「能开、没命中」，不是坏库。要用非 SQLite 文件。
+  const junk = join(root, 'r27-junk.db')
+  writeFileSync(junk, 'not a database at all, just text')
+  assert.equal(isBrokenSearchResult(builtinMemory.search(junk, ['a'], 1)), true, '非 SQLite 文件应判为坏库')
+
+  // ④ 不存在的路径 → stage=exists（health 不建库，所以这里能测出来）
+  const h2 = health(join(root, 'r27-missing', 'x.db'))
+  assert.equal(h2.ok, false, '不存在的库不该判可用')
+  assert.equal(h2.stage, 'exists', '失败阶段应为 exists')
+
+  // ⑤ 路径是目录 → 明确说不是 SQLite 文件
+  const dirPath = join(root, 'r27-dir')
+  mkdirSync(dirPath, { recursive: true })
+  const h3 = health(dirPath)
+  assert.equal(h3.ok, false, '目录不该判可用')
+  assert.ok(h3.reason.includes('目录'), '原因要点明是目录：' + h3.reason)
+  assert.equal(isBrokenSearchResult(builtinMemory.search(dirPath, ['a'], 1)), true, '目录应判为坏库')
+
+  // ⑥ 非 SQLite 文件 → 不许误判成可用
+  const h4 = health(junk)
+  assert.equal(h4.ok, false, '杂物文件不该判可用：' + JSON.stringify(h4))
+
+  // ⑦ 空路径 → stage=path
+  assert.equal(health('').stage, 'path', '空路径失败阶段应为 path')
 })
 
 for (const r of results) {
