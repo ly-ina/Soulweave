@@ -23,6 +23,18 @@ export const BUILTIN_LEVELS = Object.freeze(['soul', 'rules', 'user', 'project',
 /** meow 的 `ENTRY_OVERHEAD` 同口径：每条注入还有「- 」「（id）」等固定开销。 */
 const ENTRY_OVERHEAD = 6
 
+/**
+ * 四位短锚点随机段。**必须至少含一个字母**：anchor.mjs 的 ANCHOR_RE 要求
+ * `(?=.*[a-z])`，纯数字会被 anchorOf 判成空，待办就结不了账。
+ * 原先直接用 `Math.random().toString(36).slice(2,6)`，约 0.6% 概率全是数字。
+ */
+const ANCHOR_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
+function randomAnchor() {
+  let out = ''
+  for (let i = 0; i < 4; i += 1) out += ANCHOR_ALPHABET[Math.floor(Math.random() * ANCHOR_ALPHABET.length)]
+  return /[a-z]/.test(out) ? out : `a${out.slice(1)}`
+}
+
 const SCHEMA = `
 create table if not exists memories (
   id          text primary key,
@@ -275,7 +287,7 @@ export function putMemory(dbPath, memory = {}) {
       if (hit) return { ok: true, id: String(hit.id), dedup: true, version: Number(hit.version ?? 1) }
     }
     const row = {
-      id: wantsId || `m-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      id: wantsId || `m-${now.toString(36)}-${randomAnchor()}`,
       title: String(pick('title', '')),
       content,
       keywords: Array.isArray(pick('keywords', [])) ? pick('keywords', []).join(' ') : String(pick('keywords', existing?.keywords ?? '')),
@@ -353,7 +365,7 @@ export function putTodo(dbPath, todo = {}) {
   const db = ensureDb(dbPath)
   if (!db) return { ok: false, error: '无法创建 builtin 库' }
   const now = Date.now()
-  const id = String(todo.id ?? '').trim() || `t-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const id = String(todo.id ?? '').trim() || `t-${now.toString(36)}-${randomAnchor()}`
   const status = ['pending', 'done', 'stale'].includes(String(todo.status)) ? String(todo.status) : 'pending'
   const dueAssumed = Number(todo.dueAssumed ?? 0) === 1 ? 1 : 0
   try {
