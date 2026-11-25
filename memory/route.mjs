@@ -50,7 +50,8 @@ export function routeRecords(records, options = {}) {
 
   const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now())
   const project = String(options.project ?? '')
-  const level = String(options.level ?? 'project')
+  // 默认 'fact'：'project' 是 listPending 的「未结待办」回退口径，recall 落成 project 会凭空多一条未结。
+  const level = String(options.level ?? 'fact')
   const tags = project === '' ? {} : { project }
 
   for (const rec of Array.isArray(records) ? records : []) {

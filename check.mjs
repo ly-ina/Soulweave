@@ -3977,6 +3977,16 @@ await test('R30', '中文时间解析：认得出就精确，认不出就 null�
   assert.equal(parseDue('午休前回个电话', new Date(2026, 10, 25, 12, 0)).matched.includes('午休前'), true)
   assert.equal(parseDue('下班前交', new Date(2026, 10, 25, 12, 0)).matched.includes('下班前'), true)
 
+  // ⑦e 「收工前」同义于「下班前」（真机踩过：「今天收工前」曾落成今天 09:00 已过期）
+  assert.equal(at12('今天收工前把材料提交'), '2026-11-25 18:00', '收工前 = 18:00')
+  assert.equal(at12('收工后再说'), '2026-11-25 19:00')
+
+  // ⑦f 说了哪天但没说几点、默认 09:00 已过 → 必须降级，不许写过去的时间
+  assert.equal(parseDue('今天交材料', new Date(2026, 10, 25, 12, 0)), null, '「今天」+默认时刻已过 → 降级')
+  assert.equal(at12('明天交材料'), '2026-11-26 09:00', '「明天」+默认时刻未到 → 仍可用')
+  // 裸时刻不受这条影响：nearestFuture 已保证未来
+  assert.equal(at12('八点开会') !== null, true, '裸时刻仍应解析')
+
   // ⑧ 认不出就是 null —— 这条最重要
   assert.equal(parseDue('月底结账', base), null, '「月底」不许猜')
   assert.equal(parseDue('以后再处理', base), null)

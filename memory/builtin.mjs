@@ -76,6 +76,19 @@ function charsOf(text) {
   return Array.from(String(text ?? '')).length
 }
 
+/** 统一锁等待：route 写库与宿主读库可能并发，等锁而不是直接 SQLITE_BUSY。 */
+const BUSY_TIMEOUT_MS = 4000
+
+function openSqlite(dbPath, options = {}) {
+  const db = new DatabaseSync(dbPath, options)
+  try {
+    db.exec(`pragma busy_timeout = ${BUSY_TIMEOUT_MS}`)
+  } catch {
+    /* 不支持就退回默认，不挡路 */
+  }
+  return db
+}
+
 /** 打开（必要时创建）builtin 库。写路径才建库；只读路径不存在就直接返回 null。 */
 export function ensureDb(dbPath, { create = true } = {}) {
   if (!dbPath) return null
@@ -89,7 +102,7 @@ export function ensureDb(dbPath, { create = true } = {}) {
   }
   let db
   try {
-    db = new DatabaseSync(dbPath)
+    db = openSqlite(dbPath)
   } catch {
     // 损坏 / 被锁 / 无权限：返回 null，让读路径走 fallback，绝不把异常抛给宿主
     return null
@@ -107,7 +120,7 @@ export function ensureDb(dbPath, { create = true } = {}) {
 export function openDb(dbPath) {
   if (!dbPath || !existsSync(dbPath)) return null
   try {
-    return new DatabaseSync(dbPath, { readOnly: true })
+    return openSqlite(dbPath, { readOnly: true })
   } catch {
     return null
   }
@@ -517,17 +530,9 @@ export function listPending(dbPath, limit = 3, options = {}) {
       const out = rows
         .map((row) => clipText(String(row.content ?? '').replace(/\s+/g, ' ').trim(), 48))
         .filter((text) => text !== '')
-      if (out.length > 0) return out
-      return db
-        .prepare(
-          `select content from memories
-           where status='active' and level='project'
-             and (project is null or trim(project) in ('','全局','global') or lower(trim(project))=lower(?))
-           order by updated_at desc limit ?`,
-        )
-        .all(project, limit)
-        .map((row) => clipText(String(row.content ?? '').replace(/\s+/g, ' ').trim(), 48))
-        .filter((text) => text !== '')
+      // 不再回退 memories.level='project'：builtin 库里那是普通项目记忆（本机实测 142 条），
+      // 会被当成未结待办，每写一条 ※记 就凭空多一条「未结」。
+      return out
     },
     [],
   )

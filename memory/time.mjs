@@ -22,8 +22,8 @@ export const DEFAULT_HOUR = 9
  * 会给出一个**错的时间**，比不认更糟。
  */
 const DEADLINE_WORDS = Object.freeze([
-  { re: /下班前|下班之前/, h: 18, word: '下班前' },
-  { re: /下班后|下班之后/, h: 19, word: '下班后' },
+  { re: /下班前|下班之前|收工前|收工之前/, h: 18, word: '下班前' },
+  { re: /下班后|下班之后|收工后|收工之后/, h: 19, word: '下班后' },
   { re: /午休前|中午前|午饭前/, h: 12, word: '中午前' },
   { re: /上班前|上班之前/, h: 9, word: '上班前' },
   { re: /晚饭前|晚饭之前/, h: 18, word: '晚饭前' },
@@ -255,6 +255,11 @@ export function parseDue(text, now = new Date()) {
   const h = assumedTime ? DEFAULT_HOUR : hour
   const min = assumedTime ? 0 : minute
   const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, min)
+
+  // 说了哪天（如「今天」）但没说几点，默认 09:00 又已经过去：不能拿过去当到期日
+  // （现状段会显示「已过期」），也不能瞎推到明天（那就不叫「今天」了）。只能降级。
+  // 注意：裸时刻（「八点」）走 nearestFuture，本来就保证未来，不会走到这里。
+  if (assumedTime && !assumedDate && at.getTime() <= base.getTime()) return null
 
   return pack(
     at.getTime(),
