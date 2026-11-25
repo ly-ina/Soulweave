@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.12 — 2026-11-25
+
+**R25 的预期异常不再污染 check 输出**
+
+- **test**：`check.mjs` 的 R25 为了让「工具 execute 抛错」这条路径逼真，是**主动抛** `SQLITE_BUSY: database is locked` 的。`guardTool` 捕获后按设计往 stderr 打一行 `[soulweave] soul_probe 执行异常（已兜住）`——于是每次跑 check 都会看见一行像故障的日志，实际是测试夹具的产物，一度被误读成真锁库。
+- **fix(test)**：R25 内接管 `console.error` 收集日志，finally 恢复。新增两条断言：抛错一次只记一条、日志带工具名与「已兜住」。**顺带补上了原本缺失的覆盖**——此前没有任何断言验证兜底真的记了日志。
+- 不改 `core/validate.mjs`。这条日志在真实运行时是 `guardTool` 对**所有工具**的统一兜底，撞上真库锁时打的就是它，删掉等于放弃唯一的现场信息。
+- **test**：`check.mjs` 113/113、`O*` 11/11；stderr 里 `SQLITE_BUSY` 出现次数 1 → 0。
+
 ## 0.4.11 — 2026-11-25
 
 **第二个宿主：MCP**

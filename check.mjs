@@ -3668,14 +3668,25 @@ await test('R25', '魂织第九刀：工具执行边界兜底（非对象入参 
     if (args.boom) throw new Error('SQLITE_BUSY: database is locked')
     return { ok: true, text: 'args=' + JSON.stringify(args) }
   })
-  const fromNull = await guard(null)
-  assert.ok(fromNull.ok, 'null 入参应被归一为空对象')
-  const fromStr = await guard('not-an-object')
-  assert.equal(fromStr.ok, true, '字符串入参不应崩')
-  assert.ok(fromStr.text.includes('{}'), '字符串应被当成空对象')
-  const crashed = await guard({ boom: true })
-  assert.equal(crashed.ok, false, 'execute 抛错应转成 ok:false')
-  assert.ok(crashed.text.includes('SQLITE_BUSY'), '错误原文要带出来')
+  // 兜底会往 stderr 打一行「已兜住」。这里接管 console.error：
+  // ① 别让预期日志混进 check 输出、被误读成真故障；② 顺手断言它确实打了。
+  const logs = []
+  const origError = console.error
+  console.error = (...parts) => logs.push(parts.join(' '))
+  try {
+    const fromNull = await guard(null)
+    assert.ok(fromNull.ok, 'null 入参应被归一为空对象')
+    const fromStr = await guard('not-an-object')
+    assert.equal(fromStr.ok, true, '字符串入参不应崩')
+    assert.ok(fromStr.text.includes('{}'), '字符串应被当成空对象')
+    const crashed = await guard({ boom: true })
+    assert.equal(crashed.ok, false, 'execute 抛错应转成 ok:false')
+    assert.ok(crashed.text.includes('SQLITE_BUSY'), '错误原文要带出来')
+    assert.equal(logs.length, 1, '抛错一次只记一条日志')
+    assert.ok(logs[0].includes('soul_probe') && logs[0].includes('已兜住'), `兜底日志要带工具名与「已兜住」：${logs[0]}`)
+  } finally {
+    console.error = origError
+  }
 })
 
 await test('R26', '魂织第九刀：原文库失败熔断（坏一次后不再每次白等 15 秒）', async () => {
