@@ -134,7 +134,7 @@ function safeLessonHead() {
 /**
  * 解析待办的到期时间。
  * 优先按本地时区手解析（`2026-11-26 09:00` 被 Date.parse 当 UTC 的坑），再退回 Date.parse。
- * @returns {number|null} epoch ms
+ * @returns {null | {at:number, assumedTime:boolean}} assumedTime=true 表示只给了日期、时刻是默认补的
  */
 function parseDueAt(raw) {
   const text = String(raw ?? '').trim()
@@ -143,16 +143,18 @@ function parseDueAt(raw) {
   // 已带时区（Z / +08:00）就直接交给 Date.parse：手解析会把 UTC 的 07:30 当成本地 07:30，差 8 小时
   if (/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text)) {
     const parsed = Date.parse(text)
-    return Number.isFinite(parsed) ? parsed : null
+    return Number.isFinite(parsed) ? { at: parsed, assumedTime: false } : null
   }
 
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(text)
   if (m) {
-    const at = new Date(+m[1], +m[2] - 1, +m[3], m[4] === undefined ? 9 : +m[4], m[5] === undefined ? 0 : +m[5])
-    return Number.isNaN(at.getTime()) ? null : at.getTime()
+    const hasTime = m[4] !== undefined
+    const at = new Date(+m[1], +m[2] - 1, +m[3], hasTime ? +m[4] : 9, hasTime ? +m[5] : 0)
+    if (Number.isNaN(at.getTime())) return null
+    return { at: at.getTime(), assumedTime: !hasTime }
   }
   const parsed = Date.parse(text)
-  return Number.isFinite(parsed) ? parsed : null
+  return Number.isFinite(parsed) ? { at: parsed, assumedTime: false } : null
 }
 
 async function callTool(name, args = {}) {
@@ -190,21 +192,22 @@ async function callTool(name, args = {}) {
       if (action === 'create') {
         const content = String(args.content ?? '').trim()
         if (content === '') throw new Error('create 需要 content')
-        const at = parseDueAt(args.due)
-        if (at === null) throw new Error(`due 解析不出时间：「${args.due ?? ''}」（给 2026-11-26T09:00 或 2026-11-26 09:00）`)
+        const parsed = parseDueAt(args.due)
+        if (parsed === null) throw new Error(`due 解析不出时间：「${args.due ?? ''}」（给 2026-11-26T09:00 或 2026-11-26 09:00）`)
         const saved = putTodo(DB_PATH, {
           content,
-          due: new Date(at).toISOString(),
+          due: new Date(parsed.at).toISOString(),
+          dueAssumed: parsed.assumedTime ? 1 : 0,
           ...(args.project ? { project: String(args.project) } : {}),
         })
         if (saved && saved.ok === false) throw new Error(saved.error || '写入失败')
         const anchor = anchorOf(saved?.id)
-        const when = new Date(at).toLocaleString('zh-CN', { hour12: false })
+        const when = `${parsed.assumedTime ? '约 ' : ''}${new Date(parsed.at).toLocaleString('zh-CN', { hour12: false })}`
         return {
           content: [
             {
               type: 'text',
-              text: `已记下 [${anchor}] ${content}\n到期：${when}\n结账时写 ※结：${anchor}`,
+              text: `已记下 [${anchor}] ${content}\n到期：${when}${parsed.assumedTime ? '（只给了日期，时刻是默认 09:00）' : ''}\n结账时写 ※结：${anchor}`,
             },
           ],
         }
@@ -228,9 +231,12 @@ async function callTool(name, args = {}) {
         const raw = String(t.due ?? '').trim()
         let due = '无到期'
         if (raw !== '') {
-          const at = parseDueAt(raw)
+          const parsed = parseDueAt(raw)
           // 库里存的是 ISO（UTC），直接回显会让模型误读成 01:00，统一转本地
-          due = at === null ? `到期（无法解析）${raw}` : `到期 ${new Date(at).toLocaleString('zh-CN', { hour12: false })}`
+          due =
+            parsed === null
+              ? `到期（无法解析）${raw}`
+              : `到期 ${parsed.assumedTime ? '约 ' : ''}${new Date(parsed.at).toLocaleString('zh-CN', { hour12: false })}`
         }
         return `- ${renderAnchored(t.content, t.id)} · ${due}`
       })

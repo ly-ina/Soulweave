@@ -472,17 +472,19 @@ export function renderDueLine(items, options = {}) {
   const maxItems = asInt(options.maxItems, 3, 1, 6)
   const pad = (n) => String(n).padStart(2, '0')
 
-  const stamp = (at) => {
+  // 推断出来的时刻带「约」：让「钉死的 18:00」和「猜的 18:00」在现状段就能分辨
+  const stamp = (at, assumed) => {
     const d = new Date(at)
     const base = new Date(now)
     const hh = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+    const lead = assumed === true ? '约 ' : ''
     const sameDay = d.getFullYear() === base.getFullYear() && d.getMonth() === base.getMonth() && d.getDate() === base.getDate()
-    if (sameDay) return `今天 ${hh}`
+    if (sameDay) return `今天${lead ? '约 ' : ' '}${hh}`
     const tomorrow = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1)
     const isTomorrow =
       d.getFullYear() === tomorrow.getFullYear() && d.getMonth() === tomorrow.getMonth() && d.getDate() === tomorrow.getDate()
-    if (isTomorrow) return `明天 ${hh}`
-    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hh}`
+    if (isTomorrow) return `明天${lead ? '约 ' : ' '}${hh}`
+    return `${lead}${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hh}`
   }
 
   const mark = (item) => (asText(item.anchor) === '' ? '' : ` [${asText(item.anchor)}]`)
@@ -491,7 +493,9 @@ export function renderDueLine(items, options = {}) {
   const parts = []
 
   if (upcoming.length > 0) {
-    const shown = upcoming.slice(0, maxItems).map((x) => `${stamp(x.at)} ${clip(asText(x.content), 24)}${mark(x)}`)
+    const shown = upcoming
+      .slice(0, maxItems)
+      .map((x) => `${stamp(x.at, x.assumed)} ${clip(asText(x.content), 24)}${mark(x)}`)
     if (upcoming.length > maxItems) shown.push(`+${upcoming.length - maxItems}`)
     parts.push(shown.join(' · '))
   }

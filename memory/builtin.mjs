@@ -196,21 +196,36 @@ const MEMORY_EXTRA_COLUMNS = [
   ['version', 'integer default 1'],
 ]
 
-function migrateColumns(db) {
+/**
+ * todos 表补列。
+ * `due_assumed`：到期时刻是**推断**出来的，不是他钉死的。
+ *   0 = 明确（`明天九点` / `18:30`）
+ *   1 = 推断（只给了日期按默认时刻补，或裸时刻按最近未来推）
+ * 现状段据此显示「约 18:00」，让猜的和钉死的能区分开。
+ */
+const TODO_EXTRA_COLUMNS = Object.freeze([['due_assumed', 'integer default 0']])
+
+/** 老库补列：`[列名, 声明]`。alter 不幂等，所以先 pragma 看缺哪列。 */
+function addColumns(db, table, defs) {
   let cols
   try {
-    cols = new Set(db.prepare('pragma table_info(memories)').all().map((row) => String(row.name)))
+    cols = new Set(db.prepare(`pragma table_info(${table})`).all().map((row) => String(row.name)))
   } catch {
     return
   }
-  for (const [name, decl] of MEMORY_EXTRA_COLUMNS) {
+  for (const [name, decl] of defs) {
     if (cols.has(name)) continue
     try {
-      db.exec(`alter table memories add column ${name} ${decl}`)
+      db.exec(`alter table ${table} add column ${name} ${decl}`)
     } catch {
       /* 并发或只读：读操作按旧结构降级，不抛 */
     }
   }
+}
+
+function migrateColumns(db) {
+  addColumns(db, 'memories', MEMORY_EXTRA_COLUMNS)
+  addColumns(db, 'todos', TODO_EXTRA_COLUMNS)
   try {
     db.exec('create index if not exists idx_memories_sha on memories(sha)')
   } catch {
@@ -327,16 +342,17 @@ export function putTodo(dbPath, todo = {}) {
   const now = Date.now()
   const id = String(todo.id ?? '').trim() || `t-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const status = ['pending', 'done', 'stale'].includes(String(todo.status)) ? String(todo.status) : 'pending'
+  const dueAssumed = Number(todo.dueAssumed ?? 0) === 1 ? 1 : 0
   try {
     db.prepare(
-      `insert into todos (id,project,content,status,due,created_at,done_at) values (?,?,?,?,?,?,?)
+      `insert into todos (id,project,content,status,due,due_assumed,created_at,done_at) values (?,?,?,?,?,?,?,?)
        on conflict(id) do update set project=excluded.project, content=excluded.content, status=excluded.status,
-         due=excluded.due, done_at=excluded.done_at`,
+         due=excluded.due, due_assumed=excluded.due_assumed, done_at=excluded.done_at`,
     ).run(
-      id, String(todo.project ?? ''), String(todo.content ?? ''), status, String(todo.due ?? ''),
+      id, String(todo.project ?? ''), String(todo.content ?? ''), status, String(todo.due ?? ''), dueAssumed,
       Number(todo.created_at ?? now), status === 'done' ? Number(todo.done_at ?? now) : null,
     )
-    return { ok: true, id, status }
+    return { ok: true, id, status, dueAssumed: dueAssumed === 1 }
   } catch (error) {
     return { ok: false, error: String(error?.message ?? error) }
   } finally {
@@ -403,7 +419,7 @@ export function listDueItems(dbPath, { now = Date.now(), leadMs = 24 * 3600_000,
       try {
         rows = db
           .prepare(
-            "select id, content, project, due from todos where status='pending' and trim(due) <> '' order by due asc limit ?",
+            "select id, content, project, due, due_assumed from todos where status='pending' and trim(due) <> '' order by due asc limit ?",
           )
           .all(Math.max(limit * 4, 20))
       } catch {
@@ -426,6 +442,7 @@ export function listDueItems(dbPath, { now = Date.now(), leadMs = 24 * 3600_000,
           due: String(row.due ?? ''),
           at,
           state: at < now ? 'overdue' : 'upcoming',
+          assumed: Number(row.due_assumed ?? 0) === 1,
           anchor: anchorOf(row.id),
         })
         if (items.length >= limit) break

@@ -83,7 +83,10 @@ export function routeRecords(records, options = {}) {
         }
         stripped = stripped.replace(/\s+/g, ' ').trim()
         const content = stripped === '' ? text : stripped
-        const saved = putTodo(dbPath, { content, due: due.iso, ...tags })
+        // 推断出来的时刻要留痕：只给了日期（默认 09:00）或裸时刻（按最近未来推）都算推断，
+        // 现状段会显示「约 18:00」，免得猜的和钉死的混在一起。
+        const dueAssumed = due.assumedTime || due.ambiguous ? 1 : 0
+        const saved = putTodo(dbPath, { content, due: due.iso, dueAssumed, ...tags })
         if (saved && saved.ok === false) throw new Error(saved.error || '写入失败')
         written.todos.push({
           id: saved?.id ?? '',
@@ -92,6 +95,7 @@ export function routeRecords(records, options = {}) {
           original: text,
           due: due.iso,
           assumedTime: due.assumedTime,
+          assumed: dueAssumed === 1,
         })
         if (due.assumedTime) {
           warnings.push({ kind: 'todo-assumed-time', text, note: `只说了日期，按 ${due.iso} 记（默认 ${due.iso.slice(11, 16)}）` })

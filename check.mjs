@@ -3882,6 +3882,25 @@ await test('R29', '到期行：空输入零输出，窗口/过期/锚点正确',
   const none = builtinMemory.listDueItems(join(root, 'r29-empty.db'), { now })
   assert.equal(none.items.length, 0, '空库应无候选')
   assert.equal(renderDueLine(none.items, { now }), '', '空候选渲染空串')
+
+  // ⑦ 推断时刻要透到底：落库标记 → listDueItems 读回 → 现状段显示「约」
+  const assumedDb = join(root, 'r29-assumed.db')
+  builtinMemory.putTodo(assumedDb, {
+    content: '只给了日期',
+    due: new Date(now + 5 * 3600_000).toISOString(),
+    dueAssumed: 1,
+  })
+  builtinMemory.putTodo(assumedDb, {
+    content: '钉死的时刻',
+    due: new Date(now + 6 * 3600_000).toISOString(),
+  })
+  const { items: mixed } = builtinMemory.listDueItems(assumedDb, { now })
+  assert.equal(mixed.length, 2, '两条都该在窗口里')
+  assert.equal(mixed.find((x) => x.content === '只给了日期').assumed, true, 'due_assumed 要能读回来')
+  assert.equal(mixed.find((x) => x.content === '钉死的时刻').assumed, false, '没标记的应是精确')
+  const mixedLine = renderDueLine(mixed, { now })
+  assert.ok(mixedLine.includes('约 '), '推断时刻要显示「约」：' + mixedLine)
+  assert.equal((mixedLine.match(/约 /g) ?? []).length, 1, '只有推断那条带「约」：' + mixedLine)
 })
 
 await test('R30', '中文时间解析：认得出就精确，认不出就 null（绝不兜底）', async () => {
