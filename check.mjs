@@ -102,6 +102,8 @@ import { remember } from './core/remember.mjs'
 import { previewDecay, applyDecay } from './memory/decay.mjs'
 import { health, isBrokenSearchResult, renderHealth } from './memory/health.mjs'
 import { anchorOf, looksLikeAnchor, parseSettle, renderAnchored } from './memory/anchor.mjs'
+import { parseDue } from './memory/time.mjs'
+import { renderRouteResult, routeRecords } from './memory/route.mjs'
 import { readSnapshot as readPersonaSnapshot } from './core/persona.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
 
@@ -3876,6 +3878,103 @@ await test('R29', '到期行：空输入零输出，窗口/过期/锚点正确',
   const none = builtinMemory.listDueItems(join(root, 'r29-empty.db'), { now })
   assert.equal(none.items.length, 0, '空库应无候选')
   assert.equal(renderDueLine(none.items, { now }), '', '空候选渲染空串')
+})
+
+await test('R30', '中文时间解析：认得出就精确，认不出就 null（绝不兜底）', async () => {
+  const base = new Date(2026, 10, 25, 9, 0) // 2026-11-25 周三 09:00
+  const at = (text) => {
+    const r = parseDue(text, base)
+    return r === null ? null : `${r.iso.slice(0, 10)} ${r.iso.slice(11, 16)}`
+  }
+
+  // ① 相对天 + 中文时刻
+  assert.equal(at('明天九点交作业'), '2026-11-26 09:00')
+  assert.equal(at('后天下午三点开会'), '2026-11-27 15:00')
+
+  // ② 绝对月日 + 时段
+  assert.equal(at('11月30日下午3点前提交'), '2026-11-30 15:00')
+  assert.equal(at('2026-12-01 10:00 上线'), '2026-12-01 10:00')
+
+  // ③ 只有日期 → 默认 09:00，并标 assumedTime
+  const d3 = parseDue('三天后复盘', base)
+  assert.equal(`${d3.iso.slice(0, 10)} ${d3.iso.slice(11, 16)}`, '2026-11-28 09:00')
+  assert.equal(d3.assumedTime, true, '只有日期时要标默认时刻')
+
+  // ④ 周
+  assert.equal(at('下周三给回复'), '2026-12-02 09:00')
+  assert.equal(at('周五对一下'), '2026-11-27 09:00')
+
+  // ⑤ 只有时刻：今天已过则明天
+  assert.equal(at('8:30 开会'), '2026-11-26 08:30')
+  assert.equal(at('上午10点半提醒我'), '2026-11-25 10:30')
+  assert.equal(at('晚上十点收工'), '2026-11-25 22:00')
+
+  // ⑥ 相对小时 / 分钟
+  assert.equal(at('两个小时以后看结果'), '2026-11-25 11:00')
+  assert.equal(at('半小时后叫我'), '2026-11-25 09:30')
+
+  // ⑦ 跨年：已过去的月日算明年
+  assert.equal(at('1月5日交表'), '2027-01-05 09:00')
+
+  // ⑧ 认不出就是 null —— 这条最重要
+  assert.equal(parseDue('月底结账', base), null, '「月底」不许猜')
+  assert.equal(parseDue('以后再处理', base), null)
+  assert.equal(parseDue('trace.db 按天分表', base), null)
+  assert.equal(parseDue('', base), null)
+  assert.equal(parseDue(undefined, base), null)
+})
+
+await test('R31', '记录路由：记/办/结 各走各的，认不出就降级', async () => {
+  const dbPath = join(root, 'r31.db')
+  const base = new Date(2026, 11, 1, 9, 0) // 2026-12-01 09:00
+
+  // ① 记 → memories
+  const r1 = routeRecords([{ kind: 'recall', text: 'WAL 对写写没有帮助' }], { dbPath, now: base })
+  assert.equal(r1.ok, true)
+  assert.equal(r1.written.memories.length, 1)
+
+  // ② 办 带日期 → todos + 锚点
+  const r2 = routeRecords([{ kind: 'todo', text: '明天九点交材料' }], { dbPath, now: base })
+  assert.equal(r2.written.todos.length, 1, '应进 todos')
+  const t = r2.written.todos[0]
+  assert.ok(t.anchor.length > 0, '要带锚点')
+  assert.ok(t.due.startsWith('2026-12-02T09:00'), '到期应为明天九点，实际 ' + t.due)
+  assert.equal(t.text, '交材料', '正文里的时间要摘掉，否则渲染成「明天 09:00 明天九点交材料」')
+  assert.equal(t.original, '明天九点交材料', '原文要留档')
+
+  // ③ 办 认不出日期 → 降级成记忆 + 警告
+  const r3 = routeRecords([{ kind: 'todo', text: '月底把账结了' }], { dbPath, now: base })
+  assert.equal(r3.written.todos.length, 0, '认不出日期不许进 todos')
+  assert.equal(r3.written.memories.length, 1, '应降级为记忆')
+  assert.equal(r3.warnings[0].kind, 'todo-no-due', '要留警告')
+  assert.equal(r3.written.memories[0].degraded, true)
+
+  // ④ 结 按锚点 → done
+  const r4 = routeRecords([{ kind: 'settle', text: t.anchor }], { dbPath, now: base })
+  assert.equal(r4.written.settled.length, 1, '应结掉一条')
+  assert.equal(r4.written.settled[0].by, 'anchor')
+  assert.equal(builtinMemory.listTodos(dbPath, { status: 'pending' }).length, 0, '结完不该还有未结')
+
+  // ⑤ 结 找不到 → 只警告，不动数据
+  const r5 = routeRecords([{ kind: 'settle', text: 'zzzz' }], { dbPath, now: base })
+  assert.equal(r5.written.settled.length, 0)
+  assert.equal(r5.warnings[0].kind, 'settle-not-found')
+  assert.equal(r5.failed.length, 0, '找不到不算失败')
+
+  // ⑥ 结 文本兜底：新建一条再按内容结
+  const r6 = routeRecords([{ kind: 'todo', text: '明天九点对账' }], { dbPath, now: base })
+  const r7 = routeRecords([{ kind: 'settle', text: '对账' }], { dbPath, now: base })
+  assert.equal(r7.written.settled.length, 1, '文本兜底应能结掉')
+  assert.equal(r7.written.settled[0].by, 'text')
+  assert.ok(r6.written.todos[0].anchor.length > 0)
+
+  // ⑦ 缺 dbPath → 失败但不抛
+  const r8 = routeRecords([{ kind: 'recall', text: 'x' }], { dbPath: '' })
+  assert.equal(r8.ok, false)
+  assert.equal(r8.failed.length, 1)
+
+  // ⑧ 摘要文案
+  assert.ok(renderRouteResult(r2).includes('待办 1'), renderRouteResult(r2))
 })
 
 for (const r of results) {
