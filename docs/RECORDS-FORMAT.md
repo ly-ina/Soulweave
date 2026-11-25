@@ -111,3 +111,46 @@ soulweave 是**引擎**（不关心事件从哪来，只认 `records`）。两�
 | 实时 | memprobe 里直接 `import { routeRecords }` 调用 | 命中率验证过、且接受探针承担写库职责之后 |
 
 **推荐先手动跑几轮**：如果 `※办` 大量因为解析不出日期被降级，说明要改 `soul.md` 的约束，而不是急着接实时。
+
+---
+
+## 6. 接线要点（2026-11-25 dsh 真机验证过）
+
+### ① import 路径
+
+从 `dsh-memprobe/index.js` 出发，`<workspace>\plugins\` 下**同级**，所以是 `../`，不是 `../../`：
+
+```js
+// ✅ 正确：走 memory 层，不拉插件入口
+import { routeRecords } from '../dsh-soulweave/memory/route.mjs'
+
+// ❌ 会指到 <workspace>\dsh-soulweave（少一层）
+import { routeRecords } from '../../dsh-soulweave/index.js'
+```
+
+**不要 `import 'index.js'`**：那是 dsh 插件的入口（带 `export default apply`、依赖 dsh 的 ctx），
+外部进程 import 会引入不必要的东西。memory 层是纯函数 + node:sqlite，没有宿主依赖。
+
+### ② 配置有两份，改要改两处
+
+memprobe 读的是**自己包内**的 `cordis.patch.yml`；profile 里同 `id` 的 insert 只是声明挂载点，
+**不会覆盖包内配置**。所以改 `triggers` / `outPath` 时：
+
+1. `<workspace>\plugins\dsh-memprobe\cordis.patch.yml` ← 真正生效
+2. `~/.dsh/profiles/desktop/cordis.patch.yml` ← 挂载声明
+
+只改一处会出现「改了配置没反应」。
+
+### ③ 触发词约束不要写进 soul.md
+
+`soul.md` 有 token 上限（实测：加三行触发词说明就让 SP7 stable 688 > legacy 665）。
+规则放在 `<workspace>\lanxi\rules\memprobe.md`，`soul.md` 保持原样。
+
+### ④ 首轮真机结果（2026-11-25 turn 5640）
+
+```json
+{"memories":1,"todos":2,"settled":0,
+ "warnings":[{"kind":"todo-assumed-time"}],"failed":0}
+```
+
+三个词里 `※记`、`※办` 已验；`※结` 未开（等锚点机制观察两天）。
