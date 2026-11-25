@@ -262,7 +262,26 @@ function render(groups) {
   return `${out.join('\n').trimEnd()}\n`
 }
 
+/**
+ * 内容自检：`--check` 只能证明「生成结果 == 文件」，证明不了「生成结果是对的」。
+ * 参数名解析跑偏时会吐出 `>}` 这种残渣，而 --check 照样绿（这个 bug 在三个版本里
+ * 一直 PASS）。所以这里不信一致性，独立验一遍内容本身。
+ */
+function assertContentSane(text) {
+  const bad = []
+  for (const m of text.matchAll(/^\| `(\[[^\]]+\]|[^`]+)` \|/gm)) {
+    const name = m[1].replace(/^\[|\]$/g, '')
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) bad.push(m[1])
+  }
+  if (bad.length > 0) {
+    console.error(`FAIL 生成结果里有 ${bad.length} 处不合法参数名：${bad.slice(0, 5).join('、')}`)
+    console.error('  多半是 JSDoc 类型花括号的解析跑偏了：嵌套 {} 要配对扫描，不能用正则')
+    process.exit(1)
+  }
+}
+
 const content = render(collect())
+assertContentSane(content)
 
 if (CHECK) {
   if (!existsSync(DOC_PATH)) {
