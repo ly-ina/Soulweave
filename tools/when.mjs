@@ -16,6 +16,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { putWhen, getWhen, removeWhen, readWhenMap, matchWhen, timeWindowOf, WHEN_KEYS } from '../memory/when.mjs'
 
 const argv = process.argv.slice(2)
+// 默认指向退役库 .dsh-meow/memory.db：数据已全迁 soulweave，这里保留只为能读历史。
+// 新数据一律用 --db 指到 ~/.dsh/soulweave/soul-memory.db。
 let dbPath = process.env.DSH_MEOW_DB || join(process.cwd(), '.dsh-meow', 'memory.db')
 const rest = []
 for (let i = 0; i < argv.length; i += 1) {

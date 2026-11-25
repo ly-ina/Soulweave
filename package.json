@@ -34,6 +34,7 @@
   "files": [
     "index.js",
     "sdk.mjs",
+    "unstable.mjs",
     "io.mjs",
     "panel-client.js",
     "core/",

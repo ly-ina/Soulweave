@@ -389,6 +389,14 @@ export function putTodo(dbPath, todo = {}) {
   }
 }
 
+/**
+ * 改待办状态（pending / done / stale）。
+ *
+ * @param {string} dbPath 库路径
+ * @param {string} id 待办 id
+ * @param {'pending'|'done'|'stale'} status 新状态
+ * @returns {{ok:boolean, id:string, status?:string, error?:string}}
+ */
 export function setTodoStatus(dbPath, id, status) {
   const db = ensureDb(dbPath)
   if (!db) return { ok: false, error: '无法创建 builtin 库' }
@@ -408,6 +416,13 @@ export function setTodoStatus(dbPath, id, status) {
   }
 }
 
+/**
+ * 列待办。
+ *
+ * @param {string} dbPath 库路径
+ * @param {{project?:string, status?:'pending'|'done'|'stale', limit?:number}} [options] 过滤与条数
+ * @returns {Array<{id:string, content:string, due:string|null, status:string}>}
+ */
 export function listTodos(dbPath, { project = '', status = 'pending', limit = 20 } = {}) {
   return withDbCreating(
     dbPath,

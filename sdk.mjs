@@ -1,60 +1,25 @@
 /**
- * sdk.mjs —— 纯 SDK 出口：core/ + memory/ + io.mjs 的公开面。
+ * sdk.mjs —— 对外稳定契约。**只有这里的东西承诺语义化版本。**
  *
- * 与 index.js 的区别：这里一个 adapters/dsh/* 都不 import，
- * 所以外部消费者（Node CLI、别的 DSH 插件）import 它不会拉进宿主耦合。
- * 入口写法：`import { routeRecords } from '@ly-ina/dsh-soulweave/sdk'`
- */
-/**
- * dsh-soulweave —— 入口薄壳：只做装配与公共导出。
+ * 为什么不把整个 core/memory 都放出来：导出越多，承诺越多。130 个导出里每多一个，
+ * 以后改它都算破坏性变更；而 bigramsOf 这种内部工具改掉根本不该惊动任何人。
+ * 其余导出在 unstable.mjs（明确不承诺）；index.js 为向后兼容仍把两者都带出来。
  *
- * 单包多入口，零构建：`.` / `./core` / `./memory` / `./client`。
+ * 入口：import { routeRecords } from "@ly-ina/dsh-soulweave/sdk"
  */
 
-/** §9.4：需要动 `ctx.tools` 就必须经 inject 声明。 */
+// 人格文本：拼装 + 现状行
+export { composeSoulState, renderDueLine } from './core/soul.mjs'
 
-import { estimateTokens } from './core/text.mjs'
-export { estimateTokens }
-
-import { ALIAS_TO_STANDARD, MEMORY_SECTION, ROUTER_SAFETY, SOUL_SECTION_CAP, DEFAULT_SOUL_STABLE_TOKENS, SOUL_STATE_MAX_CHARS, DEFAULT_SOUL_STATE_TOKENS, MESSAGE_KIND, SOUL_SECTIONS, SECTION_ALIASES, FEEDBACK_SECTION, FEEDBACK_ALIASES, SOUL_TOKEN_CEILING, DEFAULT_SOUL_WARN_TOKENS, HARD_SOUL_TOKENS, TOTAL_TOKENS, DEFAULT_SOUL_TOKENS, RECALL_MAX_CHARS, MEMORY_LEVELS, MEMORY_HEAD_LIMIT, INJECTION_CLASSES, YIELD_ORDER, HINTS } from './core/constants.mjs'
-export { ALIAS_TO_STANDARD, MEMORY_SECTION, ROUTER_SAFETY, SOUL_SECTION_CAP, DEFAULT_SOUL_STABLE_TOKENS, SOUL_STATE_MAX_CHARS, DEFAULT_SOUL_STATE_TOKENS, MESSAGE_KIND, SOUL_SECTIONS, SECTION_ALIASES, FEEDBACK_SECTION, FEEDBACK_ALIASES, SOUL_TOKEN_CEILING, DEFAULT_SOUL_WARN_TOKENS, HARD_SOUL_TOKENS, TOTAL_TOKENS, DEFAULT_SOUL_TOKENS, RECALL_MAX_CHARS, MEMORY_LEVELS, MEMORY_HEAD_LIMIT, INJECTION_CLASSES, YIELD_ORDER, HINTS }
-
-import { PLUGIN_DIR } from './core/text.mjs'
-export { PLUGIN_DIR }
-
-import { MOOD_MAX_CHARS, RELATIONS_CAP, appendRelation, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines, writeMood } from './core/config.mjs'
-export { MOOD_MAX_CHARS, RELATIONS_CAP, appendRelation, normalizeConfig, profilePatchPaths, readMood, readRelations, readRouterLines, writeMood }
-
-import { EMPTY_SOUL, parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, renderDueLine, planSoulSplit } from './core/soul.mjs'
-export { parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, renderDueLine, planSoulSplit }
-
-// memory 层公开面（0.5.0 起）：SDK 与外部宿主据此接路由，不必钻内部目录。
-// memprobe 这类插件要落库，走 import { routeRecords } from 'soulweave' 即可。
+// 记录路由：※记 / ※办 / ※结 的入口
 export { routeRecords, renderRouteResult } from './memory/route.mjs'
-export { parseDue, cnNum, DEFAULT_HOUR } from './memory/time.mjs'
+
+// 时间与锚点
+export { parseDue } from './memory/time.mjs'
 export { anchorOf, looksLikeAnchor, parseSettle, renderAnchored } from './memory/anchor.mjs'
+
+// 存储与检索
+export { putMemory, search, putTodo, listTodos, listDueItems, setTodoStatus } from './memory/builtin.mjs'
+
+// 体检
 export { health, renderHealth, isBrokenSearchResult } from './memory/health.mjs'
-
-import { SOUL_STATE_KIND, SOUL_TRIGGER_KIND, SOUL_RECALL_KIND, RECALL_TEXT_MAX_CHARS, pickRecallEntry, renderRecall, resetRecallCooldownOnReload, planStateEmit } from './core/recall-state.mjs'
-export { SOUL_STATE_KIND, SOUL_TRIGGER_KIND, SOUL_RECALL_KIND, RECALL_TEXT_MAX_CHARS, pickRecallEntry, renderRecall, resetRecallCooldownOnReload, planStateEmit }
-
-import { soulTargetIndex, classOfKind, measureInjections, SNAPSHOT_MARK, MEOW_KIND, SNAPSHOT_CAPS, snapshotMetaOf, isSnapshotMessage, isConversationMessage, measureRequestBudget, eventsOfSession, countSnapshots, planSnapshotPrune, detectSnapshotDrift, tierStatePath, maybeLogTier, textOfMessage, rememberUserTexts, recentUserQuery, lastUserTexts, planBudget, applyBudgetPlan, countSnapshotEntries, countResidentEntries, loadPendingItems, loadMemoryHeads, loadLessonHead, detectPinnedAnomalies, countPinnedEntries, countSoulNodes, loadCorrectedLessons } from './core/budget.mjs'
-export { classOfKind, measureInjections, SNAPSHOT_MARK, MEOW_KIND, SNAPSHOT_CAPS, snapshotMetaOf, isSnapshotMessage, isConversationMessage, measureRequestBudget, eventsOfSession, countSnapshots, planSnapshotPrune, detectSnapshotDrift, tierStatePath, maybeLogTier, textOfMessage, rememberUserTexts, recentUserQuery, lastUserTexts, planBudget, applyBudgetPlan, countSnapshotEntries, countResidentEntries, loadPendingItems, loadMemoryHeads, loadLessonHead, detectPinnedAnomalies, countPinnedEntries, countSoulNodes, loadCorrectedLessons }
-
-import { DREAM_MARKER, isDreamTurn, wordsOfKeywords, pickProbeWords, runProbes, readProbeState, writeProbeState, maybeRunProbe } from './core/probe.mjs'
-export { DREAM_MARKER, isDreamTurn, wordsOfKeywords, pickProbeWords, runProbes, readProbeState, writeProbeState, maybeRunProbe }
-
-import { createSoulMessage, resolveWorkspace, zoneRowsOf } from './core/prompt.mjs'
-export { createSoulMessage, resolveWorkspace, zoneRowsOf }
-
-import { loadTriggers, selectTriggers, pickTriggerText, resetTriggerCooldownOnReload } from './core/triggers.mjs'
-export { loadTriggers, selectTriggers, pickTriggerText, resetTriggerCooldownOnReload }
-
-import { createMemoryBackend, searchMemory, searchMemoryByCue, wordsOf, hitAll, snippetAround, searchMemoryMeow, scoreOf } from './core/search.mjs'
-export { createMemoryBackend, searchMemory, searchMemoryByCue }
-
-import { resolveSealedModule, createArchiveSearch, walkMarkdown, readRulesIndex, searchRules, searchNotes, searchIndexSource, createRecallSources, createRecall, createPersist, resetIndexCircuit, indexCircuitState } from './core/recall.mjs'
-export { resolveSealedModule, createArchiveSearch, walkMarkdown, readRulesIndex, searchRules, searchNotes, searchIndexSource, createRecallSources, createRecall, createPersist, resetIndexCircuit, indexCircuitState }
-
-export { configureIo, resetIo, ioStatus } from './io.mjs'
-export { guardTool, sanitizeArgs, isRecord } from './core/validate.mjs'

@@ -30,6 +30,8 @@ function findDb() {
   }
   return resolve(process.cwd(), '.dsh-meow', 'memory.db')
 }
+// 默认指向退役库 .dsh-meow/memory.db：数据已全迁 soulweave，这里保留只为能读历史。
+// 新数据一律用 --db 指到 ~/.dsh/soulweave/soul-memory.db。
 const dbPath = resolve(arg('db', findDb()))
 const options = {
   minIdleDays: Number(arg('days', 45)),

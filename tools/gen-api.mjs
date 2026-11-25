@@ -22,6 +22,21 @@ const CHECK = process.argv.includes('--check')
 const SCAN_DIRS = ['core', 'memory']
 const SCAN_ROOT_FILES = ['io.mjs']
 
+/** 去掉开头的 `{类型}`，支持嵌套大括号（`{{a: b}}`）。 */
+function stripTypeBraces(input) {
+  const rest = String(input ?? '').trim()
+  if (!rest.startsWith('{')) return rest
+  let depth = 0
+  for (let i = 0; i < rest.length; i += 1) {
+    if (rest[i] === '{') depth += 1
+    else if (rest[i] === '}') {
+      depth -= 1
+      if (depth === 0) return rest.slice(i + 1).trim()
+    }
+  }
+  return rest
+}
+
 /** 从 `/** … *\/` 里抽摘要 / @param / @returns。 */
 function parseDoc(block) {
   const lines = String(block ?? '')
@@ -39,13 +54,16 @@ function parseDoc(block) {
     }
     if (t.startsWith('@param')) {
       mode = 'param'
-      const m = /^@param\s+(?:\{[^}]*\})?\s*(\S+)\s*(.*)$/.exec(t)
-      if (m) params.push({ name: m[1], desc: m[2] })
+      const rest = stripTypeBraces(t.slice('@param'.length))
+      const sp = rest.search(/\s/)
+      const name = sp < 0 ? rest : rest.slice(0, sp)
+      const desc = sp < 0 ? '' : rest.slice(sp + 1).trim()
+      if (name) params.push({ name, desc })
       continue
     }
     if (t.startsWith('@returns') || t.startsWith('@return')) {
       mode = 'return'
-      returns.push(t.replace(/^@returns?\s*(?:\{[^}]*\})?\s*/, ''))
+      returns.push(stripTypeBraces(t.replace(/^@returns?/, '')))
       continue
     }
     if (t.startsWith('@')) {
@@ -121,11 +139,26 @@ function scanFile(absPath, rel) {
     // 函数签名：取到第一个 '{' 或行尾
     let signature = name
     if (kind === 'function') {
-      const after = text.slice(start, start + 400)
-      const sig = /(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(([\s\S]*?)\)/.exec(after)
-      if (sig) {
-        const args = sig[2].replace(/\s+/g, ' ').replace(/,\s*/g, ', ').trim()
-        signature = `${name}(${args === '' ? '' : args.length > 70 ? '…' : args})`
+      // 不能用非贪婪到第一个 `)`：参数里可能有 `Date.now()` / 对象解构，会被截断。
+      const after = text.slice(start, start + 800)
+      const fn = /(?:async\s+)?function\s+([A-Za-z0-9_$]+)/.exec(after)
+      if (fn) {
+        const open = after.indexOf('(', fn.index + fn[0].length - 1)
+        if (open >= 0) {
+          let depth = 0
+          let close = -1
+          for (let i = open; i < after.length; i += 1) {
+            if (after[i] === '(') depth += 1
+            else if (after[i] === ')') {
+              depth -= 1
+              if (depth === 0) { close = i; break }
+            }
+          }
+          if (close > open) {
+            const args = after.slice(open + 1, close).replace(/\s+/g, ' ').replace(/,\s*/g, ', ').trim()
+            signature = `${name}(${args.length > 70 ? '…' : args})`
+          }
+        }
       }
     } else {
       signature = name

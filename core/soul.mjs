@@ -506,6 +506,12 @@ export function renderDueLine(items, options = {}) {
   return parts.length === 0 ? '' : `⏰ ${parts.join(' · ')}`
 }
 
+/**
+ * 拼出「现状段」：在场 / 未结待办 / 分区计数 / 到期提醒。
+ *
+ * @param {object} [input] 见本文件里 state 的输入形状
+ * @returns {string} 现状段文本；完全没有内容时返回空串
+ */
 export function composeSoulState(input = {}) {
   const timeZone = asText(input.timeZone) || 'Asia/Shanghai'
   const at = input.at instanceof Date ? input.at : new Date(input.at ?? Date.now())

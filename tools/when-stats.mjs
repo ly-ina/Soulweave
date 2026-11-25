@@ -21,6 +21,8 @@ const arg = (name, fallback = null) => {
 }
 const flag = (name) => argv.includes(name)
 
+// 默认指向退役库 .dsh-meow/memory.db：数据已全迁 soulweave，这里保留只为能读历史。
+// 新数据一律用 --db 指到 ~/.dsh/soulweave/soul-memory.db。
 const dbPath = arg('--db', process.env.DSH_MEMORY_DB || join(process.cwd(), '.dsh-meow', 'memory.db'))
 const limit = Number(arg('--limit', '20'))
 const badTarget = arg('--bad')

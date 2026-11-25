@@ -2,14 +2,16 @@
 /**
  * examples/node-cli.mjs —— 「不装 DSH 也能用」的最小证明。
  *
- * 只用 `memory/` 与 `core/` 的公开导出，不碰 index.js / adapters / 任何 ctx。
+ * 数据用 `./sdk` 的承诺面（putMemory / search），别的用 core/ 的具体模块。
+ * 不碰 index.js / adapters / 任何 ctx。
  * 跑：node examples/node-cli.mjs
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ensureDb, putMemory, search } from '../memory/builtin.mjs'
+import { ensureDb } from '../memory/builtin.mjs'
+import { putMemory, search } from '../sdk.mjs'
 import { clip, estimateTokens } from '../core/text.mjs'
 import { parseSoul } from '../core/soul.mjs'
 

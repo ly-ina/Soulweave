@@ -16,7 +16,9 @@ import { createPreStepHandler } from './adapters/dsh/prestep.mjs'
 
 export { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools, createPreStepHandler }
 
-// 向后兼容：`import { ... } from 'soulweave'` 仍然拿到全部公开面。
+// 向后兼容：`import { ... } from 'soulweave'` 仍然拿到全部公开面（承诺面 + 不承诺面）。
+// 新代码请用 './sdk' 子路径——那里才是承诺的东西。
 export * from './sdk.mjs'
+export * from './unstable.mjs'
 
 export default { name, inject, apply, MESSAGE_KIND }

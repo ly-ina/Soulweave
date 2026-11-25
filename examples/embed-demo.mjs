@@ -2,7 +2,7 @@
 /**
  * examples/embed-demo.mjs —— 「在不是 DSH 的 Node 服务端里用魂织」的最小可跑样例。
  *
- * 只 import core/ 与 memory/ 的公开导出，零 DSH 依赖、零 ctx、零 adapters。
+ * 数据入口走 `./sdk`（稳定契约），其余 import core/ 具体模块；零 DSH 依赖、零 ctx、零 adapters。
  * 自带临时库，跑完就删，不碰你自己的记忆。
  *
  * 跑：node examples/embed-demo.mjs
@@ -13,7 +13,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ensureDb, putMemory, search } from '../memory/builtin.mjs'
+import { ensureDb } from '../memory/builtin.mjs'
+import { putMemory, search } from '../sdk.mjs'
 import { parseSoul, composeSoulStable } from '../core/soul.mjs'
 import { estimateTokens } from '../core/text.mjs'
 import { putWhen, matchWhen, timeWindowOf, bumpWhenHit, readWhenStats } from '../memory/when.mjs'

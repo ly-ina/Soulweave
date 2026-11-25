@@ -7,7 +7,9 @@
 - **refactor**：`index.js` 之前同时是 dsh 插件入口（`export default { name, inject, apply }`）和公开 API 出口。外部消费者 `import 'soulweave'` 会被 `adapters/dsh/apply.mjs` 的宿主依赖拖住 —— `routeRecords` 明明已公开，实际只能绕去 `import memory/route.mjs`。
 - **feat**：新增 `sdk.mjs` + `package.json` 的 `exports["./sdk"]`，只 re-export `core/`、`memory/`、`io.mjs`，一个 `adapters/dsh/*` 都不 import。单独 `node -e "import('./sdk.mjs')"` 能加载（130 个导出）。
 - `index.js` 保留全部旧导出（`export * from './sdk.mjs'`），现有消费者零改动。
-- **test**：新增 R33 —— 静态递归走 `sdk.mjs` 的 import 图，断言不出现 `adapters/` 和裸包名；再起独立 node 进程加载一次。首版曾因注释和 SQL 模板里的 `from` 字样假红，正则已收窄到行首。
+- **refactor**：`sdk.mjs` 收窄成 **18 个承诺导出**（拼装/路由/时间/锚点/存取/体检），其余全部搬去 `unstable.mjs`（明确不承诺）。导出越多承诺越多——`bigramsOf` 这种内部工具改掉不该算破坏性变更。`index.js` 仍然同时带两边，旧 import 零改动。
+- **test**：新增 R33 —— 静态递归走 `sdk.mjs` 的 import 图，断言不出现 `adapters/` 和裸包名；再起独立 node 进程加载。断言分三段：核心导出必须在、**总数不许超过 40**（旧版 `> 100` 会把「没做筛选」判成通过）、index.js 仍带不承诺面。首版曾因注释和 SQL 模板里的 `from` 字样假红，正则已收窄到行首。
+- **fix(tools)**：`gen-api` 三处解析 bug —— `@param`/`@returns` 的嵌套类型花括号（`{{ok:boolean}}`）会漏成 `>}` 残渣；函数签名非贪婪匹配到第一个 `)`，参数里有 `Date.now()` 就截断。现在按括号配对扫描。
 - **fix(tools)**：`gen-api --check` 改读 `sdk.mjs`。读 `index.js` 时 `export *` 后面的名字全丢，公开数会变成 0。
 - `check` 120/120、`check-layers` 37 文件、`gen-api --check` PASS。
 
