@@ -3923,6 +3923,21 @@ await test('R30', '中文时间解析：认得出就精确，认不出就 null�
   assert.equal(at('下个月5号上线'), '2026-12-05 09:00')
   assert.equal(at('下月15号交表'), '2026-12-15 09:00')
 
+  // ⑦c 裸时刻：「八点」按当前时段推最近的未来 —— 晚上说八点就是今晚
+  const atWith = (hourOfDay, text) => {
+    const r = parseDue(text, new Date(2026, 10, 25, hourOfDay, 0))
+    return r === null ? null : `${r.iso.slice(0, 10)} ${r.iso.slice(11, 16)}`
+  }
+  assert.equal(atWith(9, '八点'), '2026-11-25 20:00', '上午 9 点说「八点」→ 今晚 20:00（比明早更近）')
+  assert.equal(atWith(19, '八点'), '2026-11-25 20:00', '晚上 7 点说「八点」→ 今晚 20:00')
+  assert.equal(atWith(21, '八点'), '2026-11-26 08:00', '晚上 9 点说「八点」→ 今晚已过，明早 08:00')
+  assert.equal(atWith(1, '八点'), '2026-11-25 08:00', '凌晨 1 点说「八点」→ 今天 08:00')
+  // 带冒号的精确写法不做时段推断，默认上午
+  assert.equal(atWith(19, '9:30 开会'), '2026-11-26 09:30', '19 点说 9:30 → 明天上午')
+  // 歧义标记只打在裸时刻上
+  assert.equal(parseDue('八点', new Date(2026, 10, 25, 19, 0)).ambiguous, true)
+  assert.equal(parseDue('晚上八点', new Date(2026, 10, 25, 19, 0)).ambiguous, false, '说了晚上就不算歧义')
+
   // ⑧ 认不出就是 null —— 这条最重要
   assert.equal(parseDue('月底结账', base), null, '「月底」不许猜')
   assert.equal(parseDue('以后再处理', base), null)

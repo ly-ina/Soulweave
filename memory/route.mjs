@@ -96,6 +96,13 @@ export function routeRecords(records, options = {}) {
         if (due.assumedTime) {
           warnings.push({ kind: 'todo-assumed-time', text, note: `只说了日期，按 ${due.iso} 记（默认 ${due.iso.slice(11, 16)}）` })
         }
+        if (due.ambiguous) {
+          warnings.push({
+            kind: 'todo-ambiguous-time',
+            text,
+            note: `只说了「${due.matched}」没说是早是晚，按最近未来取 ${due.iso}；若不对，写清「上午/晚上」重记`,
+          })
+        }
         continue
       }
 

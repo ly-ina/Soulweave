@@ -39,6 +39,24 @@ const addDays = (d, n) => {
 }
 const mondayOf = (d) => addDays(atMidnight(d), -((d.getDay() + 6) % 7))
 
+/** 有没有明说时段：「八点」没有，「晚上八点」「上午八点」有。 */
+const hasPeriodWord = (src) => /凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜/.test(src)
+
+/**
+ * 在若干候选小时里取「离现在最近的未来那一刻」。
+ * 用于裸时刻：晚上七点说「八点」，该给今晚 20:00，而不是明天 08:00。
+ */
+function nearestFuture(base, hours, minute) {
+  const mid = atMidnight(base)
+  let best = null
+  for (const hh of hours) {
+    let cand = new Date(mid.getFullYear(), mid.getMonth(), mid.getDate(), hh, minute)
+    if (cand.getTime() <= base.getTime()) cand = addDays(cand, 1)
+    if (best === null || cand.getTime() < best.getTime()) best = cand
+  }
+  return best
+}
+
 /** 解析日期锚点；返回 {date, matched, kind}，认不出时 date=null。 */
 function resolveDate(src, base) {
   // ① 完整日期：2026-11-30 / 2026年11月30日
@@ -173,6 +191,17 @@ export function parseDue(text, now = new Date()) {
   const time = resolveTime(src)
   if (date.date === null && time.h === null) return null
 
+  // 裸时刻（没日期、也没说早/晚、且不是 9:30 这种带冒号的精确写法）：
+  // 「八点」在晚上说来是今晚 20:00，在上午说来是明天 08:00 —— 取 h 与 h+12 里先到的那个。
+  // 带冒号的（9:30）按保守处理：默认上午，过了就顺延明天。
+  const isClock = /[:：]/.test(time.matched)
+  if (date.date === null && time.h !== null && time.h < 12 && !isClock && !hasPeriodWord(src)) {
+    const best = nearestFuture(base, [time.h, time.h + 12], time.min)
+    const result = pack(best.getTime(), false, true, time.matched, 'bare-hour')
+    result.ambiguous = true // 让调用方知道：这个时刻是靠"最近未来"推的，不是模型说清的
+    return result
+  }
+
   let day = date.date
   let assumedDate = false
   if (day === null) {
@@ -215,5 +244,5 @@ export function parseDue(text, now = new Date()) {
 function pack(at, assumedTime, assumedDate, matched, kind) {
   const d = new Date(at)
   const iso = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:00`
-  return { at, iso, assumedTime, assumedDate, matched, kind }
+  return { at, iso, assumedTime, assumedDate, ambiguous: false, matched, kind }
 }
