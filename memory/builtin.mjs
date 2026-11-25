@@ -15,6 +15,7 @@ import { existsSync, mkdirSync } from '../io.mjs'
 import { dirname } from 'node:path'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
+import { anchorOf } from './anchor.mjs'
 
 /** 与 meow 的七层同名，便于上层逻辑不分叉。 */
 export const BUILTIN_LEVELS = Object.freeze(['soul', 'rules', 'user', 'project', 'fact', 'topic', 'lesson'])
@@ -382,8 +383,60 @@ export function listTodos(dbPath, { project = '', status = 'pending', limit = 20
   )
 }
 
-/** 常驻口径条数：soul 全量 + user 全量 + rules 里全局 scope 且 importance>=2。 */
-/** 魂引「我记得」用的单条教训头（第三刀预算回退口）。 */
+/**
+ * 到期扫描：给「现状段 ⏰ 行」用。
+ *
+ * 与 listPending 的分工：listPending 是「未结几条」的计数口径，只回 content；
+ * 这个要的是**能带锚点、能判过期**的候选，所以回 id / due / state / anchor。
+ *
+ * 窗口：`now - graceMs` 到 `now + leadMs` 之间才提；太远的等临近再说，太旧的沉底。
+ * 用 withDb（只读）而不是 withDbCreating：到期扫描不该顺手建库。
+ *
+ * @returns {{items:Array<{id,content,project,due,at,state,anchor}>, invalid:number}}
+ */
+export function listDueItems(dbPath, { now = Date.now(), leadMs = 24 * 3600_000, graceMs = 72 * 3600_000, limit = 6 } = {}) {
+  const empty = { items: [], invalid: 0 }
+  return withDb(
+    dbPath,
+    (db) => {
+      let rows = []
+      try {
+        rows = db
+          .prepare(
+            "select id, content, project, due from todos where status='pending' and trim(due) <> '' order by due asc limit ?",
+          )
+          .all(Math.max(limit * 4, 20))
+      } catch {
+        return empty
+      }
+      const items = []
+      let invalid = 0
+      for (const row of rows) {
+        const at = Date.parse(String(row.due ?? '').trim())
+        if (!Number.isFinite(at)) {
+          invalid += 1
+          continue
+        }
+        if (at > now + leadMs) continue
+        if (at < now - graceMs) continue
+        items.push({
+          id: String(row.id),
+          content: String(row.content ?? ''),
+          project: String(row.project ?? ''),
+          due: String(row.due ?? ''),
+          at,
+          state: at < now ? 'overdue' : 'upcoming',
+          anchor: anchorOf(row.id),
+        })
+        if (items.length >= limit) break
+      }
+      return { items, invalid }
+    },
+    empty,
+  )
+}
+
+/** 常驻口径条数：soul 全量 + user 全量 + rules 里全局 scope 且 importance>=2。 *//** 魂引「我记得」用的单条教训头（第三刀预算回退口）。 */
 export function lessonHead(dbPath) {
   return withDb(
     dbPath,

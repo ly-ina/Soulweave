@@ -24,6 +24,7 @@ import {
   composeSoul,
   composeSoulStable,
   composeSoulState,
+  renderDueLine,
   planSoulSplit,
   planStateEmit,
   SOUL_STATE_KIND,
@@ -3807,6 +3808,74 @@ await test('R28', '待办短锚点：模型照着抄就能精确结账', async (
   assert.equal(renderAnchored('交材料', 't-mno8x-k3f9'), '交材料 [k3f9]')
   assert.equal(renderAnchored('交材料', '坏id'), '交材料')
   assert.equal(renderAnchored('  交材料  ', ''), '交材料', '内容要 trim')
+})
+
+await test('R29', '到期行：空输入零输出，窗口/过期/锚点正确', async () => {
+  const now = new Date(2026, 10, 25, 10, 0).getTime() // 2026-11-25 10:00 本地
+  const at = (d, h, m = 0) => new Date(2026, 10, d, h, m).getTime()
+
+  // ① 空输入一个字节都不输出
+  assert.equal(renderDueLine([], { now }), '', '空数组应返回空串')
+  assert.equal(renderDueLine(null, { now }), '', 'null 应返回空串')
+  assert.equal(renderDueLine([{ content: '  ' }], { now }), '', '空内容要过滤')
+
+  // ② 今天 / 明天 / 普通日期
+  const line1 = renderDueLine(
+    [
+      { content: '交材料', at: at(25, 15), state: 'upcoming', anchor: 'k3f9' },
+      { content: '复盘', at: at(26, 9), state: 'upcoming', anchor: 'b7c1' },
+      { content: '周会', at: at(28, 14), state: 'upcoming' },
+    ],
+    { now },
+  )
+  assert.ok(line1.startsWith('⏰ '), line1)
+  assert.ok(line1.includes('今天 15:00 交材料 [k3f9]'), line1)
+  assert.ok(line1.includes('明天 09:00 复盘 [b7c1]'), line1)
+  assert.ok(line1.includes('11-28 14:00 周会'), line1)
+
+  // ③ 过期单独成组，且排后面
+  const line2 = renderDueLine(
+    [
+      { content: '对账', at: at(24, 9), state: 'overdue', anchor: 'x1y2' },
+      { content: '交材料', at: at(26, 9), state: 'upcoming' },
+    ],
+    { now },
+  )
+  assert.ok(line2.includes('已过期 1 条：对账 [x1y2]'), line2)
+  assert.ok(line2.indexOf('交材料') < line2.indexOf('已过期'), '未到期的排前面')
+
+  // ④ 超出 maxItems 标 +N
+  const many = Array.from({ length: 5 }, (_, i) => ({
+    content: `第${i + 1}件事`,
+    at: at(26, 9 + i),
+    state: 'upcoming',
+  }))
+  const line3 = renderDueLine(many, { now, maxItems: 2 })
+  assert.ok(line3.includes('+3'), '超出要标 +N：' + line3)
+
+  // ⑤ listDueItems 的窗口：太远不提、太久沉底、非法日期计入 invalid
+  const dbPath = join(root, 'r29.db')
+  builtinMemory.putTodo(dbPath, { content: '太远的事', due: new Date(now + 5 * 86400_000).toISOString() })
+  builtinMemory.putTodo(dbPath, { content: '临近的事', due: new Date(now + 3600_000).toISOString() })
+  builtinMemory.putTodo(dbPath, { content: '已过期的事', due: new Date(now - 86400_000).toISOString() })
+  builtinMemory.putTodo(dbPath, { content: '太久以前', due: new Date(now - 10 * 86400_000).toISOString() })
+  builtinMemory.putTodo(dbPath, { content: '日期写坏', due: '明天九点' })
+  builtinMemory.putTodo(dbPath, { content: '无日期', due: '' })
+  const { items, invalid } = builtinMemory.listDueItems(dbPath, { now })
+  const names = items.map((x) => x.content)
+  assert.equal(names.includes('太远的事'), false, '超 leadMs 不该提')
+  assert.equal(names.includes('太久以前'), false, '超 grace 不该提')
+  assert.equal(names.includes('临近的事'), true, '一小时内该提')
+  assert.equal(names.includes('已过期的事'), true, '一天前该提')
+  assert.equal(names.includes('无日期'), false, '没 due 不提到期行')
+  assert.equal(invalid, 1, '「明天九点」解析不出，应计入 invalid，实际 ' + invalid)
+  assert.equal(items.find((x) => x.content === '已过期的事').state, 'overdue')
+  assert.ok(items.every((x) => x.anchor.length > 0), '每条都要带锚点')
+
+  // ⑥ 空库：零候选、零渲染
+  const none = builtinMemory.listDueItems(join(root, 'r29-empty.db'), { now })
+  assert.equal(none.items.length, 0, '空库应无候选')
+  assert.equal(renderDueLine(none.items, { now }), '', '空候选渲染空串')
 })
 
 for (const r of results) {

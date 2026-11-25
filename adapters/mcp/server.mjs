@@ -25,10 +25,15 @@ import {
   countSearchable,
   ensureDb,
   lessonHead,
+  listDueItems,
   listPending,
+  listTodos,
   putMemory,
+  putTodo,
   search,
+  setTodoStatus,
 } from '../../memory/builtin.mjs'
+import { anchorOf, renderAnchored } from '../../memory/anchor.mjs'
 import { health, isBrokenSearchResult, renderHealth } from '../../memory/health.mjs'
 import { composeSoulState } from '../../core/soul.mjs'
 
@@ -74,6 +79,21 @@ const TOOLS = [
     },
   },
   {
+    name: 'soul_todo',
+    description:
+      '待办：create 写一条（due 必须能解析成时间）；list 列未结（带短锚点）；done 按短锚点结账（标记完成，不物理删除）。锚点出现在 list 与 soul_state 的 ⏰ 行里。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['create', 'list', 'done'], description: '默认 list' },
+        content: { type: 'string', description: 'create 时必填：要做什么' },
+        due: { type: 'string', description: 'create 时必填：到期时间，ISO 8601（2026-11-26T09:00）或 2026-11-26 09:00' },
+        anchor: { type: 'string', description: 'done 时必填：短锚点，如 k3f9（list / ⏰ 行里带）' },
+        project: { type: 'string', description: '所属项目，可省略' },
+      },
+    },
+  },
+  {
     name: 'soul_health',
     description:
       '检查记忆库是否可用。返回路径、记录数、journal_mode、busy_timeout、文件大小；不可用时给出失败阶段（不存在/是目录/打不开/缺表/读失败）与原因。只读。用来区分「没有相关记忆」和「记忆库坏了」。',
@@ -111,6 +131,30 @@ function safeLessonHead() {
   }
 }
 
+/**
+ * 解析待办的到期时间。
+ * 优先按本地时区手解析（`2026-11-26 09:00` 被 Date.parse 当 UTC 的坑），再退回 Date.parse。
+ * @returns {number|null} epoch ms
+ */
+function parseDueAt(raw) {
+  const text = String(raw ?? '').trim()
+  if (text === '') return null
+
+  // 已带时区（Z / +08:00）就直接交给 Date.parse：手解析会把 UTC 的 07:30 当成本地 07:30，差 8 小时
+  if (/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text)) {
+    const parsed = Date.parse(text)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(text)
+  if (m) {
+    const at = new Date(+m[1], +m[2] - 1, +m[3], m[4] === undefined ? 9 : +m[4], m[5] === undefined ? 0 : +m[5])
+    return Number.isNaN(at.getTime()) ? null : at.getTime()
+  }
+  const parsed = Date.parse(text)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 async function callTool(name, args = {}) {
   switch (name) {
     case 'soul_recall': {
@@ -140,6 +184,59 @@ async function callTool(name, args = {}) {
       return { content: [{ type: 'text', text: `已写入 ${level}${saved?.id ? ` · ${saved.id}` : ''}` }] }
     }
 
+    case 'soul_todo': {
+      const action = String(args.action ?? 'list')
+
+      if (action === 'create') {
+        const content = String(args.content ?? '').trim()
+        if (content === '') throw new Error('create 需要 content')
+        const at = parseDueAt(args.due)
+        if (at === null) throw new Error(`due 解析不出时间：「${args.due ?? ''}」（给 2026-11-26T09:00 或 2026-11-26 09:00）`)
+        const saved = putTodo(DB_PATH, {
+          content,
+          due: new Date(at).toISOString(),
+          ...(args.project ? { project: String(args.project) } : {}),
+        })
+        if (saved && saved.ok === false) throw new Error(saved.error || '写入失败')
+        const anchor = anchorOf(saved?.id)
+        const when = new Date(at).toLocaleString('zh-CN', { hour12: false })
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `已记下 [${anchor}] ${content}\n到期：${when}\n结账时写 ※结：${anchor}`,
+            },
+          ],
+        }
+      }
+
+      if (action === 'done') {
+        const anchor = String(args.anchor ?? '').trim().toLowerCase()
+        if (anchor === '') throw new Error('done 需要 anchor（list / ⏰ 行里带的短锚点）')
+        const pending = listTodos(DB_PATH, { status: 'pending', limit: 200 })
+        const hit = pending.find((t) => anchorOf(t.id) === anchor)
+        if (!hit) throw new Error(`没有锚点 ${anchor} 的未结待办（可能已结，或锚点抄错）`)
+        const result = setTodoStatus(DB_PATH, hit.id, 'done')
+        if (result && result.ok === false) throw new Error(result.error || '标记失败')
+        return { content: [{ type: 'text', text: `已结账 [${anchor}] ${hit.content}` }] }
+      }
+
+      // list（默认）
+      const todos = listTodos(DB_PATH, { status: 'pending', limit: 50 })
+      if (todos.length === 0) return { content: [{ type: 'text', text: '未结：（无）' }] }
+      const lines = todos.map((t) => {
+        const raw = String(t.due ?? '').trim()
+        let due = '无到期'
+        if (raw !== '') {
+          const at = parseDueAt(raw)
+          // 库里存的是 ISO（UTC），直接回显会让模型误读成 01:00，统一转本地
+          due = at === null ? `到期（无法解析）${raw}` : `到期 ${new Date(at).toLocaleString('zh-CN', { hour12: false })}`
+        }
+        return `- ${renderAnchored(t.content, t.id)} · ${due}`
+      })
+      return { content: [{ type: 'text', text: `未结 ${todos.length} 条\n${lines.join('\n')}` }] }
+    }
+
     case 'soul_health': {
       const h = health(DB_PATH)
       const text = h.ok
@@ -157,6 +254,13 @@ async function callTool(name, args = {}) {
 
     case 'soul_state': {
       const pending = safeCountPending(3)
+      // 到期行：给现状段一个 ⏰ 行，带锚点，模型之后能对着锚点结账
+      let dueItems = []
+      try {
+        dueItems = listDueItems(DB_PATH, { now: Date.now(), limit: 5 }).items
+      } catch {
+        dueItems = []
+      }
       // composeSoulState 返回 { text, tokens, chars, step }，不是裸字符串
       const state = composeSoulState({
         at: new Date(),
@@ -167,6 +271,7 @@ async function callTool(name, args = {}) {
         present: { pending },
         searchableCount: countSearchable(DB_PATH),
         lessonHead: safeLessonHead(),
+        dueItems,
       })
       return { content: [{ type: 'text', text: String(state?.text ?? '') }] }
     }

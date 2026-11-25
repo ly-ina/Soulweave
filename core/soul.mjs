@@ -454,6 +454,54 @@ export function composeSoulStable(input = {}) {
  *
  * @returns {{ text: string, tokens: number, chars: number, step: { pinned: number, zones: number } }}
  */
+/**
+ * 渲染现状段的 ⏰ 行（到期 / 临近）。
+ *
+ * 输入是 `listDueItems()` 的 items（带 at / state / anchor）。
+ * 空输入**一个字节都不输出**——这是「不配就等于没做过」的保证。
+ *
+ * @param {Array<{content:string, at:number, state:string, anchor?:string}>} items
+ * @param {{now?:number, maxItems?:number}} [options]
+ * @returns {string} 形如 `⏰ 今天 15:00 交材料 [k3f9] · 已过期 1 条：对账 [b7c1]`；无内容返回 ''
+ */
+export function renderDueLine(items, options = {}) {
+  const list = (Array.isArray(items) ? items : []).filter((x) => x && typeof x === 'object' && asText(x.content) !== '')
+  if (list.length === 0) return ''
+
+  const now = Number(options.now ?? Date.now())
+  const maxItems = asInt(options.maxItems, 3, 1, 6)
+  const pad = (n) => String(n).padStart(2, '0')
+
+  const stamp = (at) => {
+    const d = new Date(at)
+    const base = new Date(now)
+    const hh = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+    const sameDay = d.getFullYear() === base.getFullYear() && d.getMonth() === base.getMonth() && d.getDate() === base.getDate()
+    if (sameDay) return `今天 ${hh}`
+    const tomorrow = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1)
+    const isTomorrow =
+      d.getFullYear() === tomorrow.getFullYear() && d.getMonth() === tomorrow.getMonth() && d.getDate() === tomorrow.getDate()
+    if (isTomorrow) return `明天 ${hh}`
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hh}`
+  }
+
+  const mark = (item) => (asText(item.anchor) === '' ? '' : ` [${asText(item.anchor)}]`)
+  const overdue = list.filter((x) => x.state === 'overdue')
+  const upcoming = list.filter((x) => x.state !== 'overdue')
+  const parts = []
+
+  if (upcoming.length > 0) {
+    const shown = upcoming.slice(0, maxItems).map((x) => `${stamp(x.at)} ${clip(asText(x.content), 24)}${mark(x)}`)
+    if (upcoming.length > maxItems) shown.push(`+${upcoming.length - maxItems}`)
+    parts.push(shown.join(' · '))
+  }
+  if (overdue.length > 0) {
+    const first = overdue[0]
+    parts.push(`已过期 ${overdue.length} 条：${clip(asText(first.content), 16)}${mark(first)}`)
+  }
+  return parts.length === 0 ? '' : `⏰ ${parts.join(' · ')}`
+}
+
 export function composeSoulState(input = {}) {
   const timeZone = asText(input.timeZone) || 'Asia/Shanghai'
   const at = input.at instanceof Date ? input.at : new Date(input.at ?? Date.now())
@@ -472,6 +520,8 @@ export function composeSoulState(input = {}) {
   const lessonHead = clip(asText(input.lessonHead), 40)
   const inGroup = input.inGroup === true
   const zoneLine = renderZoneLine(zoneRows)
+  // 到期行：空输入返回 ''，不进降档阶梯（临期提醒比 zone 行重要），靠 summary 的 token 上限兜底
+  const dueLine = renderDueLine(input.dueItems, { now: at.getTime(), maxItems: input.dueMaxItems })
 
   const build = (step) => {
     const lines = ['【魂引 · 现状】']
@@ -484,6 +534,7 @@ export function composeSoulState(input = {}) {
     if (presentMarks.length > 0) {
       lines.push(`${presentMarks.join(' · ')} → soul_recall${pending.length > 0 ? "('未结')" : ''}`)
     }
+    if (dueLine !== '') lines.push(dueLine)
     if (lessonHead !== '' && step.lesson > 0) lines.push(`- ${lessonHead}`)
     if (zoneLine) {
       if (step.zones >= 2) lines.push(zoneLine)
