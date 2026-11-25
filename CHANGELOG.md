@@ -1,5 +1,115 @@
 # Changelog
 
+## 0.5.0 — 2026-11-25
+
+**待办闭环：记 / 办 / 结**
+
+这一版把「记录 → 落库 → 到期提醒」整条链路打通。新增四个模块、五个 MCP 工具、六组测试；
+`check.mjs` 从 113 涨到 **118**，`check-layers` 仍是 37 文件零宿主依赖。
+
+### 新增模块
+
+| 模块 | 职责 | 导出 |
+|---|---|---|
+| `memory/health.mjs` | 库健康检查，区分「没命中」与「库坏了」 | `health` / `renderHealth` / `isBrokenSearchResult` |
+| `memory/anchor.mjs` | 待办短锚点，让结账能精确对上 | `anchorOf` / `looksLikeAnchor` / `parseSettle` / `renderAnchored` |
+| `memory/time.mjs` | 中文时间解析 | `parseDue` / `cnNum` / `DEFAULT_HOUR` |
+| `memory/route.mjs` | 触发词 → 落库路由 | `routeRecords` / `renderRouteResult` |
+
+### 1. 三个触发词，语义闭环
+
+| 触发词 | 含义 | 落点 |
+|---|---|---|
+| `※记` | 经验 / 事实 | `memories` |
+| `※办` | 待办 / 承诺（需带时间） | `todos` + `due` |
+| `※结` | 结算：已完成或不再需要 | 把对应 pending 标 `done` |
+
+配套改动：
+
+- `parseDue` 解析不出时间时**降级成记忆**，不进 `todos`——宁可少一条提醒，不给一条错的。
+- `※结` 优先按短锚点匹配，其次文本兜底，都找不到就只告警、**不改任何数据**。
+- 待办正文里命中的时间词会被摘掉，避免渲染成「明天 09:00 明天九点交材料」。
+
+### 2. 短锚点：让结账不再靠相似度
+
+`todos.id` 形如 `t-mno8x-k3f9`，末段 `k3f9` 就是锚点。现状段的到期行会带出来：
+
+```
+⏰ 明天 09:00 交材料 [k3f9]
+```
+
+模型照着写 `※结：k3f9` 即可精确对上。锚点规则：3–6 位、必须含字母（排除纯数字，免得和日期混淆）。
+
+### 3. 中文时间解析
+
+支持：绝对日期、`11月30日`、`下个月5号`、`今天/明天/后天/大后天`、`三天后`、
+`明早/明晚/今晚`、`周五/下周三/本周一`、`9:30`、`九点半`、`下午三点`、`两小时后`。
+
+三条规则值得单说：
+
+- **裸时刻按当前时段推断**：晚上 7 点说「八点」→ 今晚 20:00；晚上 9 点说「八点」→ 明早 08:00。
+  带冒号的 `9:30` 不做推断（默认上午）。推断出来的会标 `ambiguous: true`。
+- **只有日期** → 默认 09:00，标 `assumedTime`。
+- **认不出就返回 `null`**：`月底`、`改天`、`下周找时间` 一律不猜。
+
+### 4. 现状段新增到期行
+
+`composeSoulState` 新增 `dueItems` 输入，渲染一行：
+
+```
+⏰ 今天 15:30 复盘 [lz1h] · 已过期 1 条：对账 [x1y2]
+```
+
+- 空输入**一个字节都不输出**，不配就等于没做过。
+- 不参与降档阶梯（临期提醒比 zone 行重要），靠 summary 的 token 上限兜底。
+- `memory/builtin.mjs` 新增 `listDueItems()`：按 `leadMs`(24h) / `graceMs`(72h) 窗口扫描。
+
+### 5. 结构化降级，插件静默不再等于不可知
+
+`search()` 的返回值分三态：
+
+| 情况 | 返回 |
+|---|---|
+| 有命中 | `{ entries:[…], note:'', degraded:false }` |
+| 没命中 | `{ entries:[], note:'记忆里没有这些词', degraded:false }` |
+| 库打不开 | `{ entries:[], note:'…打不开', degraded:true, reason:'db-unavailable' }` |
+
+插件侧没人读 `degraded`，行为零变化；SDK / 外部调用方不用再正则匹配中文 note。
+
+### 6. MCP 宿主适配（第二宿主）
+
+`adapters/mcp/server.mjs` 现在提供五个工具：
+
+| 工具 | 用途 |
+|---|---|
+| `soul_recall` | 检索 |
+| `soul_remember` | 写记忆 |
+| `soul_todo` | 待办 create / list / done（按锚点结账） |
+| `soul_health` | 库健康检查 |
+| `soul_state` | 渲染现状段（含 ⏰ 行） |
+
+另有 `--selftest`：不起协议，只跑读路径，输出 PASS/FAIL 并给退出码。
+加上全局异常兜底 + 信号处理，进程崩了不会静默。
+
+### 7. CLI：把 JSONL 路由进库
+
+```bash
+node tools/route-records.mjs --in <records.jsonl> --db <soul-memory.db> [--dry-run] [--project 名]
+```
+
+这是**事后批处理**，不依赖 dsh 事件钩子。dsh 侧将来接实时路由时调同一个 `routeRecords()`。
+
+### 修掉的 bug
+
+- `parseDueAt` 时区坑：带 `Z` / `+08:00` 的串被当成本地时间，差 8 小时。
+- 「周五」按本周一算导致错位，改为相对今天取最近的周五。
+- 「两个小时以后」中文数字不认（正则只写了 `\d+`）。
+- 「明晚八点」解析成 08:00 —— 时段词藏在缩写里，`resolveTime` 看不到。
+
+### 测试
+
+`check.mjs` 118/118（新增 R27 健康检查 / R28 锚点 / R29 到期行 / R30 时间解析 / R31 路由）。
+
 ## 0.4.12 — 2026-11-25
 
 **R25 的预期异常不再污染 check 输出**
