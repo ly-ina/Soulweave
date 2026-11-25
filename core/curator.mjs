@@ -253,8 +253,20 @@ export function buildCandidates(rows, { limit = 0, staleDays = 30, now = Date.no
     const ts = Number(r.updated_at ?? r.created_at ?? 0)
     const old = ts > 0 && now - ts > staleDays * DAY_MS
     const lowValue = Number(r.importance) <= 1
-    if (!(old && lowValue) && !(r.level === 'lesson' && lowValue)) continue
-    items.push({ ...brief(r), reason: old ? `${staleDays} 天未更新且 importance<=1` : 'lesson 且 importance=1' })
+    // importance 在写入时默认 1，单看它会把「没手动升过级的具体教训」全判成废物。
+    // 再加一层价值信号：只剩残句（<30 字）或已被 decay 沉底，才可能是候选；
+    // 句子短但意思完整的（如「X 不可靠，该走 Y」）不算。
+    const text = String(r.content ?? '')
+    const thin = text.trim().length < 30
+    const decayed = /(^|[\s,[])(decay:)/.test(String(r.keywords ?? ''))
+    if (!lowValue || !(thin || decayed)) continue
+    if (!old && r.level !== 'lesson') continue
+    const reason = decayed
+      ? 'importance<=1 且已 decay 沉底'
+      : old
+        ? `${staleDays} 天未更新、importance<=1 且正文单薄`
+        : 'lesson、importance=1 且正文单薄'
+    items.push({ ...brief(r), reason })
   }
   const total = items.length
   return { total, items: limit > 0 ? items.slice(0, limit) : items }
