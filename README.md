@@ -105,21 +105,21 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 `import ... from '@ly-ina/dsh-soulweave'` 拿到的是 DSH 插件入口，会连带拉进 `adapters/dsh/*`。只想用数据层就走 `./sdk` 子路径：
 
 ```js
-// 稳定契约：只有这些承诺语义化版本（18 个）
+// 稳定契约：只有这些承诺语义化版本（19 个）
 import { putMemory, search, routeRecords, anchorOf } from '@ly-ina/dsh-soulweave/sdk'
 
 // 内部面：随时可能改签名/改名，不承诺
 import { parseSoul } from '@ly-ina/dsh-soulweave/core'
 ```
 
-`sdk.mjs` 里一个宿主模块都不 import，单独用 node 就能加载。导出越多承诺越多，所以这里只放 18 个核心。
+`sdk.mjs` 里一个宿主模块都不 import，单独用 node 就能加载。导出越多承诺越多，所以这里只放 19 个核心。
 
 现在有**两条轨道**：
 
 | 入口 | 导出数 | 性质 |
 |---|---|---|
-| `soulweave/sdk` | 18 | 承诺面，改签名算 breaking |
-| `soulweave`（主入口） | 130 | 18 承诺 + 112 历史兼容 |
+| `soulweave/sdk` | 19 | 承诺面，改签名算 breaking |
+| `soulweave`（主入口） | 146 | 19 承诺 + 118 历史兼容 + 9 个装配/默认导出 |
 
 主入口的额外导出是为兼容 0.5.x 旧消费者保留的，**不承诺稳定性**；新代码一律用 `soulweave/sdk`，1.0 时会移除。`check.mjs` 的 R33 把这条钉住：静态走一遍依赖图 + 独立进程加载，再断言「核心必须在、总数不许超 40」。可跑的样例见 [examples/node-cli.mjs](examples/node-cli.mjs)；完整的「建库 → 写记忆 → 写待办 → 读现状段」五步闭环见 [examples/sdk-quickstart.mjs](examples/sdk-quickstart.mjs)。
 

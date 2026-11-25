@@ -5,14 +5,17 @@
  * 这对插件是对的——库坏了不能让对话崩。但对 SDK 是灾难：
  * 调用方分不清「没有相关记忆」和「记忆库打不开」。
  *
- * 这个模块不改任何现有行为，只回答一个问题：**这个库现在到底能不能用。**
- * 只读，不建库、不写、不迁移。可以随时调，代价是一次 stat + 一次只读打开。
+ * 这个模块回答两个问题：
+ *   ① `health` —— **这个库现在到底能不能用。** 只读，不建库、不写、不迁移，
+ *      代价是一次 stat + 一次只读打开，可以随时调。
+ *   ② `initMemoryDb` —— **第一次用之前能不能把它建起来。** 写一次、立刻关句柄、再只读复核。
+ *      见下面的注释：为什么不直接导出 ensureDb。
  *
  * 依赖方向：node:* 之外的一切宿主能力都走根 `io.mjs`（memory/ 不许 import core/，
  * 也不许直接 import node:fs——那条约定由 tools/check-layers.mjs 守）。
  */
 import { statSync } from '../io.mjs'
-import { openDb } from './builtin.mjs'
+import { ensureDb, openDb } from './builtin.mjs'
 /** 判定阶段，按顺序推进；`stage` 停在第一个失败处，便于定位。 */
 export const HEALTH_STAGES = Object.freeze(['path', 'exists', 'open', 'schema', 'read', 'done'])
 
@@ -100,6 +103,36 @@ export function health(dbPath) {
       db.close()
     } catch {}
   }
+}
+
+/**
+ * 首次使用时建库，建完立刻关句柄，再做一次只读体检。幂等，可以每次启动都调。
+ *
+ * 为什么不直接导出 `ensureDb`：它返回活的 `DatabaseSync` 句柄，调用方得自己 `close()`；
+ * Windows 上句柄没关会锁住目录，删不掉也搬不走。这里建完就关，调用方只拿结果。
+ *
+ * 注意写路径（`putMemory` / `putTodo` …）本来也会按需建库，所以这个函数对「能写进去」
+ * 不是必须的；它的价值是把「库建不起来」从第一次写入失败提前到服务启动时失败，
+ * 并且让调用方不用碰内部模块和句柄。
+ *
+ * @param {string} dbPath 库路径
+ * @returns {ReturnType<typeof health>} 与 health() 同形状，可直接交给 renderHealth()
+ */
+export function initMemoryDb(dbPath) {
+  const path = typeof dbPath === 'string' ? dbPath.trim() : ''
+  if (path === '') return fail('path', '未提供 dbPath')
+  const db = ensureDb(path)
+  if (db) {
+    try {
+      db.close()
+    } catch {}
+    return health(path)
+  }
+  // ensureDb 返回 null：目录不可写、库损坏或被占用。health 会停在第一个失败阶段，
+  // 但「路径不存在」容易被当成参数写错，这里补一句说明是建库失败。
+  const h = health(path)
+  if (h.stage === 'exists') return { ...h, reason: `${h.reason}（建库也失败了：目录不可写或被占用）` }
+  return h
 }
 
 /** 一行摘要，给日志和工具返回用。 */

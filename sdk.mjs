@@ -21,5 +21,5 @@ export { anchorOf, looksLikeAnchor, parseSettle, renderAnchored } from './memory
 // 存储与检索
 export { putMemory, search, putTodo, listTodos, listDueItems, setTodoStatus } from './memory/builtin.mjs'
 
-// 体检
-export { health, renderHealth, isBrokenSearchResult } from './memory/health.mjs'
+// 体检与首次初始化
+export { health, renderHealth, isBrokenSearchResult, initMemoryDb } from './memory/health.mjs'

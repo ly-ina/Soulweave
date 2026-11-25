@@ -195,7 +195,7 @@ function collect() {
 
 function render(groups) {
   const { names } = readPublicSurface()
-  // 只认 index.js **显式**导出。`export * from './memory/index.mjs'` 不算公开契约——
+  // 只认 SURFACE_FILE 里**显式**导出。`export * from './memory/index.mjs'` 不算公开契约——
   // 那是「方便内部用」，不是承诺。想公开就显式写出来。
   const isPublic = (item) => names.has(item.name)
   const SHOW_ALL = process.argv.includes('--all')
@@ -212,7 +212,7 @@ function render(groups) {
   out.push('> 本文件由 `node tools/gen-api.mjs` 从源码 JSDoc 生成，**不要手改**。')
   out.push('> 改了签名就重新生成；CI 会跑 `--check`，过期会直接失败。')
   out.push('')
-  out.push('只列 `index.js` **显式导出**且**有 JSDoc 摘要**的 API。')
+  out.push(`只列 \`${SURFACE_FILE}\` **显式导出**且**有 JSDoc 摘要**的 API。`)
   out.push('内部 API 用 `--all` 查看；公开但没写摘要的在文末列名单。')
   out.push('')
   out.push(`统计：共 ${all.length} 个导出；公开 ${pub.length} 个，其中 ${documented.length} 个有文档、${undocumented.length} 个待补。`)
@@ -254,7 +254,7 @@ function render(groups) {
     out.push('')
     out.push(`## 待补文档的公开 API（${undocumented.length} 个）`)
     out.push('')
-    out.push('这些名字从 `index.js` 导出，但源码里没有 JSDoc 摘要。补一段就能自动进正文。')
+    out.push(`这些名字从 \`${SURFACE_FILE}\` 导出，但源码里没有 JSDoc 摘要。补一段就能自动进正文。`)
     out.push('')
     for (const item of undocumented) out.push(`- \`${item.name}\` —— \`${item.rel}\``)
     out.push('')

@@ -4,9 +4,10 @@
 
 **补一个真·接入示例：五步闭环**
 
-- **docs(examples)**：新增 `examples/sdk-quickstart.mjs` —— 建库 → 写记忆 → 写待办 → 读现状段 → 按指针检索，全用 `sdk.mjs` 的承诺面，只有 `ensureDb` 走 `memory/builtin.mjs`（建库不在 18 个承诺面里）。既有的 `node-cli.mjs` / `embed-demo.mjs` 各自只演示了片段，缺一份「从空目录到现状段有内容」的完整顺序。
+- **feat(sdk)**：承诺面加 `initMemoryDb(dbPath)`（18 → 19）。建库 → 立刻关句柄 → 只读体检，返回与 `health()` 同形状，可直接交给 `renderHealth()`。以前示例要手写 `ensureDb()` + `close()` + `health()` 三步，还得 import `memory/builtin.mjs` 才能拿到 `DatabaseSync` 句柄——Windows 上忘了关会锁住目录。写路径（`putMemory` / `putTodo`）本来就会按需建库，所以它不是必须的；价值是把「库建不起来」从第一次写入失败提前到启动时失败，且调用方不碰内部模块和句柄。
+- **docs(examples)**：新增 `examples/sdk-quickstart.mjs` —— 建库 → 写记忆 → 写待办 → 读现状段 → 按指针检索，全用 `sdk.mjs` 的承诺面。既有的 `node-cli.mjs` / `embed-demo.mjs` 各自只演示了片段，缺一份「从空目录到现状段有内容」的完整顺序。
 - 示例里钉住三个容易踩的点：`parseDue` 返回 null 时必须降级成记忆；`due` 是本地时区 ISO 串；`composeSoulState` 的「在场」行需要 `present.pending` / `present.memories` 非空才渲染，只给 `present.project` 不出来。
-- **fix(docs)**：`health()` 那行摘要里的 `busy=` 是它自己那条只读连接的 pragma（恒为 0），不代表写连接的 `busy_timeout`。示例注释里写明了，免得被当成「没设成功」。
+- **fix(health)**：`health()` 原来用裸 `new DatabaseSync` 读 pragma，摘要里的 `busy=` 恒为 0——那是它自己那条只读连接的默认值，不是写连接的 4000。改走 `openDb`（与写连接同一套 pragma）后显示 `busy=4000ms`。这属于「报了个误导的数」，不是文档能救的。
 - `package.json` 加 `example:sdk`；README 两条轨道那段指向新示例。
 
 ## 0.5.5 — 2026-11-25

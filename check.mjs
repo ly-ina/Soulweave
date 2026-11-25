@@ -4112,7 +4112,7 @@ await test('R33', 'SDK 承诺面：不碰宿主、核心导出必须在、且不
   const MUST = ['composeSoulState', 'renderDueLine', 'routeRecords', 'renderRouteResult', 'parseDue',
     'anchorOf', 'looksLikeAnchor', 'parseSettle', 'renderAnchored',
     'putMemory', 'search', 'putTodo', 'listTodos', 'listDueItems', 'setTodoStatus',
-    'health', 'renderHealth', 'isBrokenSearchResult']
+    'health', 'renderHealth', 'isBrokenSearchResult', 'initMemoryDb']
   for (const name of MUST) assert.equal(mod[name], 'function', `SDK 核心导出缺失：${name}`)
 
   // ④ 不许太多：多一个就多一份语义化版本承诺。上限这条比下限有用——

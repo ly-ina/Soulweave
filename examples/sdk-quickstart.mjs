@@ -3,9 +3,8 @@
  * examples/sdk-quickstart.mjs —— 接入魂织的五步闭环：
  *   建库 → 写记忆 → 写待办 → 读现状段 → 按指针去检索。
  *
- * 只碰两样东西：
- *   ① `../sdk.mjs` 的承诺面（发布后是 `@ly-ina/dsh-soulweave/sdk`）；
- *   ② `../memory/builtin.mjs` 的 `ensureDb` —— **建库不在 18 个承诺面里**，sdk 有意不导出。
+ * 只碰一样东西：`../sdk.mjs` 的承诺面（发布后是 `@ly-ina/dsh-soulweave/sdk`）。
+ * 建库用 `initMemoryDb`（0.5.6 起在承诺面里），不用 import 任何内部模块。
  *
  * 不碰 index.js、不碰 adapters、不需要 ctx。普通 Node 服务端可以照抄。
  * 自带临时库，跑完就删，不碰你自己的记忆。
@@ -27,14 +26,10 @@ import {
   parseDue,
   putMemory,
   putTodo,
+  initMemoryDb,
   renderHealth,
   search,
 } from '../sdk.mjs'
-// 建库这一件事不在承诺面里：18 个导出都是「数据进出」，没有「准备容器」。
-// 写路径（putMemory / putTodo）会按需建库建表，所以严格来说可以不显式建；
-// 但服务启动时应该建一次 —— 库建不起来要当场失败，而不是等第一条记忆写不进去才发现。
-import { ensureDb } from '../memory/builtin.mjs'
-
 const project = 'demo'
 const now = new Date()
 const dir = mkdtempSync(join(tmpdir(), 'soulweave-sdk-'))
@@ -44,15 +39,15 @@ const localIso = (d) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`
 
 // ── 0. 建库 ───────────────────────────────────────────────────────────────
-// 建完立刻 close：Windows 上留着的句柄会锁住目录，删不掉也搬不走。
-const boot = ensureDb(dbPath)
-boot?.close()
+// initMemoryDb 建完就关句柄（Windows 上留着的句柄会锁住目录），只返回体检结果。
+// 它不是必须的：putMemory / putTodo 自己会按需建库。但启动时调一次，
+// 库建不起来就当场失败，而不是等第一条记忆写不进去才发现。
+const boot = initMemoryDb(dbPath)
 console.log(`[0] 库 ${dbPath}`)
-console.log(`    体检 ${renderHealth(health(dbPath))}`)
+console.log(`    体检 ${renderHealth(boot)}`)
 // health() 是唯一能区分「没命中」和「库坏了」的东西 —— 读路径全是静默降级，
 // 不体检的话 search() 返回空集，你分不清是没记忆还是打不开库。
-// 注意它这行里的 busy= 是**它自己那条只读连接**的 pragma（永远是 0），
-// 别拿它判断写连接有没有设 busy_timeout。
+// busy= 是 openDb 打开时设的 4000ms（与写连接同一套 pragma），不是只读连接的默认 0。
 
 // ── 1. 写记忆 ─────────────────────────────────────────────────────────────
 // level 决定进哪一档：soul / rules / user / project / fact / topic / lesson。

@@ -3,10 +3,10 @@
 > 本文件由 `node tools/gen-api.mjs` 从源码 JSDoc 生成，**不要手改**。
 > 改了签名就重新生成；CI 会跑 `--check`，过期会直接失败。
 
-只列 `index.js` **显式导出**且**有 JSDoc 摘要**的 API。
+只列 `sdk.mjs` **显式导出**且**有 JSDoc 摘要**的 API。
 内部 API 用 `--all` 查看；公开但没写摘要的在文末列名单。
 
-统计：共 387 个导出；公开 18 个，其中 18 个有文档、0 个待补。
+统计：共 388 个导出；公开 19 个，其中 19 个有文档、0 个待补。
 
 ## `core/soul.mjs`
 
@@ -97,6 +97,16 @@ todo：生命周期只有 pending / done / stale。
 | `dbPath` | 库路径 |
 
 **返回** {{ ok: boolean, stage: string, reason: string, path: string, records: number|null, journalMode: string|null, busyTimeout: number|null, sizeBytes?: number, tables?: number }}
+
+### `initMemoryDb(dbPath)`
+
+首次使用时建库，建完立刻关句柄，再做一次只读体检。幂等，可以每次启动都调。
+
+| 参数 | 说明 |
+|---|---|
+| `dbPath` | 库路径 |
+
+**返回** 与 health() 同形状，可直接交给 renderHealth()
 
 ### `renderHealth(h)`
 
