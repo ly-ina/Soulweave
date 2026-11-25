@@ -3916,6 +3916,13 @@ await test('R30', '中文时间解析：认得出就精确，认不出就 null�
   // ⑦ 跨年：已过去的月日算明年
   assert.equal(at('1月5日交表'), '2027-01-05 09:00')
 
+  // ⑦b 常见缩写：明早 / 明晚 / 今晚 / 下个月 X 号
+  assert.equal(at('明早把报告发出去'), '2026-11-26 08:00')
+  assert.equal(at('今晚复盘一下'), '2026-11-25 20:00')
+  assert.equal(at('明晚八点视频会'), '2026-11-26 20:00', '写了具体时刻就用那个')
+  assert.equal(at('下个月5号上线'), '2026-12-05 09:00')
+  assert.equal(at('下月15号交表'), '2026-12-15 09:00')
+
   // ⑧ 认不出就是 null —— 这条最重要
   assert.equal(parseDue('月底结账', base), null, '「月底」不许猜')
   assert.equal(parseDue('以后再处理', base), null)

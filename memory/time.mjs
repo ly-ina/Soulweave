@@ -59,7 +59,9 @@ function resolveDate(src, base) {
     }
   }
 
-  // ③ 相对天
+  // ③ 相对天（含缩写：明早 / 今早 / 明晚 / 今晚）
+  if (/明早|明晚/.test(src)) return { date: addDays(atMidnight(base), 1), matched: src.match(/明[早晚]/)[0], kind: 'relative-days' }
+  if (/今早|今晚/.test(src)) return { date: atMidnight(base), matched: src.match(/今[早晚]/)[0], kind: 'relative-days' }
   m = /([一二三四五六七八九十]+|\d+)\s*天\s*(?:之?后|以后)/.exec(src)
   if (m) {
     const n = cnNum(m[1])
@@ -69,6 +71,15 @@ function resolveDate(src, base) {
   if (/后天/.test(src)) return { date: addDays(atMidnight(base), 2), matched: '后天', kind: 'relative-days' }
   if (/明天|明日/.test(src)) return { date: addDays(atMidnight(base), 1), matched: '明天', kind: 'relative-days' }
   if (/今天|今日/.test(src)) return { date: atMidnight(base), matched: '今天', kind: 'relative-days' }
+
+  // ⑤ 下个月 X 号（跨年由 Date 构造自动进位）
+  m = /(?:下个?月|下月)\s*(\d{1,2})\s*[日号]?/.exec(src)
+  if (m) {
+    const day = +m[1]
+    if (day >= 1 && day <= 31) {
+      return { date: new Date(base.getFullYear(), base.getMonth() + 1, day), matched: m[0], kind: 'next-month' }
+    }
+  }
 
   // ④ 周：下周X / 本周X / 周X / 星期X / 礼拜X
   m = /(下下|下|本|这)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天七])/.exec(src)
@@ -172,9 +183,24 @@ export function parseDue(text, now = new Date()) {
     assumedDate = true
   }
 
-  const assumedTime = time.h === null
-  const h = assumedTime ? DEFAULT_HOUR : time.h
-  const min = assumedTime ? 0 : time.min
+  let hour = time.h
+  let minute = time.min
+  let assumedTime = hour === null
+  // 「明早 / 今晚」这类缩写：日期由 resolveDate 给了，时刻取默认时段（早=8、晚=20），不算瞎猜
+  if (assumedTime) {
+    const abbrev = /(?:明|今|后)(早|晚)/.exec(src)
+    if (abbrev) {
+      hour = abbrev[1] === '早' ? 8 : 20
+      minute = 0
+      assumedTime = false
+    }
+  }
+  // 「明晚八点」：时段藏在缩写里，resolveTime 只看到「八点」，得补 +12
+  if (hour !== null && hour < 12 && /(?:明|今|后)晚/.test(src) && !/(凌晨|早上|早晨|上午)/.test(src)) {
+    hour += 12
+  }
+  const h = assumedTime ? DEFAULT_HOUR : hour
+  const min = assumedTime ? 0 : minute
   const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, min)
 
   return pack(
