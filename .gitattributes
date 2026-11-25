@@ -1,0 +1,2 @@
+# 生成的文档固定 LF：Windows 上 checkout 成 CRLF 会让 --check 失败
+docs/API.md text eol=lf

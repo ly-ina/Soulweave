@@ -231,9 +231,12 @@ if (CHECK) {
     process.exit(1)
   }
   const current = readFileSync(DOC_PATH, 'utf8')
-  if (current !== content) {
-    const a = current.split('\n')
-    const b = content.split('\n')
+  // Windows 上 git 可能把文件 checkout 成 CRLF，跟生成器的 LF 逐字节不等。
+  // 比对前统一换行符，否则 CI 会被换行符打败（已踩过一次）。
+  const norm = (s) => String(s).replace(/\r\n/g, '\n')
+  if (norm(current) !== norm(content)) {
+    const a = norm(current).split('\n')
+    const b = norm(content).split('\n')
     let firstDiff = 0
     while (firstDiff < Math.min(a.length, b.length) && a[firstDiff] === b[firstDiff]) firstDiff += 1
     console.error(`FAIL docs/API.md 已过期（第 ${firstDiff + 1} 行起不一致）`)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3 — 2026-11-25
+
+**修 API 文档校验在 Windows 上的换行符失败**
+
+- Windows 上 git 把 `docs/API.md` checkout 成 CRLF，与生成器的 LF 逐字节不等，`gen-api --check` 在 `windows-latest` × Node 22/24 两个 job 上失败（ubuntu 通过）。
+- `--check` 比对前统一换行符；另加 `.gitattributes` 把该文件固定为 LF，避免工作区抖动。
+- 本地用「把文件转成 CRLF 再校验」验证过：PASS。
+
 ## 0.5.2 — 2026-11-25
 
 **守卫的提示修对了，API 文档改成自动生成**
