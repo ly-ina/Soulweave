@@ -59,7 +59,9 @@ for (const layer of layers) {
       if (!spec) continue
       if (spec.startsWith('node:')) {
         if (HOST_MODULES.test(spec) && !isIoEntry) {
-          problems.push(`${rel}: core 不许直接 import ${spec}（走 core/io.mjs）`)
+          // 提示必须指向**真实存在**的出口：io.mjs 在仓库根，不是 core/ 下。
+          // 且 memory/ 也不许 import core/，所以两层都用同一个相对路径 '../io.mjs'。
+          problems.push(`${rel}: ${layer}/ 层不许直接 import ${spec}；改用根 io.mjs：import { … } from '../io.mjs'`)
         }
         continue
       }
@@ -82,7 +84,7 @@ for (const layer of layers) {
     if (!isIoEntry) {
       for (const [lineNo, line] of codeLines(text)) {
         if (ENV_READ_RE.test(line)) {
-          problems.push(`${rel}:${lineNo}: core 不许直接读进程环境（走 core/io.mjs 的 env()/cwd()）`)
+          problems.push(`${rel}:${lineNo}: ${layer}/ 层不许直接读 process.env；改用 io.mjs 的 env()/cwd()`)
         }
       }
     }

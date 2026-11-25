@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2 — 2026-11-25
+
+**守卫的提示修对了，API 文档改成自动生成**
+
+- **fix(tools)**：`check-layers` 报错写「走 core/io.mjs」，但 `io.mjs` 在仓库根、`core/` 下没有这个文件；而且对 `memory/` 的文件也报「core 不许」。**照着提示改会 import 一个不存在的路径。** 现在按层报 `${layer}/ 层不许…` 并指向真实位置 `../io.mjs`。
+- **feat(docs)**：`tools/gen-api.mjs` 从源码 JSDoc 生成 `docs/API.md`（119 个公开 API 中 89 个有摘要）。`--check` 接进 CI —— 手写文档一定会过时，而过时的文档比没有更糟。
+- **docs(README)**：补「分层约束」章节，写明 `core/` 与 `memory/` 受同一个 `node:fs` 禁令、唯一合法出口是根 `io.mjs`，并记录上面那个坑。
+- `check` 118/118、`check-layers` 37 文件、`gen-api --check` PASS。
+
 ## 0.5.1 — 2026-11-25
 
 **修 Windows CI 上的误拒**

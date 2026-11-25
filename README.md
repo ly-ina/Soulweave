@@ -212,12 +212,35 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 ## 开发
 
 ```bash
-node check.mjs               # 113/113 通过
-node clean-install.mjs       # 按 files 白名单复制到临时目录，R1..R8 OK
-node tools/check-layers.mjs  # 分层依赖守卫
+node check.mjs                 # 118/118 通过
+node clean-install.mjs         # 按 files 白名单复制到临时目录，R1..R8 OK
+node tools/check-layers.mjs    # 分层依赖守卫
+node tools/gen-api.mjs --check # API 文档是否与源码同步
 ```
 
-CI 跑以上三项 + `npm pack --dry-run`，矩阵 Windows / Ubuntu × Node 22 / 24。
+CI 跑以上四项 + `npm pack --dry-run`，矩阵 Windows / Ubuntu × Node 22 / 24。
+
+### 分层约束（改代码前先看这条）
+
+`core/` 和 `memory/` **都不许直接 `import 'node:fs'` / `'node:os'` / `'node:child_process'`**，
+也不许直接读 `process.env`。宿主能力统一走仓库根的 `io.mjs`：
+
+```js
+import { statSync } from '../io.mjs'   // ✅ core/ 与 memory/ 都是这个相对路径
+import { statSync } from 'node:fs'     // ❌ check-layers 会拦
+```
+
+`io.mjs` 是唯一允许碰 `node:fs` 的文件，也是唯一的宿主入口（可用 `configureIo` 替换，便于测试）。
+另外 `memory/` 不许反向 `import '../core/...'`。
+
+这条不是建议，由 `tools/check-layers.mjs` 强制，CI 会跑。**踩过一次的坑**：
+报错文案以前写「走 core/io.mjs」，但 `io.mjs` 在仓库根、`core/` 下没有这个文件，
+照着改会 import 一个不存在的路径 —— 已修正为指向真实位置。
+
+### API 文档
+
+`docs/API.md` 由 `node tools/gen-api.mjs` 从源码 JSDoc 生成，**不要手改**。
+改了签名就重新生成，CI 的 `--check` 会在文档过期时失败。
 
 包结构、分层约束、io.mjs 单入口、混合召回、完整自测清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md)。
 
