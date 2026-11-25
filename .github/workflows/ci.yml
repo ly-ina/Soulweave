@@ -18,6 +18,7 @@ jobs:
           - { os: ubuntu-latest,  node: "24.x", nodeOptions: "" }
           - { os: windows-latest, node: "22.x", nodeOptions: "--experimental-sqlite" }
           - { os: windows-latest, node: "24.x", nodeOptions: "" }
+          - { os: macos-latest,   node: "24.x", nodeOptions: "" }
     env:
       NODE_OPTIONS: ${{ matrix.nodeOptions }}
     steps:
