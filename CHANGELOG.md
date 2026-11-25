@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.11 — 2026-11-25
+
+**第二个宿主：MCP**
+
+- **feat(adapters)**：新增 `adapters/mcp/server.mjs`——零依赖手写 stdio JSON-RPC，把引擎接到任意 MCP 客户端。暴露三个工具：`soul_recall`（检索）、`soul_remember`（写入）、`soul_state`（渲染【魂引 · 现状】）。只 import `core/` 与 `memory/` 的公开导出，不碰 `index.js`、不碰 `adapters/dsh/`、不碰任何 ctx。用途是证明宿主无关，不是做产品。
+- **fix(adapters)**：适配层两处读错了引擎的返回结构——`search()` 返回的是 `{ loc, snippet }` 而非完整行；`composeSoulState()` 返回 `{ text, tokens, chars, step }` 而非字符串。两处都改在适配器里，**引擎一行未动**，这恰好是抽象成立的证据：换宿主暴露的问题全在边界上。
+- **test**：手动 MCP 会话跑通 `initialize` → `tools/list` → 三工具调用 → 未知工具报错；`check.mjs` 113/113、`O*` 11/11；`check-layers` 仍是「33 个文件，core/memory 全部零宿主依赖」。
+- **chore**：补打 `v0.4.11`。上个 tag 停在 `v0.4.6`（11-23），其后的 0.4.7–0.4.11 共 11 个提交此前在 GitHub 上没有任何锚点。
+
 ## 0.4.10 — 2026-11-25
 
 **归档候选判据修正**
@@ -7,6 +16,7 @@
 - **fix**：`curator.buildCandidates` 原来只看 `importance<=1`。可这个字段写入时默认就是 1，等于「没手动升过级」——体检把 24 条写得具体、能直接照着做的教训全列成「归档候选」，一条都不该归。现在加第二层价值信号：正文不足 30 字（只剩残句）或 keywords 已带 `decay:` 沉底，才进候选。真实库 24 → 0。
 - **test**：`check.mjs` 113/113 通过（R22 的断言不依赖候选条数）。
 - **data**：体检 672 条，近重复 4 对。其中 2 对合并后归档；另 2 对一端命中「项目含 lanxi」保护名单、拒绝归档，改为把独有的关键词和分工说明并进保留那条。active 672 → 670。
+
 ## 0.4.9 — 2026-11-24
 
 **人格层写入口**
