@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布
+
+**补一个真·接入示例：五步闭环**
+
+- **docs(examples)**：新增 `examples/sdk-quickstart.mjs` —— 建库 → 写记忆 → 写待办 → 读现状段 → 按指针检索，全用 `sdk.mjs` 的承诺面，只有 `ensureDb` 走 `memory/builtin.mjs`（建库不在 18 个承诺面里）。既有的 `node-cli.mjs` / `embed-demo.mjs` 各自只演示了片段，缺一份「从空目录到现状段有内容」的完整顺序。
+- 示例里钉住三个容易踩的点：`parseDue` 返回 null 时必须降级成记忆；`due` 是本地时区 ISO 串；`composeSoulState` 的「在场」行需要 `present.pending` / `present.memories` 非空才渲染，只给 `present.project` 不出来。
+- **fix(docs)**：`health()` 那行摘要里的 `busy=` 是它自己那条只读连接的 pragma（恒为 0），不代表写连接的 `busy_timeout`。示例注释里写明了，免得被当成「没设成功」。
+- `package.json` 加 `example:sdk`；README 两条轨道那段指向新示例。
+
 ## 0.5.5 — 2026-11-25
 
 **gen-api 加内容自检；README 写明两条轨道**

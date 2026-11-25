@@ -121,7 +121,7 @@ import { parseSoul } from '@ly-ina/dsh-soulweave/core'
 | `soulweave/sdk` | 18 | 承诺面，改签名算 breaking |
 | `soulweave`（主入口） | 130 | 18 承诺 + 112 历史兼容 |
 
-主入口的额外导出是为兼容 0.5.x 旧消费者保留的，**不承诺稳定性**；新代码一律用 `soulweave/sdk`，1.0 时会移除。`check.mjs` 的 R33 把这条钉住：静态走一遍依赖图 + 独立进程加载，再断言「核心必须在、总数不许超 40」。可跑的样例见 [examples/node-cli.mjs](examples/node-cli.mjs)。
+主入口的额外导出是为兼容 0.5.x 旧消费者保留的，**不承诺稳定性**；新代码一律用 `soulweave/sdk`，1.0 时会移除。`check.mjs` 的 R33 把这条钉住：静态走一遍依赖图 + 独立进程加载，再断言「核心必须在、总数不许超 40」。可跑的样例见 [examples/node-cli.mjs](examples/node-cli.mjs)；完整的「建库 → 写记忆 → 写待办 → 读现状段」五步闭环见 [examples/sdk-quickstart.mjs](examples/sdk-quickstart.mjs)。
 
 ---
 

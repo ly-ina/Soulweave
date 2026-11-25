@@ -12,8 +12,7 @@
  * 也不许直接 import node:fs——那条约定由 tools/check-layers.mjs 守）。
  */
 import { statSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
-
+import { openDb } from './builtin.mjs'
 /** 判定阶段，按顺序推进；`stage` 停在第一个失败处，便于定位。 */
 export const HEALTH_STAGES = Object.freeze(['path', 'exists', 'open', 'schema', 'read', 'done'])
 
@@ -52,7 +51,10 @@ export function health(dbPath) {
 
   let db = null
   try {
-    db = new DatabaseSync(path, { readOnly: true })
+    // 走 openDb 而不是裸 new DatabaseSync：openDb 会设 pragma busy_timeout。
+    // 裸连接的 busy_timeout 是 0，摘要里会显示「busy=0ms」，让人误以为写连接也没设（实际是 4000）。
+    db = openDb(path)
+    if (!db) return fail('open', '打不开（openDb 返回 null）', { path, sizeBytes: st.size })
   } catch (error) {
     return fail('open', `打不开：${error?.message ?? error}`, { path, sizeBytes: st.size })
   }
