@@ -3903,6 +3903,34 @@ await test('R29', '到期行：空输入零输出，窗口/过期/锚点正确',
   assert.equal((mixedLine.match(/约 /g) ?? []).length, 1, '只有推断那条带「约」：' + mixedLine)
 })
 
+await test('R32', '待办 id 随机段必须含字母——否则锚点为空、※结 结不了账', async () => {
+  // 起因：id 曾用 `Math.random().toString(36).slice(2,6)`，约 0.6% 概率产出纯数字，
+  // 而 anchorOf 要求至少一个字母 → 那条待办没有锚点，现状段带不出来，永远结不掉。
+  // 这不是测试不稳，是被测代码有概率性缺陷（check 偶发红过一次）。
+
+  // ① 生成器本身：2000 次里不许有一次没字母
+  let noLetter = 0
+  for (let i = 0; i < 2000; i += 1) {
+    if (!/[a-z]/.test(builtinMemory.randomAnchor())) noLetter += 1
+  }
+  assert.equal(noLetter, 0, `2000 次生成里有 ${noLetter} 次没有字母`)
+
+  // ② 端到端：连造 50 条待办，每条都必须拿得到锚点
+  //    （概率验证在 ①，这里只验链路通——50 次跑 0.6% 的缺陷没有统计意义，别拿它当把关）
+  const dbPath = join(root, 'r32.db')
+  const empty = []
+  for (let i = 0; i < 50; i += 1) {
+    const saved = builtinMemory.putTodo(dbPath, { content: `第 ${i} 条` })
+    if (anchorOf(saved?.id) === '') empty.push(saved?.id)
+  }
+  assert.equal(empty.length, 0, `有 ${empty.length} 条待办拿不到锚点：${empty.slice(0, 3).join('、')}`)
+
+  // ③ 拿到的锚点要能被 ※结 认回来
+  const first = builtinMemory.listTodos(dbPath, { status: 'pending', limit: 1 })[0]
+  assert.equal(anchorOf(first.id), anchorOf(first.id).toLowerCase(), '锚点应为小写')
+  assert.equal(looksLikeAnchor(anchorOf(first.id)), true, `锚点格式不合规：${first.id}`)
+})
+
 await test('R30', '中文时间解析：认得出就精确，认不出就 null（绝不兜底）', async () => {
   const base = new Date(2026, 10, 25, 9, 0) // 2026-11-25 周三 09:00
   const at = (text) => {

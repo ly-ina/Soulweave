@@ -29,7 +29,7 @@ const ENTRY_OVERHEAD = 6
  * 原先直接用 `Math.random().toString(36).slice(2,6)`，约 0.6% 概率全是数字。
  */
 const ANCHOR_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
-function randomAnchor() {
+export function randomAnchor() {
   let out = ''
   for (let i = 0; i < 4; i += 1) out += ANCHOR_ALPHABET[Math.floor(Math.random() * ANCHOR_ALPHABET.length)]
   return /[a-z]/.test(out) ? out : `a${out.slice(1)}`
