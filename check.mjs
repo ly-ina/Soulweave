@@ -3942,6 +3942,22 @@ await test('R30', '中文时间解析：认得出就精确，认不出就 null�
   assert.equal(parseDue('八点', new Date(2026, 10, 25, 19, 0)).ambiguous, true)
   assert.equal(parseDue('晚上八点', new Date(2026, 10, 25, 19, 0)).ambiguous, false, '说了晚上就不算歧义')
 
+  // ⑦d 截止式表述：这些词本身就是时刻，按 09:00 处理就是写错时间
+  const at12 = (t) => {
+    const r = parseDue(t, new Date(2026, 10, 25, 12, 0))
+    return r === null ? null : `${r.iso.slice(0, 10)} ${r.iso.slice(11, 16)}`
+  }
+  assert.equal(at12('下周五下班前交材料'), '2026-12-04 18:00', '下班前 = 18:00')
+  assert.equal(at12('下班后再说'), '2026-11-25 19:00')
+  assert.equal(at12('午休前回个电话'), '2026-11-26 12:00')
+  assert.equal(at12('睡前写日报'), '2026-11-25 22:00')
+  assert.equal(at12('明天上班前过一遍'), '2026-11-26 09:00')
+  assert.equal(at12('下周五 18:30 交'), '2026-12-04 18:30', 'HH:mm 比截止词更精确')
+  assert.equal(parseDue('月底前整理抽屉', new Date(2026, 10, 25, 12, 0)), null, '「月底前」仍然不猜')
+  // matched 必须是原文片段，否则 route 摘不掉
+  assert.equal(parseDue('午休前回个电话', new Date(2026, 10, 25, 12, 0)).matched.includes('午休前'), true)
+  assert.equal(parseDue('下班前交', new Date(2026, 10, 25, 12, 0)).matched.includes('下班前'), true)
+
   // ⑧ 认不出就是 null —— 这条最重要
   assert.equal(parseDue('月底结账', base), null, '「月底」不许猜')
   assert.equal(parseDue('以后再处理', base), null)

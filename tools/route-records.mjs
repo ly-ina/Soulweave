@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { renderRouteResult, routeRecords } from '../memory/route.mjs'
+import { parseDue } from '../memory/time.mjs'
 
 const argv = process.argv.slice(2)
 const argOf = (name, fallback = '') => {
@@ -77,9 +78,39 @@ if (records.length === 0) {
 }
 
 if (dryRun) {
-  const counts = { recall: 0, todo: 0, settle: 0 }
-  for (const r of records) counts[r.kind] = (counts[r.kind] ?? 0) + 1
-  console.log(`[dry-run] 记 ${counts.recall} · 办 ${counts.todo} · 结 ${counts.settle}（未写入）`)
+  // dry-run 必须跑时间解析：只看 kind 计数看不出「有多少条会因为认不出日期被降级」，
+  // 而那才是接线前最该看的数据。这里不写库，只报告每条会被怎么处理。
+  let writable = 0
+  const degraded = []
+  const ambiguous = []
+  for (const rec of records) {
+    const at = rec.at ? new Date(rec.at) : new Date()
+    if (rec.kind === 'todo') {
+      const due = parseDue(rec.text, at)
+      if (due === null) {
+        degraded.push(rec.text)
+        continue
+      }
+      writable += 1
+      const marks = []
+      if (due.assumedTime) marks.push('默认时刻')
+      if (due.ambiguous) marks.push('歧义推定')
+      console.log(`  + 待办 ${rec.text} → ${due.iso}${marks.length > 0 ? `（${marks.join('、')}）` : ''}`)
+      if (due.ambiguous) ambiguous.push(rec.text)
+    } else if (rec.kind === 'settle') {
+      console.log(`  ~ 结账 ${rec.text}（dry-run 不校验目标是否存在）`)
+    } else {
+      writable += 1
+      console.log(`  · 记忆 ${rec.text}`)
+    }
+  }
+  const totalTodo = records.filter((r) => r.kind === 'todo').length
+  console.log(`\n[dry-run] 可落库 ${writable} 条；待办 ${totalTodo} 条中降级 ${degraded.length} 条`)
+  if (totalTodo > 0) {
+    console.log(`  待办解析成功率：${totalTodo - degraded.length}/${totalTodo}`)
+  }
+  for (const text of degraded) console.log(`  ~ 降级（解析不出日期，会进 memories）${text}`)
+  for (const text of ambiguous) console.log(`  ! 歧义（按最近未来推定，建议写清上午/晚上）${text}`)
   process.exit(0)
 }
 

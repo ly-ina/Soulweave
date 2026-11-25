@@ -15,6 +15,22 @@ const WEEKDAY_CN = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天
 /** 只说了日期没说时刻时，默认早上 9 点。 */
 export const DEFAULT_HOUR = 9
 
+/**
+ * 截止式表述：这些词**本身就是时刻别名**，不是模糊说法。
+ *
+ * 「下周五下班前」= 18:00，是明确的截止点；把它当"没写时刻"按 09:00 处理，
+ * 会给出一个**错的时间**，比不认更糟。
+ */
+const DEADLINE_WORDS = Object.freeze([
+  { re: /下班前|下班之前/, h: 18, word: '下班前' },
+  { re: /下班后|下班之后/, h: 19, word: '下班后' },
+  { re: /午休前|中午前|午饭前/, h: 12, word: '中午前' },
+  { re: /上班前|上班之前/, h: 9, word: '上班前' },
+  { re: /晚饭前|晚饭之前/, h: 18, word: '晚饭前' },
+  { re: /睡前|睡觉前/, h: 22, word: '睡前' },
+  { re: /早餐前|早饭前/, h: 8, word: '早餐前' },
+])
+
 const pad2 = (n) => String(n).padStart(2, '0')
 
 /** 中文数字转整数：九 / 十 / 十一 / 二十三。不是数字返回 null。 */
@@ -39,8 +55,9 @@ const addDays = (d, n) => {
 }
 const mondayOf = (d) => addDays(atMidnight(d), -((d.getDay() + 6) % 7))
 
-/** 有没有明说时段：「八点」没有，「晚上八点」「上午八点」有。 */
-const hasPeriodWord = (src) => /凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜/.test(src)
+/** 有没有明说时段：「八点」没有，「晚上八点」「下班前」有。 */
+const hasPeriodWord = (src) =>
+  /凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜/.test(src) || DEADLINE_WORDS.some((def) => def.re.test(src))
 
 /**
  * 在若干候选小时里取「离现在最近的未来那一刻」。
@@ -126,12 +143,19 @@ function resolveDate(src, base) {
 function resolveTime(src) {
   const NUM = '[一二三四五六七八九十]{1,3}|\\d{1,2}'
 
-  // ① HH:mm
+  // ① HH:mm（最精确，优先）
   let m = /(\d{1,2})\s*[:：]\s*(\d{2})/.exec(src)
   if (m) {
     const h = +m[1]
     const min = +m[2]
     if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return { h, min, matched: m[0] }
+  }
+
+  // ①b 截止式表述（下班前 / 午休前 / 睡前…）——它们本身就是时刻，不是模糊词
+  // matched 必须回**原文命中片段**：route 会拿它从正文里摘除，回规范词会摘不掉
+  for (const def of DEADLINE_WORDS) {
+    const hit = def.re.exec(src)
+    if (hit) return { h: def.h, min: 0, matched: hit[0] }
   }
 
   // ② 时段 + N点(半/N分)
