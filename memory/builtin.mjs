@@ -579,7 +579,7 @@ function snippet(text, words, size = 90) {
  */
 export function search(dbPath, words, limit) {
   const list = (Array.isArray(words) ? words : [words]).map((word) => String(word ?? '').toLowerCase()).filter(Boolean)
-  if (list.length === 0) return { entries: [], note: '查询为空' }
+  if (list.length === 0) return { entries: [], note: '查询为空', degraded: false }
   return withDbCreating(
     dbPath,
     (db) => {
@@ -609,9 +609,9 @@ export function search(dbPath, words, limit) {
         loc: `${row.level}#${row.id}`,
         snippet: snippet(row.content, list),
       }))
-      return { entries, note: entries.length === 0 ? '记忆里没有这些词' : '' }
+      return { entries, note: entries.length === 0 ? '记忆里没有这些词' : '', degraded: false }
     },
-    { entries: [], note: 'builtin 记忆库打不开' },
+    { entries: [], note: 'builtin 记忆库打不开', degraded: true, reason: 'db-unavailable' },
   )
 }
 

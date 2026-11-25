@@ -3731,13 +3731,22 @@ await test('R27', '记忆库健康检查：能区分「没命中」与「库坏�
   assert.ok(renderHealth(h1).includes('可用'), '摘要应写明可用')
 
   // ② 正常「没命中」不算坏库 —— 这正是今天踩过的坑
-  assert.equal(isBrokenSearchResult(builtinMemory.search(okDb, ['绝不存在的词'], 1)), false, '没命中不等于坏库')
+  const miss = builtinMemory.search(okDb, ['绝不存在的词'], 1)
+  assert.equal(miss.degraded, false, '没命中时 degraded 应为 false')
+  assert.equal(isBrokenSearchResult(miss), false, '没命中不等于坏库')
+  // ②b 有命中时也要明确 degraded=false（结构化信号，不靠 note 文本）
+  const hitOne = builtinMemory.search(okDb, ['健康检查'], 1)
+  assert.equal(hitOne.degraded, false, '有命中时 degraded 应为 false')
+  assert.ok(hitOne.entries.length >= 1, '应命中那条靶子')
 
   // ③ 真坏库要能被识别。注意别用「不存在的路径」测：search→withDbCreating→ensureDb 会把它建出来，
   //    建出来的空库是「能开、没命中」，不是坏库。要用非 SQLite 文件。
   const junk = join(root, 'r27-junk.db')
   writeFileSync(junk, 'not a database at all, just text')
-  assert.equal(isBrokenSearchResult(builtinMemory.search(junk, ['a'], 1)), true, '非 SQLite 文件应判为坏库')
+  const broken = builtinMemory.search(junk, ['a'], 1)
+  assert.equal(broken.degraded, true, '库打不开时 degraded 应为 true')
+  assert.equal(broken.reason, 'db-unavailable', '应带结构化原因')
+  assert.equal(isBrokenSearchResult(broken), true, '非 SQLite 文件应判为坏库')
 
   // ④ 不存在的路径 → stage=exists（health 不建库，所以这里能测出来）
   const h2 = health(join(root, 'r27-missing', 'x.db'))

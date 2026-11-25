@@ -109,10 +109,13 @@ export function renderHealth(h) {
 
 /**
  * 判断一次 `search()` 的返回是否代表「库坏了」而不是「没命中」。
- * search 正常无命中也会带 note（'记忆里没有这些词'），所以不能只看 note 非空。
+ *
+ * 优先用结构化信号 `degraded`（builtin.search 会显式给 true/false），
+ * 没有该字段时才退回 note 语义匹配——用于兼容 hybrid 等按旧形状返回的路径。
  */
 export function isBrokenSearchResult(result) {
   if (!result || !Array.isArray(result.entries)) return true
+  if (typeof result.degraded === 'boolean') return result.degraded
   const note = typeof result.note === 'string' ? result.note : ''
   return /打不开|失败|异常/.test(note)
 }
