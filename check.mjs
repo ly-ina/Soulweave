@@ -100,6 +100,7 @@ import { buildReflectPrompt, shouldInjectReflect, REFLECT_MARK } from './core/re
 import { remember } from './core/remember.mjs'
 import { previewDecay, applyDecay } from './memory/decay.mjs'
 import { health, isBrokenSearchResult, renderHealth } from './memory/health.mjs'
+import { anchorOf, looksLikeAnchor, parseSettle, renderAnchored } from './memory/anchor.mjs'
 import { readSnapshot as readPersonaSnapshot } from './core/persona.mjs'
 import { ZONES, buildZoneIndex, scanZones, writeZoneIndex } from './core/zones.mjs'
 
@@ -3767,6 +3768,45 @@ await test('R27', '记忆库健康检查：能区分「没命中」与「库坏�
 
   // ⑦ 空路径 → stage=path
   assert.equal(health('').stage, 'path', '空路径失败阶段应为 path')
+})
+
+await test('R28', '待办短锚点：模型照着抄就能精确结账', async () => {
+  // ① 从真实 id 格式取名
+  assert.equal(anchorOf('t-mno8x-k3f9'), 'k3f9', '应取最后一段')
+  assert.equal(anchorOf('t-abc-xy12'), 'xy12')
+  assert.equal(anchorOf('T-MNO8X-K3F9'), 'k3f9', '大小写不敏感')
+
+  // ② 拿不到就返回空串，不许给一个错的
+  assert.equal(anchorOf(''), '', '空 id 返回空锚点')
+  assert.equal(anchorOf('t-mno8x'), 'mno8x', '两段时取第二段（也是合法锚点）')
+  assert.equal(anchorOf('交材料'), '', '中文不是锚点')
+  assert.equal(anchorOf('t-mno8x-'), '', '尾段为空返回空')
+
+  // ③ 识别：3–6 位、必须含字母
+  assert.equal(looksLikeAnchor('k3f9'), true)
+  assert.equal(looksLikeAnchor('abc'), true, '3 位合法')
+  assert.equal(looksLikeAnchor('a1b2c3'), true, '6 位合法')
+  assert.equal(looksLikeAnchor('ab'), false, '2 位太短')
+  assert.equal(looksLikeAnchor('a1b2c3d4'), false, '8 位太长')
+  assert.equal(looksLikeAnchor('1125'), false, '纯数字不认（会和日期混）')
+  assert.equal(looksLikeAnchor('交材料'), false)
+  assert.equal(looksLikeAnchor(''), false)
+
+  // ④ 解析 ※结 正文：带括号也能认
+  assert.deepEqual(parseSettle('k3f9'), { kind: 'anchor', value: 'k3f9' })
+  assert.deepEqual(parseSettle('[k3f9]'), { kind: 'anchor', value: 'k3f9' })
+  assert.deepEqual(parseSettle('#k3f9'), { kind: 'anchor', value: 'k3f9' })
+  assert.deepEqual(parseSettle('（k3f9）'), { kind: 'anchor', value: 'k3f9' })
+  assert.deepEqual(parseSettle('  K3F9  '), { kind: 'anchor', value: 'k3f9' })
+
+  // ⑤ 不像锚点就退回文本，交给文本匹配兜底
+  assert.deepEqual(parseSettle('交材料给王工'), { kind: 'text', value: '交材料给王工' })
+  assert.deepEqual(parseSettle(''), { kind: 'empty', value: '' })
+
+  // ⑥ 渲染：有锚点带出来，没有就只给内容
+  assert.equal(renderAnchored('交材料', 't-mno8x-k3f9'), '交材料 [k3f9]')
+  assert.equal(renderAnchored('交材料', '坏id'), '交材料')
+  assert.equal(renderAnchored('  交材料  ', ''), '交材料', '内容要 trim')
 })
 
 for (const r of results) {
