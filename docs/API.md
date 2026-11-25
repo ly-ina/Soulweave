@@ -6,7 +6,7 @@
 只列 `index.js` **显式导出**且**有 JSDoc 摘要**的 API。
 内部 API 用 `--all` 查看；公开但没写摘要的在文末列名单。
 
-统计：共 386 个导出；公开 119 个，其中 89 个有文档、30 个待补。
+统计：共 386 个导出；公开 131 个，其中 101 个有文档、30 个待补。
 
 ## `core/budget.mjs`
 
@@ -394,6 +394,84 @@ v0.1.2 P1：读「主 soul.md + extraSoulPaths」。
 ### `guardTool(name, execute)`
 
 包一层执行守卫。name 用于错误文案；execute 的其余参数原样透传。 注意：只在 adapters 层用，core 不依赖它。
+
+## `memory/anchor.mjs`
+
+### `anchorOf(id)`
+
+从 todo id 取短锚点；格式不符返回空串（宁可不用锚点，也不给一个错的）。
+
+### `looksLikeAnchor(value)`
+
+这串东西看起来像不像锚点。
+
+### `parseSettle(raw)`
+
+解析 `※结` 后面的正文。
+
+**返回** }
+
+### `renderAnchored(content, id)`
+
+现状段里渲染锚点：`交材料 [k3f9]`；没有锚点就只给内容。
+
+## `memory/health.mjs`
+
+### `health(dbPath)`
+
+检查一个记忆库。
+
+| 参数 | 说明 |
+|---|---|
+| `dbPath` | 库路径 |
+
+**返回** {{ ok: boolean, stage: string, reason: string, path: string, records: number|null, journalMode: string|null, busyTimeout: number|null, sizeBytes?: number, tables?: number }}
+
+### `renderHealth(h)`
+
+一行摘要，给日志和工具返回用。
+
+### `isBrokenSearchResult(result)`
+
+判断一次 `search()` 的返回是否代表「库坏了」而不是「没命中」。
+
+## `memory/route.mjs`
+
+### `routeRecords(records, options = {})`
+
+把一批提取结果写进记忆库。
+
+| 参数 | 说明 |
+|---|---|
+| `>}` | records extractRecords().records |
+| `}` | options |
+
+**返回** {{ ok: boolean, written: { memories: Array, todos: Array, settled: Array }, failed: Array<{kind:string,text:string,reason:string}>, warnings: Array<{kind:string,text:string,note:string}> }}
+
+### `renderRouteResult(result)`
+
+一行摘要，给 CLI 和日志用。
+
+## `memory/time.mjs`
+
+### `DEFAULT_HOUR`
+
+只说了日期没说时刻时，默认早上 9 点。
+
+### `cnNum(input)`
+
+中文数字转整数：九 / 十 / 十一 / 二十三。不是数字返回 null。
+
+### `parseDue(text, now = new Date()`
+
+从一句话里解析到期时间。
+
+| 参数 | 说明 |
+|---|---|
+| `text` | 待办正文 |
+| `[now]` | 基准时间 |
+
+**返回** } null 表示**认不出**——调用方必须据此降级，不许拿当前时间兜底。
 
 ## `io.mjs`
 

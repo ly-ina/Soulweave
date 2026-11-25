@@ -25,6 +25,13 @@ export { MOOD_MAX_CHARS, RELATIONS_CAP, appendRelation, normalizeConfig, profile
 import { EMPTY_SOUL, parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, renderDueLine, planSoulSplit } from './core/soul.mjs'
 export { parseSoul, readSoul, readSoulSources, SOUL_STAGES, decideReload, composeSoul, composeSoulStable, composeSoulState, renderDueLine, planSoulSplit }
 
+// memory 层公开面（0.5.0 起）：SDK 与外部宿主据此接路由，不必钻内部目录。
+// memprobe 这类插件要落库，走 import { routeRecords } from 'soulweave' 即可。
+export { routeRecords, renderRouteResult } from './memory/route.mjs'
+export { parseDue, cnNum, DEFAULT_HOUR } from './memory/time.mjs'
+export { anchorOf, looksLikeAnchor, parseSettle, renderAnchored } from './memory/anchor.mjs'
+export { health, renderHealth, isBrokenSearchResult } from './memory/health.mjs'
+
 import { SOUL_STATE_KIND, SOUL_TRIGGER_KIND, SOUL_RECALL_KIND, RECALL_TEXT_MAX_CHARS, pickRecallEntry, renderRecall, resetRecallCooldownOnReload, planStateEmit } from './core/recall-state.mjs'
 export { SOUL_STATE_KIND, SOUL_TRIGGER_KIND, SOUL_RECALL_KIND, RECALL_TEXT_MAX_CHARS, pickRecallEntry, renderRecall, resetRecallCooldownOnReload, planStateEmit }
 
