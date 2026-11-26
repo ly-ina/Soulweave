@@ -43,7 +43,8 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 ## 30 秒跑起来
 
-需要 **Node.js ≥ 22.5**（用自带的 `node:sqlite`，不装任何依赖）。
+需要 **Node.js ≥ 22.5**（运行时用自带的 `node:sqlite`，不装任何依赖）。
+SDK 面（`sdk.mjs`）本身零 `node:`——非 Node 宿主自行注入 IO 与存储驱动，见 [EMBEDDING.md](EMBEDDING.md)。
 
 **1. 挂进 profile**（`~/.dsh/profiles/<名字>/package.json`）：
 
@@ -247,15 +248,18 @@ CI 跑以上四项 + `npm pack --dry-run`，矩阵 Windows / Ubuntu × Node 22 /
 
 ### 分层约束（改代码前先看这条）
 
-`core/` 和 `memory/` **都不许直接 `import 'node:fs'` / `'node:os'` / `'node:child_process'`**，
+`core/`、`memory/`、`storage/` **一律不许 `import 'node:*'`** —— 1.0 起连 `path` / `crypto` / `url` 也不许，
 也不许直接读 `process.env`。宿主能力统一走仓库根的 `io.mjs`：
 
 ```js
-import { statSync } from '../io.mjs'   // ✅ core/ 与 memory/ 都是这个相对路径
+import { statSync } from '../io.mjs'   // ✅ core/ / memory/ / storage/ 都是这个相对路径
 import { statSync } from 'node:fs'     // ❌ check-layers 会拦
 ```
 
-`io.mjs` 是唯一允许碰 `node:fs` 的文件，也是唯一的宿主入口（可用 `configureIo` 替换，便于测试）。
+零依赖的纯函数不注入，直接用同目录实现：`path.mjs`（路径运算）、`sha256.mjs`（sha256）。
+Node 的宿主实现集中在 `io-node.mjs`（fs/os/进程/zstd/动态加载）和 `storage/node-sqlite.mjs`（驱动）。
+入口 `index.js` 与 `check.mjs` 负责装配；SDK 用户自己 import 这两行（见 `EMBEDDING.md`）。
+唯一豁免是 `storage/driver.mjs` 的 `node:sqlite`，由 check-layers 定点放行。
 另外 `memory/` 不许反向 `import '../core/...'`。
 
 这条不是建议，由 `tools/check-layers.mjs` 强制，CI 会跑。**踩过一次的坑**：

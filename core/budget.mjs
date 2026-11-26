@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
 
-import { dirname, join } from 'node:path'
+import { dirname, join } from '../io.mjs'
 import { planForDb } from './tier.mjs'
 import { asText, clip, estimateTokens, tableColumns } from './text.mjs'
 import { INJECTION_CLASSES, MESSAGE_KIND, TOTAL_TOKENS, YIELD_ORDER } from './constants.mjs'
@@ -611,3 +611,4 @@ export function loadCorrectedLessons(memoryDbPath, limit = 200) {
     }
   }
 }
+

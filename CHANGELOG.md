@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 — 2026-11-26
+
+**1.0 第四步（最后一刀）：剥离 node 内置依赖，SDK 面零 `node:`**
+
+- **feat(path)**：新增 `path.mjs`——零依赖路径运算（join / resolve / dirname / basename / extname / relative / isAbsolute / sep）。不维护全局平台状态，按传入路径自判 win32 / posix；23 条与 `node:path` 逐条对照。
+- **feat(sha256)**：新增 `sha256.mjs`——纯 JS SHA-256，同时给 `createHash('sha256')` 同形门面，调用点只换 import。8 条对照（含 5000 字符跨块）全等。
+- **refactor(io)**：`io.mjs` 改成**零 `node:` 的注入门面**；Node 实现移到 `io-node.mjs`（fs / os / env / argv / spawn / zstd / requireResolve）。新增纯函数 `fileURLToPath` / `pathToFileURL` / `isMainModule` / `cliArgs`。`configureIo` 首次调用记为「宿主基线」，`resetIo()` 回基线（原来回空实现，会把后续流程全弄挂）。
+- **refactor(storage)**：`storage/index.mjs` 不再静态 import 驱动；新增 `storage/node-sqlite.mjs` 由宿主显式注册。`configureStorage(null)` 语义变为「复位成无驱动」。
+- **refactor(core/memory)**：19 处 `node:path`、4 处 `node:crypto`、3 处 `node:url`、1 处 `node:module` 全部改走零依赖实现或 io 注入；`Buffer` 全换 `TextEncoder/TextDecoder`，`randomUUID` 用 `globalThis.crypto`。
+- **feat(package)**：新增 `./io-node`、`./storage-node-sqlite` 两个导出；`index.js` 前两行完成装配（DSH 里零感知）。
+- **change(breaking)**：SDK 用户（`soulweave/sdk`）现在必须自己装配两行；`configureStorage(null)` 不再回 sqlite。接入见重写的 `EMBEDDING.md`。
+- **test**：`check.mjs` R33 加硬验收——用 `no-node-loader` 在子进程里拒绝一切 `node:*` 再 import SDK；`check-layers.mjs` 规则扩成「core/memory/storage 一律禁 `node:*`」。全量 120/120 + O* 11/11、四个冒烟、三个 example 全绿。
+- **docs**：`EMBEDDING.md` 重写成真正的接入指南；`README.md` / `docs/ENGINEERING.md` 同步分层规则；`HANDOFF.md` §3c 标记完工。
 ## 0.8.0 — 2026-11-26
 
 **1.0 第三步：并入 dsh-memprobe（※记 / ※办 / ※结 记录捕获）**

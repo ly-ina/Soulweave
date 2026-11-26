@@ -12,7 +12,7 @@
  */
 
 import { existsSync, readFileSync } from '../io.mjs'
-import { join } from 'node:path'
+import { join } from '../io.mjs'
 
 /** 中文 → 英文检索词。与 `skills/gamedev/find.mjs` 的 ZH 逐字一致（C14 校验）。 */
 export const GAMEDEV_ZH = {
@@ -147,3 +147,4 @@ export default {
   scoreGamedev,
   searchGamedev,
 }
+

@@ -5,7 +5,7 @@
  */
 
 import { readFileSync } from '../io.mjs'
-import { join } from 'node:path'
+import { join } from '../io.mjs'
 import { renderZoneLine } from './zones.mjs'
 import { asInt, asText, clip, estimateTokens, sha256 } from './text.mjs'
 import { DEFAULT_SOUL_STABLE_TOKENS, DEFAULT_SOUL_STATE_TOKENS, DEFAULT_SOUL_TOKENS, DEFAULT_SOUL_WARN_TOKENS, HINTS, MEMORY_SECTION, SOUL_SECTION_CAP, SOUL_SECTIONS, SOUL_STATE_MAX_CHARS, SOUL_TOKEN_CEILING, FEEDBACK_SECTION, ALIAS_TO_STANDARD, ROUTER_SAFETY } from './constants.mjs'
@@ -615,3 +615,4 @@ export function planSoulSplit(input = {}) {
 }
 
 /** 动态段的消息来源：与稳定段的 `soul` 分开，`countSoulNodes` 才数得清各自几条。 */
+

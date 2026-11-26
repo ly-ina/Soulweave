@@ -14,7 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
 
-import { join } from 'node:path'
+import { join } from '../io.mjs'
 
 export const MEMORY_TABLES = Object.freeze(['soul', 'rules', 'user', 'project', 'fact', 'topic', 'lesson'])
 export const CUE_TABLE = 'cue'
@@ -318,3 +318,4 @@ export function cueStats(dbPath) {
 }
 
 export default { buildCue, planCues, applyCues, readCueMap, scoreCue, runCue, cueStats, MAX_TOKENS, MIN_TOKENS }
+

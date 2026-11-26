@@ -9,7 +9,10 @@
 ```
 dsh-soulweave/
 ├── index.js              # 插件入口：导出 apply(ctx, config)
-├── io.mjs                # 宿主环境唯一入口（fs / os / env / spawn / path）
+├── io.mjs                # 宿主门面（零 node:，注入式；对接 Node 见 io-node.mjs）
+├── io-node.mjs           # Node 实现：fs / os / env / spawn / zstd / 动态加载
+├── path.mjs              # 零依赖路径运算（node:path 的替身）
+├── sha256.mjs            # 零依赖 SHA-256（node:crypto 的替身）
 ├── cordis.patch.yml      # 默认配置（profile 里写了 config 会整体覆盖它）
 ├── soul.example.md       # 人格模板
 ├── panel-client.js       # 侧边栏设置面板（可选）
@@ -37,18 +40,24 @@ adapters/dsh  →  core  →  memory
 
 `node tools/check-layers.mjs` 会拦下这些：
 
-- `core/`、`memory/` 直接 `import node:fs|os|child_process|process`（必须走 `io.mjs`）；
+- `core/`、`memory/`、`storage/` import **任何** `node:*`（1.0 起，连 `path` / `crypto` / `url` 也不行）；
 - `core/`、`memory/` 读写 `process.env` / `process.cwd()`；
 - `memory/` 反向 import `core/`；
-- `core/hybrid.mjs` 与 `memory/hybrid.mjs` 不一致。
+- `core/hybrid.mjs` 与 `memory/hybrid.mjs` 不一致；
+- 除 `storage/driver.mjs` 外任何文件 import `node:sqlite`。
 
-`io.mjs` 放在根目录而不是 `core/`，因为 `memory/` 也要用它——放 `core/` 就成了反向依赖。
+`io.mjs` 放在根目录而不是 `core/`，因为 `memory/`、`storage/` 也要用它——放 `core/` 就成了反向依赖。
 
 ### 为什么要有 `io.mjs`
 
 - **可测**：`configureIo({ readFileSync: () => { throw ... } })` 能注入只读磁盘、缺文件、spawn 失败，不用真去改权限。
-- **可移植**：`env()` / `cwd()` / `platform()` 集中一处，移植到别的宿主只改这一个文件。
-- **可审计**：`grep -r "node:fs" core/ memory/` 应该只命中 `io.mjs` 的 re-export。
+- **可移植**：`env()` / `cwd()` / `platform()` 集中一处；宿主实现（`io-node.mjs`）是唯一碰 `node:` 的地方。
+- **可审计**：`grep -r "node:" core/ memory/ storage/` 只该命中 `storage/driver.mjs` 的 `node:sqlite`。
+- **可脱离 Node**：`node --experimental-loader ./tools/no-node-loader.mjs tools/probe-no-node.mjs`
+  拒绝解析任何 `node:*` 仍能 import SDK —— 这条已经接进 `check.mjs` R33⑥，退化即红。
+
+`path.mjs` 与 `sha256.mjs` 是纯函数，不做注入：路径解析和哈希不依赖宿主，
+放进注入表只会让每个调用点多一层间接。
 
 ## soul.md 格式
 

@@ -11,7 +11,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
 
-import { dirname, join } from 'node:path'
+import { dirname, join } from '../io.mjs'
+
+const textDecoder = new TextDecoder()
 
 export const CAPABILITIES_FILE = join('notes', 'capabilities.md')
 export const DEFAULT_DAYS = 30
@@ -93,7 +95,7 @@ export function countCalls(dbPath, { days = DEFAULT_DAYS } = {}) {
     }
     const regex = /"toolName":"([A-Za-z0-9_-]{1,64})"/g
     for (const row of rows) {
-      const text = Buffer.from(row.bytes).toString('utf8')
+      const text = textDecoder.decode(row.bytes)
       let hit
       while ((hit = regex.exec(text)) !== null) counts.set(hit[1], (counts.get(hit[1]) ?? 0) + 1)
       regex.lastIndex = 0
@@ -247,3 +249,4 @@ export default {
   suggestTools,
   suggestToolsWithReasons,
 }
+

@@ -9,9 +9,9 @@
  */
 import { appendFileSync, existsSync, mkdirSync } from '../io.mjs'
 import { openReadonly, openReadWrite } from '../storage/index.mjs'
-import { createHash } from 'node:crypto'
+import { createHash } from '../sha256.mjs'
 
-import { join } from 'node:path'
+import { join } from '../io.mjs'
 
 export const JACCARD_THRESHOLD = 0.45
 export const HOT_KEYWORD_THRESHOLD = 6
@@ -414,3 +414,5 @@ export function writeAuditNote(report, { notesDir, dateKey: key = dayKey(), now 
   appendFileSync(file, `${lines.join('\n')}\n`, 'utf8')
   return file
 }
+
+

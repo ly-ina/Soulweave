@@ -5,7 +5,7 @@
  */
 
 import { env, existsSync, homedir, mkdirSync, platform, readFileSync, readdirSync, writeFileSync } from '../io.mjs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from '../io.mjs'
 import { CHARS_PER_TOKEN, resolveTierBudget } from './tier.mjs'
 import { DEFAULT_SOUL_STABLE_TOKENS, DEFAULT_SOUL_STATE_TOKENS, SOUL_STATE_MAX_CHARS, MESSAGE_KIND, SOUL_SECTIONS, SECTION_ALIASES, FEEDBACK_SECTION, FEEDBACK_ALIASES, SOUL_TOKEN_CEILING, DEFAULT_SOUL_WARN_TOKENS, HARD_SOUL_TOKENS, TOTAL_TOKENS, DEFAULT_SOUL_TOKENS, RECALL_MAX_CHARS, MEMORY_LEVELS, MEMORY_HEAD_LIMIT, INJECTION_CLASSES, YIELD_ORDER, HINTS } from './constants.mjs'
 import { PLUGIN_DIR, asInt, asText, dsHome } from './text.mjs'
@@ -447,3 +447,4 @@ export function readRouterLines(path) {
     return []
   }
 }
+

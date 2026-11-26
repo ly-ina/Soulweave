@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
 
-import { join } from 'node:path'
+import { join } from '../io.mjs'
 import { tableColumns } from './text.mjs'
 import { MEMORY_LEVELS } from './constants.mjs'
 import { textOfMessage } from './budget.mjs'
@@ -194,3 +194,4 @@ export function maybeRunProbe(config, at, dreamTurn) {
  * 三期 A5：dream 收尾那轮跑一次 `soul_tier preview`，结果只写 `soul.log`（`tier=名单/超线/字符`）。
  * 7 天一次（`stateDir/tier-state.json` 记上次时间）；**只 preview，不落库** —— apply 只能人工触发。
  */
+

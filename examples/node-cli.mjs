@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * examples/node-cli.mjs —— 「不装 DSH 也能用」的最小证明。
  *
@@ -6,6 +6,10 @@
  * 不碰 index.js / adapters / 任何 ctx。
  * 跑：node examples/node-cli.mjs
  */
+// 1.0：Node 的 IO 与 sqlite 驱动要显式装配（非 Node 宿主改 configureIo）。
+import '../io-node.mjs'
+import '../storage/node-sqlite.mjs'
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -36,3 +40,4 @@ try {
   // Windows 上 SQLite 句柄未释放会锁目录；临时目录交给系统清理，不影响示例结论。
 }
 console.log('OK：不装 DSH、不碰 ctx，memory + core 可用')
+

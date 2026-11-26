@@ -3,7 +3,7 @@
  * tools/check-layers.mjs —— 依赖方向与宿主隔离守卫。
  *
  * 规则（解耦交办单 §1 + 2026-11-24 第九刀）：
- *   core/、memory/ 只许 import `node:*` 或相对路径；
+ *   core/、memory/、storage/ 一律不许 import `node:*`（1.0 起；宿主能力经根 io.mjs 注入）；
  *   memory/ 不许反向 import core/；
  *   any 层都不许 import dsh / cordis / @deepseek* / adapters（宿主耦合只能在 adapters/dsh/）。
  *   ★ core/** 除 core/io.mjs 外，不许 import node:fs / node:os / node:child_process；
@@ -20,7 +20,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const layers = ['core', 'memory', 'storage']
 const FORBIDDEN = [/^dsh(\/|$)/, /^cordis(\/|$)/, /^@deepseek/, /(^|\/)adapters\//]
 const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s[^\n]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
-const HOST_MODULES = /^node:(fs|os|child_process|process)(\/|$)/
+
 const SQLITE_OWNER = 'storage/driver.mjs'
 const ENV_READ_RE = /\bprocess\.(env|cwd)\b/
 const IO_ENTRY = 'io.mjs'
@@ -61,14 +61,18 @@ for (const layer of layers) {
       if (spec.startsWith('node:')) {
         // 存储驱动收口：整个仓库只有 storage/driver.mjs 能碰 node:sqlite。
         // 上层要库就 import storage/index.mjs 的 openReadonly / openReadWrite。
-        if (spec === 'node:sqlite' && rel !== SQLITE_OWNER) {
-          problems.push(`${rel}: node:sqlite 只许在 ${SQLITE_OWNER} 里 import；改用 ../storage/index.mjs`)
+        if (spec === 'node:sqlite') {
+          if (rel !== SQLITE_OWNER) {
+            problems.push(`${rel}: node:sqlite 只许在 ${SQLITE_OWNER} 里 import；改用 ../storage/index.mjs`)
+          }
           continue
         }
-        if (HOST_MODULES.test(spec) && !isIoEntry) {
-          // 提示必须指向**真实存在**的出口：io.mjs 在仓库根，不是 core/ 下。
-          // 且 memory/ 也不许 import core/，所以两层都用同一个相对路径 '../io.mjs'。
-          problems.push(`${rel}: ${layer}/ 层不许直接 import ${spec}；改用根 io.mjs：import { … } from '../io.mjs'`)
+        if (layer === 'core' || layer === 'memory' || layer === 'storage') {
+          // 1.0：core/ memory/ storage/ 一律不碰 node:*，宿主能力经根 io.mjs 注入
+          // （Node 实现在 io-node.mjs，插件入口与 check 脚本负责装配）。
+          problems.push(
+            `${rel}: ${layer}/ 层不许 import ${spec}；宿主能力经 io.mjs 注入（Node 实现在 io-node.mjs）`,
+          )
         }
         continue
       }
@@ -115,7 +119,7 @@ try {
 }
 
 if (problems.length === 0) {
-  console.log(`PASS 依赖方向：${scanned} 个文件，core/memory/storage 全部零宿主依赖；core 宿主入口仅 ${IO_ENTRY}；node:sqlite 仅 ${SQLITE_OWNER}`)
+  console.log(`PASS 依赖方向：${scanned} 个文件，core/memory/storage 全部零 node: 依赖；宿主实现只在 io-node.mjs；node:sqlite 仅 ${SQLITE_OWNER}`)
   process.exit(0)
 }
 console.error(`FAIL 依赖方向：${problems.length} 处违规`)

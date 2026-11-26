@@ -14,7 +14,7 @@
  */
 
 import { existsSync, mkdirSync } from '../io.mjs'
-import { dirname, join } from 'node:path'
+import { dirname, join } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
 
 const DAY = 86_400_000
@@ -323,3 +323,4 @@ export function applyDecay(dbPath, picks, options = {}) {
     db.close()
   }
 }
+

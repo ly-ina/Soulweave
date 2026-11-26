@@ -10,6 +10,10 @@ export const name = 'soulweave'
 /** §9.4：需要动 `ctx.tools` 就必须经 inject 声明。 */
 export const inject = ['tools', 'webServer']
 
+// 宿主装配：Node 的 IO 与 sqlite 驱动。必须排在其它 import 之前（ESM 按声明顺序求值）。
+import './io-node.mjs'
+import './storage/node-sqlite.mjs'
+
 import { MESSAGE_KIND } from './core/constants.mjs'
 import { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools } from './adapters/dsh/apply.mjs'
 import { createPreStepHandler } from './adapters/dsh/prestep.mjs'

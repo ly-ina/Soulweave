@@ -14,7 +14,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from '../io.mjs'
-import { join, basename } from 'node:path'
+import { join, basename } from '../io.mjs'
 
 /** 固定区。区名进不了 tags（§1：区本身不重复写进 tags）。 */
 export const ZONES = Object.freeze({
@@ -257,3 +257,4 @@ export function searchZones(zoneMap, { query = '', zone = '', tags = [], limit =
     note: entries.length === 0 ? (words.length > 0 ? '这个区/标签下没有这些词' : '该区还没有条目') : '',
   }
 }
+

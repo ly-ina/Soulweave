@@ -2,10 +2,22 @@
  * recall —— 三源检索、原文库/规则/笔记搜索、persist（零宿主依赖）。
  */
 
-import { envAll, existsSync, platform, readFileSync, readdirSync, spawnProcess, statSync, writeFileSync } from '../io.mjs'
-import { createRequire } from 'node:module'
-import { join, resolve, relative, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import {
+  envAll,
+  existsSync,
+  join,
+  pathToFileURL,
+  platform,
+  readFileSync,
+  readdirSync,
+  relative,
+  requireResolve,
+  resolve,
+  sep,
+  spawnProcess,
+  statSync,
+  writeFileSync,
+} from '../io.mjs'
 import * as builtinMemory from '../memory/builtin.mjs'
 import { PLUGIN_DIR, asText, asInt, clip, estimateTokens, dsHome } from './text.mjs'
 import { RECALL_MAX_CHARS } from './constants.mjs'
@@ -44,7 +56,7 @@ export async function resolveSealedModule(options = {}) {
   }
   for (const base of packageRequireBases()) {
     try {
-      const file = createRequire(base).resolve(spec)
+      const file = requireResolve(base, spec)
       return { module: await import(pathToFileURL(file).href), via: 'require' }
     } catch {
       /* 下一个候选 */
@@ -547,3 +559,4 @@ export function createPersist(config) {
     return { ok: true, mode, added: lines.length, pending: pending.length - lines.length, text: [head, ...lines].join('\n') }
   }
 }
+

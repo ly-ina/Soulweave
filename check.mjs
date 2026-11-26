@@ -5,6 +5,9 @@
  *
  * 复跑：node check.mjs（夹具路径一律 os.tmpdir() 派生，不指向任何本机目录）
  */
+import './io-node.mjs'
+import './storage/node-sqlite.mjs'
+
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
@@ -3689,7 +3692,9 @@ await test('R24', '魂织第九刀：库打不开时读/写都优雅降级，不
   } finally {
     resetIo()
   }
-  assert.equal(ioStatus().injected, false, 'resetIo 后必须恢复真实实现')
+  assert.ok(ioStatus().injected, 'resetIo 后必须恢复宿主基线（不是空实现）')
+  mkdirSync(join(root, 'r24-probe'), { recursive: true })
+  assert.ok(existsSync(join(root, 'r24-probe')), 'resetIo 后 mkdirSync 必须真的能建目录')
   // 2) 库路径是目录：DatabaseSync 构造必抛，ensureDb 应兜住返回 null
   const dirAsDb = join(root, 'r24-not-a-db')
   mkdirSync(dirAsDb, { recursive: true })
@@ -4121,7 +4126,7 @@ await test('R33', 'SDK 承诺面：不碰宿主、核心导出必须在、且不
       ...src.matchAll(/^\s*import\s+['"]([^'"$]+)['"]/gm),
     ].map((x) => x[1])
     for (const spec of specs) {
-      if (spec.startsWith('node:')) continue
+      if (spec.startsWith('node:')) { bad.push(`${basename(file)} -> ${spec}（SDK 面不许碰 node:）`); continue }
       if (!spec.startsWith('.')) { bad.push(`${basename(file)} -> ${spec}`); continue }
       const next = join(dirname(file), spec)
       if (next.includes('adapters')) { bad.push(`${basename(file)} -> ${spec}`); continue }
@@ -4151,6 +4156,19 @@ await test('R33', 'SDK 承诺面：不碰宿主、核心导出必须在、且不
   // ⑤ 向后兼容：index.js 仍把不承诺面带出来，旧消费者零改动
   assert.equal(typeof normalizeConfig, 'function')
   assert.equal(typeof estimateTokens, 'function')
+
+  // ⑥ 1.0 硬验收：用一个拒绝一切 node:* 解析的 loader 再 import 一次 sdk.mjs。
+  //    静态扫描会漏掉动态 import 与间接链；这条是运行时真拒绝。
+  const probe = execFileSync(
+    process.execPath,
+    [
+      '--experimental-loader',
+      pathToFileURL(join(HERE, 'tools', 'no-node-loader.mjs')).href,
+      join(HERE, 'tools', 'probe-no-node.mjs'),
+    ],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  )
+  assert.match(probe, /sdk 导出数: 19/, 'loader 探针应报 19 个导出')
 })
 
 for (const r of results) {

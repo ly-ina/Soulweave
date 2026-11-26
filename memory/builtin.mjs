@@ -12,8 +12,8 @@
  */
 
 import { existsSync, mkdirSync } from '../io.mjs'
-import { dirname } from 'node:path'
-import { createHash } from 'node:crypto'
+import { dirname } from '../io.mjs'
+import { createHash } from '../sha256.mjs'
 import { openDatabase } from '../storage/index.mjs'
 import { anchorOf } from './anchor.mjs'
 
@@ -785,3 +785,5 @@ export function putCue(dbPath, id, cue) {
     }
   }
 }
+
+

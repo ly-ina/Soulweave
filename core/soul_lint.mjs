@@ -18,11 +18,21 @@
  * 这是刻意的：宁可漏报，不要拿一堆「像但不同」的条目让人一条条看。
  */
 
-import { env, existsSync, homedir, readFileSync, readdirSync } from '../io.mjs'
+import {
+  basename,
+  cliArgs,
+  dirname,
+  env,
+  existsSync,
+  fileURLToPath,
+  homedir,
+  isMainModule,
+  join,
+  readFileSync,
+  readdirSync,
+  resolve,
+} from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
-
-import { basename, dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { scanZones } from './zones.mjs'
 
@@ -320,7 +330,7 @@ function render(report, targets) {
 }
 
 function main() {
-  const argv = process.argv.slice(2)
+  const argv = cliArgs()
   const targets = resolveTargets(argv)
   const report = lint(targets)
   if (argv.includes('--json')) {
@@ -346,7 +356,7 @@ function main() {
   console.log(render(report, targets))
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+const invokedDirectly = isMainModule(import.meta.url)
 if (invokedDirectly) {
   try {
     main()
@@ -355,3 +365,4 @@ if (invokedDirectly) {
     process.exit(1)
   }
 }
+

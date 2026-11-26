@@ -14,21 +14,23 @@
  *   - 句柄形状与 node:sqlite 的 DatabaseSync 相同（prepare/exec/close），
  *     所以调用点只需要把 `new DatabaseSync(p, {readOnly:true})` 换成 `openReadonly(p)`。
  */
-import { existsSync, mkdirSync, statSync } from '../io.mjs'
-import { dirname } from 'node:path'
-import { sqliteDriver } from './driver.mjs'
+import { existsSync, mkdirSync, statSync, dirname } from '../io.mjs'
 
-let current = sqliteDriver
+let current = null
 
-/** 替换驱动。传 null / 不传 → 复位成默认 sqlite。 */
+/**
+ * 替换驱动。传 null / 不传 → 复位成「没有驱动」。
+ * 1.0 起本层不再自带默认实现：Node 用户 import 'soulweave/storage-node-sqlite'
+ * （插件入口 index.js 已经替你做了），其它宿主 configureStorage(自己的驱动)。
+ */
 export function configureStorage(driver = null) {
-  current = driver ?? sqliteDriver
+  current = driver
   return current
 }
 
 /** 当前驱动名（自检/申报用）。 */
 export function storageDriverName() {
-  return current.name ?? 'unknown'
+  return current?.name ?? 'none'
 }
 
 function usableFile(dbPath) {
@@ -102,3 +104,4 @@ export function withReadonly(dbPath, fn, fallback) {
     closeQuietly(db)
   }
 }
+

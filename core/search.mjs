@@ -6,7 +6,7 @@
 import { existsSync } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
 
-import { join } from 'node:path'
+import { join } from '../io.mjs'
 import * as builtinMemory from '../memory/builtin.mjs'
 import { inspectLegacyDb } from '../memory/legacy.mjs'
 import { readCueMap, scoreCue } from './cue.mjs'
@@ -364,3 +364,4 @@ export function searchMemoryByCue(db, words, limit, cueMap, columnsOf = tableCol
  * 解析封存源模块（§B）：显式路径优先 → 包名 import → 用 profile 的 node_modules 解析包名。
  * 三处都失败就返回 `{module:null}`，由调用方写进 note，不再有写死的同级目录回落。
  */
+

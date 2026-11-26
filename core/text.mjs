@@ -4,11 +4,10 @@
  * 2026-11-19 解耦第 1 块：从 index.js 原样搬出，逻辑未改。
  */
 
-import { appendFileSync, env, homedir, mkdirSync } from '../io.mjs'
-import { createHash } from 'node:crypto'
+import { appendFileSync, env, fileURLToPath, homedir, mkdirSync } from '../io.mjs'
+import { createHash } from '../sha256.mjs'
 
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve } from '../io.mjs'
 
 /** CJK 判定（全角标点也算一个 token）。 */
 export const CJK = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]/
@@ -71,3 +70,5 @@ export function tableColumns(db, table) {
 export const CORE_DIR = dirname(fileURLToPath(import.meta.url))
 /** 包根目录（core/ 的上一级）。 */
 export const PLUGIN_DIR = resolve(CORE_DIR, '..')
+
+

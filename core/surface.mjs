@@ -16,15 +16,46 @@
  * 安全边界：默认 dry-run；apply 必须 confirm + 先整文件备份 + 写完立刻自检（不通过就自动还原）。
  */
 
-import { appendFileSync, copyFileSync, env, existsSync, homedir, readFileSync, readdirSync, statSync } from '../io.mjs'
-import { randomUUID } from 'node:crypto'
-
-import { basename, dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
+import {
+  appendFileSync,
+  basename,
+  cliArgs,
+  copyFileSync,
+  dirname,
+  env,
+  existsSync,
+  homedir,
+  isMainModule,
+  join,
+  readFileSync,
+  readdirSync,
+  statSync,
+  zstdCompressSync,
+  zstdDecompressSync,
+} from '../io.mjs'
 
 /** zstd 帧魔数：会话日志是「多帧拼接」，只按魔数切帧逐段解，普通解压只出第一帧。 */
-const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
+const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd])
+
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
+
+function utf8Bytes(value) {
+  return textEncoder.encode(String(value ?? ''))
+}
+
+/** 合并若干 Uint8Array（替代 Buffer.concat）。 */
+function concatBytes(list) {
+  let total = 0
+  for (const item of list) total += item.length
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const item of list) {
+    out.set(item, at)
+    at += item.length
+  }
+  return out
+}
 /** 魂引节点开头的字面量。 */
 export const SOUL_HEAD = '【魂引 · 人格】'
 /** 记忆快照节点开头的字面量。 */
@@ -62,7 +93,7 @@ export function decodeSessionLog(file) {
       badFrames += 1
     }
   }
-  const text = Buffer.concat(chunks).toString('utf8')
+  const text = textDecoder.decode(concatBytes(chunks))
   const events = []
   let badLines = 0
   for (const line of text.split('\n')) {
@@ -348,16 +379,16 @@ export function applySurfaceReplace(file, plan, { confirm = false, now = Date.no
           content: [{ type: 'text', text: foldStubText(range) }],
           source: { kind: FOLD_KIND },
           role: 'user',
-          id: randomUUID(),
+          id: globalThis.crypto.randomUUID(),
         },
         surfaceOp: { op: 'replace', startSeq: range.startSeq, endSeq: range.endSeq },
         sourceEventSeqs: range.rows.map((row) => row.seq),
       }
-      frames.push(zstdCompressSync(Buffer.from(`${JSON.stringify(event)}\n`, 'utf8')))
+      frames.push(zstdCompressSync(utf8Bytes(`${JSON.stringify(event)}\n`)))
       appended.push({ seq: event.seq, startSeq: range.startSeq, endSeq: range.endSeq, shadowed: event.sourceEventSeqs.length })
       next += 1
     }
-    appendFileSync(file, Buffer.concat(frames))
+    appendFileSync(file, concatBytes(frames))
     const verify = verifySurfaceAfter(file, {
       shadowedSeqs: plan.maskable.map((row) => row.seq),
       before: decoded.events.length,
@@ -459,7 +490,7 @@ export function applyViaSession(session, plan, { confirm = false, now = Date.now
           content: [{ type: 'text', text: foldStubText(range) }],
           source: { kind: FOLD_KIND },
           role: 'user',
-          id: randomUUID(),
+          id: globalThis.crypto.randomUUID(),
         },
         {
           surfaceOp: { op: 'replace', startSeq: range.startSeq, endSeq: range.endSeq },
@@ -568,9 +599,9 @@ export function findSessionLog(target) {
   return ''
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+const isMain = isMainModule(import.meta.url)
 if (isMain) {
-  const argv = process.argv.slice(2)
+  const argv = cliArgs()
   const argOf = (name, fallback = null) => {
     const at = argv.indexOf(`--${name}`)
     return at === -1 ? fallback : argv[at + 1]
@@ -599,3 +630,4 @@ if (isMain) {
   }
   process.exit(plan.ok ? 0 : 1)
 }
+

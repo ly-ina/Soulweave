@@ -7,6 +7,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import '../io-node.mjs'
+import '../storage/node-sqlite.mjs'
 import { anchorOf, health, initMemoryDb, listTodos, parseDue, putMemory, putTodo, search } from '../sdk.mjs'
 
 let pass = 0
@@ -43,3 +45,4 @@ try {
 
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'} sdk 契约：${pass} 通过 / ${fail} 失败`)
 process.exit(fail === 0 ? 0 : 1)
+

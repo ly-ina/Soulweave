@@ -6,6 +6,8 @@
  * configureStorage 能换驱动、换完复位。
  */
 import { DatabaseSync } from 'node:sqlite'
+import '../io-node.mjs'
+import '../storage/node-sqlite.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -78,7 +80,7 @@ try {
   ok('查询走假驱动', openReadonly(dbPath).prepare('select 1').get().v === 42)
   ok('readOnly 传下去了', calls.at(-1)?.opts?.readOnly === true)
   configureStorage(null)
-  ok('复位回 sqlite', storageDriverName() === 'node:sqlite')
+  ok('复位成无驱动（1.0 起默认不带驱动）', storageDriverName() === 'none')
 
   console.log('S6 closeQuietly 不抛')
   let threw = false

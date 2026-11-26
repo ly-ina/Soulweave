@@ -17,9 +17,12 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
 import { openDatabase } from '../storage/index.mjs'
-import { createHash } from 'node:crypto'
+import { createHash } from '../sha256.mjs'
 
-import { dirname, join } from 'node:path'
+import { dirname, join } from '../io.mjs'
+
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
 
 export const TOOLOUT_DIR = 'toolout'
 export const MIN_CHARS = 400
@@ -74,7 +77,7 @@ export function planToolOutputs(dbPath, { sessionId, recentTurns = RECENT_TURNS,
     let tokens = 0
     for (const row of rows) {
       if (Number(row.bytes) < minChars) continue
-      const text = Buffer.from(row.blob).toString('utf8')
+      const text = textDecoder.decode(row.blob)
       items.push({
         seq: Number(row.seq),
         msgId: String(row.msg_id),
@@ -158,7 +161,7 @@ export function applyToolout(dbPath, archiveRoot, plan, { stamp, log } = {}) {
     for (const [index, item] of plan.items.entries()) {
       const target = files[index]
       const text = pointerText(target.file, target.lines)
-      const buffer = Buffer.from(text, 'utf8')
+      const buffer = textEncoder.encode(String(text ?? ''))
       const hash = sha256(buffer)
       db.prepare('insert or ignore into content (hash, byte_len, refcount, algo, bytes) values (?,?,?,?,?)').run(
         hash,
@@ -202,7 +205,7 @@ export function restoreFromExport(dbPath, exportFile) {
   const seq = Number(head[1])
   const ref = head[2]
   const original = raw.slice(fence + '```text\n'.length, tail)
-  const buffer = Buffer.from(original, 'utf8')
+  const buffer = textEncoder.encode(String(original ?? ''))
   const hash = sha256(buffer)
   const db = openDatabase(dbPath)
   try {
@@ -241,3 +244,5 @@ export function runToolout(dbPath, archiveRoot, { mode = 'preview', sessionId, r
 }
 
 export default { estimateTokens, planToolOutputs, renderTooloutPlan, applyToolout, restoreFromExport, runToolout, turnCutoff }
+
+

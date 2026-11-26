@@ -1,6 +1,6 @@
 {
   "name": "@ly-ina/dsh-soulweave",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": false,
   "type": "module",
   "description": "Soulweave: a small soul layer for DeepSeek Harness. Injects a token-budgeted persona/now/how-to-look-up preamble via agent/pre-step, and exposes soul_recall over an optional memory backend (builtin SQLite / meow-memory / none) plus notes, sealed segments, an optional text index and an optional rules directory. Read-only towards soul.md; only soul_persist appends to its fourth section.",
@@ -30,12 +30,17 @@
     "./memory": "./memory/index.mjs",
     "./storage": "./storage/index.mjs",
     "./sdk": "./sdk.mjs",
+    "./io-node": "./io-node.mjs",
+    "./storage-node-sqlite": "./storage/node-sqlite.mjs",
     "./client": "./panel-client.js"
   },
   "files": [
     "index.js",
     "sdk.mjs",
     "io.mjs",
+    "io-node.mjs",
+    "path.mjs",
+    "sha256.mjs",
     "panel-client.js",
     "core/",
     "memory/",
@@ -73,3 +78,6 @@
     "node": ">=22.5"
   }
 }
+
+
+

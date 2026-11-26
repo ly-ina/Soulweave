@@ -93,16 +93,21 @@ core|memory/*.mjs  →  storage/index.mjs  →  storage/driver.mjs  →  node:sq
 
 ---
 
-**c. 剥离 node 内置依赖（1.0 的最后一刀，2026-11-26 只立了基线，未开工）**
-- 基线：`import sdk.mjs` → `io.mjs` → `node:fs`，第一块砖就断（`6253e6b`）
-- 现状：`core/` `memory/` `storage/` 共 25 个文件、40 处 `node:`——path ~20 / crypto 5 / url 4 / zlib 1 / module 1 / sqlite 1
-- 为什么「宿主外冒烟」不算数：它只证明了不依赖 DSH，没证明不依赖 Node
-- 三刀（从外往里）：
-  1. **storage**：`index.mjs` 不再静态 import `driver.mjs`；Node 驱动挪到 `storage/node-sqlite.mjs`，由宿主显式 `configureStorage()`
-  2. **io**：`io.mjs` 拆成零 `node:` 的门面 + `io-node.mjs` 默认实现
-  3. **core/memory**：path / crypto / url / zlib 全走 io 门面；`check-layers.mjs` 加一条「core/memory 禁止 import `node:*`」
-- 验收：`node --experimental-loader ./tools/no-node-loader.mjs tools/probe-no-node.mjs` 全绿（现在是红的，这就是进度条）
-- 代价：剥离后 **Node 用户也要多两行**注册驱动 / IO；对外契约破坏性变更，1.0 一起做
+**c. 剥离 node 内置依赖（1.0 的最后一刀，2026-11-26 ✅ 已完工）**
+- 验收：`node --experimental-loader ./tools/no-node-loader.mjs tools/probe-no-node.mjs` → 19 导出全绿；
+  已接进 `check.mjs` R33⑥（`execFileSync` 真跑一次 loader，退化就红）
+- 结果：`core/` `memory/` `storage/` 共 **0 处 `node:`**（`storage/driver.mjs` 的 `node:sqlite` 是唯一豁免，
+  由 `check-layers.mjs` 定点放行）
+- 落地方式（与原来估的三刀略有调整，更少注入）：
+  1. **path** → 自写 `path.mjs`（零依赖，纯字符串，双平台自判；23 条与 `node:path` 对照，差异只剩「win32 下把 posix 路径也当 win」这种平台差）
+  2. **crypto** → 自写 `sha256.mjs`（纯 JS SHA-256，8 条含长输入跨块对照全等）
+  3. **url** → `io.mjs` 里的 `fileURLToPath` / `pathToFileURL` / `isMainModule`（纯字符串 + 标准 `URL`）
+  4. **io** → `io.mjs` 零 `node:` 门面（注入式，未装配给明确报错）+ `io-node.mjs` Node 实现；`configureIo` 首次调用记为「基线」，`resetIo` 回基线（不是回空）
+  5. **storage** → `index.mjs` 不再静态 import 驱动；`storage/node-sqlite.mjs` 显式注册；`configureStorage(null)` 现在是「无驱动」而非「回 sqlite」
+  6. **zlib / module / Buffer / process.argv** → 分别走 io 注入、`globalThis.crypto.randomUUID`、`TextEncoder/TextDecoder`
+- 装配：`index.js` 前两行 import io-node + storage-node-sqlite；`package.json` 新增 `./io-node`、`./storage-node-sqlite` 两个导出
+- 代价：**Node 用户确实多了两行**（见 `EMBEDDING.md` §1），SDK 面本身零 Node
+- 全量回归：`check.mjs` 120/120 + O* 11/11；`smoke-sdk` 10、`smoke-storage` 17、`smoke-records` 14、`stress-lifecycle` 100/100；`gen-api --check` PASS；三个 example 全部跑通
 
 ## 4. 今天（11-25）已经办完的，明天别重做
 

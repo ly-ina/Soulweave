@@ -13,6 +13,10 @@
  *
  * 跑：node examples/sdk-quickstart.mjs
  */
+// 1.0：Node 的 IO 与 sqlite 驱动要显式装配（非 Node 宿主改 configureIo）。
+import '../io-node.mjs'
+import '../storage/node-sqlite.mjs'
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -135,3 +139,4 @@ console.log(`
 
      但先手动跑几轮 node tools/route-records.mjs --dry-run 看命中率，再接实时。
 `)
+

@@ -1,72 +1,110 @@
-# 嵌入说明（现状）
+# 嵌入说明（1.0）
 
-> **这不是 SDK 文档。** 魂织目前是一个 DSH 插件，下面写的是「把它的两层库拿进别的 Node 程序」时**现在真实能用**的部分、**必须自己补**的部分，以及三个已知的坑。
->
-> 接口不承诺稳定，随时可能改。跑得通的样例见 `examples/embed-demo.mjs`。
+> 这是 `@ly-ina/dsh-soulweave/sdk` 的接入指南。19 个承诺导出，**零 `node:` 依赖**——
+> 静态扫描和运行时 loader 两道都验过（`tools/probe-no-node.mjs`）。
+> 跑得通的样例：`examples/sdk-quickstart.mjs`（10 条断言）、`examples/embed-demo.mjs`。
 
-## 1. 能用什么
+## 1. 先装配（Node 两行）
 
-| 入口 | 内容 | 宿主依赖 |
-|---|---|---|
-| `@ly-ina/dsh-soulweave/core` | 人格解析、稳定段/动态段组装、预算、检索、评分、token 估算 | 零 |
-| `@ly-ina/dsh-soulweave/memory` | SQLite 记忆库、检索、when 情境签名、tier 降权 | 零（只用 `node:sqlite`） |
-
-要求 **Node ≥ 22.5**（`node:sqlite` 内置）。零 npm 依赖，不用构建。
-
-根入口 `.`（`index.js`）是 **DSH 插件**，带 `inject = ['tools', 'webServer']`，它不是库入口。
-
-## 2. 一轮对话的最小顺序
+SDK 面只保证「算得对」，不替宿主选文件系统、也不替宿主选 sqlite 实现。
+Node 下把这两行放在所有 import 之前：
 
 ```js
-// A) 直接 clone 下来运行：用相对路径（demo 就是这么跑的）
-import { ensureDb, putMemory, search } from './memory/index.mjs'
-import { parseSoul, composeSoulStable } from './core/soul.mjs'
-
-// B) 装进你自己的项目后（npm install <这个目录>），才能用包名：
-// import { ensureDb, putMemory, search } from '@ly-ina/dsh-soulweave/memory'
-// import { parseSoul, composeSoulStable } from '@ly-ina/dsh-soulweave/core'
-
-// 1) 人格：每人一份 soul 文本
-const soul = parseSoul(soulText)           // 认「## 身份 / ## 认知 / ## 禁令 / ## 外交」四节
-
-// 2) 记忆：用户说过的话
-ensureDb(dbPath)
-putMemory(dbPath, { level: 'user', project: 'demo', content: '他最近在准备辞职，很焦虑' })
-
-// 3) 按当前这句话检索
-const hits = search(dbPath, ['辞职', '焦虑'], 5)   // → { entries: [{ loc, snippet }], note }
-
-// 4) 拼成可注入的文本
-const stable = composeSoulStable({ soul })         // → { text, tokens, take, warnings }
-const injection = [stable.text, ...hits.entries.map((e) => `- ${e.snippet}`)].join('\n\n')
+import '@ly-ina/dsh-soulweave/io-node'                // fs / os / path / zstd / 动态加载
+import '@ly-ina/dsh-soulweave/storage-node-sqlite'    // node:sqlite 驱动
 ```
 
-`composeSoulStable` 只出「稳定段」（身份/认知/禁令）。时间、工作区、未结计数这些每轮会变的东西在 `composeSoulState`，要自己调——两者分开是为了不破坏前缀缓存。
+然后只用承诺面：
 
-## 3. 三个坑
+```js
+import { initMemoryDb, putMemory, search, health } from '@ly-ina/dsh-soulweave/sdk'
+```
+
+漏了装配会得到一条明确的错（`soulweave: 宿主 IO 未配置（readFileSync）…`），
+不会静默写坏东西。
+
+## 2. 不是 Node 的宿主
+
+`configureIo({...})` 注入宿主能力，`configureStorage(driver)` 注入存储驱动。
+需要实现的方法看 `io.mjs` 里的 `empty` 表，最少这几个：
+
+| 能力 | 必须 | 说明 |
+|---|---|---|
+| `readFileSync / writeFileSync / appendFileSync` | 是 | 读 soul、写笔记与日志 |
+| `existsSync / mkdirSync / statSync / readdirSync` | 是 | 路径探测与建目录 |
+| `homedir / env / cwd / argv / platform` | 是 | 找配置、找会话目录 |
+| `zstdCompressSync / zstdDecompressSync` | 否 | 只有会话日志解析（`surface.mjs`）用 |
+| `requireResolve / spawnProcess` | 否 | 只有可选插件加载与原文库检索用 |
+| `driver` | 是 | 形状 = `node:sqlite` 的 `DatabaseSync`：`open(path,{readOnly})` → `{prepare,exec,close}` |
+
+浏览器里**不能**直接用：这套库的持久化就是 SQLite 文件，没有远端后端。
+要上 Web，得先写一个走 HTTP 的 driver —— 契约只有 `open/prepare/exec/close`，
+但 `prepare().all()/get()/run()` 的同步语义意味着后端必须是同步可用的（Worker + SharedArrayBuffer 或本地缓存）。
+
+## 3. 一轮对话的最小顺序
+
+```js
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import '@ly-ina/dsh-soulweave/io-node'
+import '@ly-ina/dsh-soulweave/storage-node-sqlite'
+import {
+  initMemoryDb, putMemory, search, putTodo, listTodos, parseDue, anchorOf,
+  composeSoulState, renderDueLine, routeRecords, health,
+} from '@ly-ina/dsh-soulweave/sdk'
+
+const db = join(mkdtempSync(join(tmpdir(), 'soulweave-')), 'memory.db')
+initMemoryDb(db)                                        // 建表；幂等
+
+putMemory(db, { level: 'user', project: 'demo', content: '他最近在准备辞职，很焦虑' })
+search(db, ['辞职', '焦虑'], 5)                          // → { entries: [{ loc, snippet }], note }
+
+putTodo(db, { content: '周三前把简历改完', due: '周三' })
+listTodos(db, { status: 'pending' })
+anchorOf('t-mwx3p1cz-tut9')                              // → 'tut9'，※结 靠它结账
+parseDue('一小时内')                                      // → { at, iso, kind, matched, … }
+
+health(db)                                               // → { ok, stage, records, journalMode, … }
+```
+
+`composeSoulState` 出的是每轮会变的段（时间、工作区、未结数）；稳定段另有实现，
+分开是为了不破坏前缀缓存。
+
+## 4. 三个坑
 
 **① 决策层不在这一层。**
-「什么时候注入、每轮几条、冷却多久、超预算怎么砍」全在 `adapters/dsh/prestep.mjs` 里，和 DSH 的 `agent/pre-step` 钩子长在一起。这些状态是**进程内 Map**（`whenCooled` / `recallCooled` / `triggerCooled` / `stableSent`），多实例会各算各的，重启就清空。服务端要自己实现。
+「什么时候注入、每轮几条、冷却多久、超预算怎么砍」都在 `adapters/dsh/prestep.mjs`，
+和 DSH 的 `agent/pre-step` 钩子长在一起。这些状态是**进程内 Map**
+（`whenCooled` / `recallCooled` / `triggerCooled` / `stableSent`），多实例各算各的，重启清空。
+服务端要自己实现。
 
 **② 多用户要自己隔离。**
-灵魂和记忆库都是「一份 per 用户」：每用户一个 `soul` 文本 + 一个 `memory.db`。SQLite 记得开 `WAL` + `busy_timeout`，否则同一用户多端同时聊会 `SQLITE_BUSY`。
+每用户一份 soul 文本 + 一个 `memory.db`。SQLite 记得开 `WAL` + `busy_timeout`，
+否则同一用户多端同时聊会 `SQLITE_BUSY`。
 
 **③ 检索是纯子串 AND，没有分词。**
-`search()` 把查询词和 `title + content + keywords + project` 做小写子串匹配，**所有词都命中才算**。中文没有分词：记忆里写「很焦虑」，用户说「心里堵得慌」——一个字都命中不了。
-情感聊天场景建议自己换检索（向量、或者先过一遍关键词抽取）。
+`search()` 把查询词和 `title + content + keywords + project` 做小写子串匹配，**所有词都命中才算**。
+中文没有分词：记忆里写「很焦虑」，用户说「心里堵得慌」——一个字都命中不了。
+情感聊天场景建议自己换检索（向量，或先过一遍关键词抽取）。
 
-## 4. 不在这两层里的东西
+## 5. 不在这层里的东西
 
 - 注入时机与去重（DSH 钩子层）
-- 每轮 token 预算的**执行**（`planBudget` 在 core 里，但要不要按它砍、怎么砍，由调用方决定）
+- 每轮 token 预算的**执行**（`planBudget` 在 core 里，砍不砍由调用方决定）
 - 面板 UI、配置写入、cordis 插件装配
-- 加密（魂织不提供，记忆库是明文 SQLite）
+- 加密（不提供，记忆库是明文 SQLite）
 
-## 5. 想反馈什么
+## 6. 稳定性
 
-用真实对话跑过之后，最有用的是这四条：
+`sdk.mjs` 的 19 个导出是承诺面，`check.mjs` 的 R33 守着三条：
+不许碰 `node:`、必须齐、不许无限膨胀（上限 40）。
+更深的模块（`core/*`、`memory/*`）随时可能改，但都不会引入 `node:` ——
+这一条由 `tools/check-layers.mjs` 机器守着。
+
+## 7. 想反馈什么
 
 1. 十句真实对话里，检索**命中了哪些、漏了哪些**
-2. soul 文本里，有哪想写的写不进去（现在只认四节）
+2. soul 文本里，有哪想写的写不进去
 3. 哪里最想有个现成函数、却只能自己拼
-4. 单用户一轮注入多少 token（demo 里是 100）
+4. 单用户一轮注入多少 token

@@ -3,7 +3,7 @@
  */
 import { MESSAGE_KIND } from './constants.mjs'
 import { cwd } from '../io.mjs'
-import { isAbsolute } from 'node:path'
+import { isAbsolute } from '../io.mjs'
 import { asText } from './text.mjs'
 import { scanZones, readZoneIndex, ZONE_IDS, ZONES } from './zones.mjs'
 export function createSoulMessage(text, kind = MESSAGE_KIND) {
@@ -74,3 +74,4 @@ export function zoneRowsOf(config) {
   }
   return rows
 }
+
