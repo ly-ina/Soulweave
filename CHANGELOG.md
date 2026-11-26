@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — 2026-11-26
+
+**1.0 第一步：根路径不再导出内部面**
+
+- **breaking**：删除 `unstable.mjs`（118 个不承诺导出）。主入口导出从 146 降到 **28** = `./sdk` 的 19 个承诺面 + 6 个装配 + `name` / `inject` / `default`。旧代码若从根路径 import 内部函数，改走具体模块深路径（如 `dsh-soulweave/memory/builtin.mjs`），不复用稳定契约。
+- **fix(apply)**：`ctx.on('agent/pre-step', ...)` 的返回值以前没进 `disposers`——每次 HMR reload 或重复 apply 都多挂一个 handler 且永远摘不掉。`tools/stress-lifecycle.mjs` 20 次采样就抓到 20 个残留。
+- **test**：新增 `tools/stress-lifecycle.mjs`（`node --expose-gc tools/stress-lifecycle.mjs 100`）：每次 apply 都返回 dispose、监听器归零、工具注册归零、heap 增长 < 5MB。
+- **test(check)**：`check.mjs` 里 76 个内部名字改为直接从具体模块 import，不再依赖根 barrel。
 ## 0.5.6 — 2026-11-25
 
 **补一个真·接入示例：五步闭环**

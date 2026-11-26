@@ -1097,9 +1097,11 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
     for (const note of normalized.pathNotes) appendLog(normalized.logPath, logLine(Date.now(), 'path-migrate', note))
   }
   const handler = createPreStepHandler({ config: normalized, timeZone: config?.timeZone, logger })
-  ctx.on('agent/pre-step', handler, { prepend: true })
-
   const disposers = []
+  // 2026-11-26：这个返回值以前没接住 → 每次 HMR reload / apply 都多挂一个 pre-step
+  // handler，而且 dispose 永远摘不掉它。stress-lifecycle.mjs 就是照这个漏点写的。
+  const offPreStep = ctx.on('agent/pre-step', handler, { prepend: true })
+  if (typeof offPreStep === 'function') disposers.push(offPreStep)
   /**
    * 2026-11-04：压缩会真的把稳定段从模型上下文里删掉，但本进程的 `stableSent`
    * 还记着「发过」，单靠它会让压缩后的人格/禁令整段消失。宿主有

@@ -3,7 +3,9 @@
  *
  * 为什么不把整个 core/memory 都放出来：导出越多，承诺越多。130 个导出里每多一个，
  * 以后改它都算破坏性变更；而 bigramsOf 这种内部工具改掉根本不该惊动任何人。
- * 其余导出在 unstable.mjs（明确不承诺）；index.js 为向后兼容仍把两者都带出来。
+ *
+ * 1.0 起 internal 面不再从根路径导出（unstable.mjs 已移除）。要更深的入口直接
+ * import 具体模块，例如 `dsh-soulweave/memory/builtin.mjs`——不复用这个契约。
  *
  * 入口：import { routeRecords } from "@ly-ina/dsh-soulweave/sdk"
  */

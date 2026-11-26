@@ -17,53 +17,25 @@ import { fileURLToPath } from 'node:url'
 const FIXTURE_WS = join(tmpdir(), 'dsh-soul-check-ws')
 
 import {
-  TOTAL_TOKENS,
-  HARD_SOUL_TOKENS,
-  SOUL_TOKEN_CEILING,
-  DEFAULT_SOUL_WARN_TOKENS,
-  composeSoul,
-  composeSoulStable,
-  composeSoulState,
-  renderDueLine,
-  planSoulSplit,
-  planStateEmit,
-  SOUL_STATE_KIND,
-  SOUL_STATE_MAX_CHARS,
-  decideReload,
-  SOUL_STAGES,
-  createPreStepHandler,
-  createRecall,
-  createPersist,
   createTools,
-  estimateTokens,
+  createTier,
+  createSoulIndexSyncTrigger,
+  apply,
+} from './adapters/dsh/apply.mjs'
+import {
+  createPreStepHandler,
+} from './adapters/dsh/prestep.mjs'
+import {
   measureInjections,
   measureRequestBudget,
-  normalizeConfig,
-  readRulesIndex,
-  searchRules,
-  parseSoul,
   planBudget,
   countSnapshots,
   detectSnapshotDrift,
-  maybeRunProbe,
-  pickProbeWords,
   planSnapshotPrune,
-  readProbeState,
-  runProbes,
   snapshotMetaOf,
   rememberUserTexts,
   recentUserQuery,
-  createTier,
   maybeLogTier,
-  resolveWorkspace,
-  RELATIONS_CAP,
-  readMood,
-  readRelations,
-  appendRelation,
-  writeMood,
-  readSoul,
-  readSoulSources,
-  readRouterLines,
   countResidentEntries,
   loadPendingItems,
   loadLessonHead,
@@ -72,28 +44,84 @@ import {
   countPinnedEntries,
   countSoulNodes,
   textOfMessage,
-  createSoulIndexSyncTrigger,
-  apply,
-  createMemoryBackend,
-  createRecallSources,
-  loadTriggers,
-  selectTriggers,
-  pickTriggerText,
-  resetTriggerCooldownOnReload,
+} from './core/budget.mjs'
+import {
+  normalizeConfig,
+  RELATIONS_CAP,
+  readMood,
+  readRelations,
+  appendRelation,
+  writeMood,
+  readRouterLines,
+} from './core/config.mjs'
+import {
+  TOTAL_TOKENS,
+  HARD_SOUL_TOKENS,
+  SOUL_TOKEN_CEILING,
+  DEFAULT_SOUL_WARN_TOKENS,
+  SOUL_STATE_MAX_CHARS,
+} from './core/constants.mjs'
+import {
+  maybeRunProbe,
+  pickProbeWords,
+  readProbeState,
+  runProbes,
+} from './core/probe.mjs'
+import {
+  resolveWorkspace,
+} from './core/prompt.mjs'
+import {
+  planStateEmit,
+  SOUL_STATE_KIND,
   SOUL_TRIGGER_KIND,
   SOUL_RECALL_KIND,
   RECALL_TEXT_MAX_CHARS,
   pickRecallEntry,
   renderRecall,
   resetRecallCooldownOnReload,
-  configureIo,
-  resetIo,
-  ioStatus,
-  guardTool,
+} from './core/recall-state.mjs'
+import {
+  createRecall,
+  createPersist,
+  readRulesIndex,
+  searchRules,
+  createRecallSources,
   searchIndexSource,
   resetIndexCircuit,
   indexCircuitState,
-} from './index.js'
+} from './core/recall.mjs'
+import {
+  createMemoryBackend,
+} from './core/search.mjs'
+import {
+  composeSoul,
+  composeSoulStable,
+  composeSoulState,
+  renderDueLine,
+  planSoulSplit,
+  decideReload,
+  SOUL_STAGES,
+  parseSoul,
+  readSoul,
+  readSoulSources,
+} from './core/soul.mjs'
+import {
+  estimateTokens,
+} from './core/surface.mjs'
+import {
+  loadTriggers,
+  selectTriggers,
+  pickTriggerText,
+  resetTriggerCooldownOnReload,
+} from './core/triggers.mjs'
+import {
+  guardTool,
+} from './core/validate.mjs'
+import {
+  configureIo,
+  resetIo,
+  ioStatus,
+} from './io.mjs'
 
 import { putMemory } from './memory/builtin.mjs'
 import * as builtinMemory from './memory/builtin.mjs'

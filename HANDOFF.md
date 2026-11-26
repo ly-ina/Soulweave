@@ -67,10 +67,11 @@ storage 接口（注入式 Host，core 里零 node: 前缀）
 
 三件事一起做，别拆：
 
-**a. 砍历史导出**
-- 主入口现在 **146** 个导出 = `sdk.mjs` 19 个承诺面 + `unstable.mjs` 118 个 + 9 个装配
-- 1.0 只留 `sdk.mjs` 那 19 个，`unstable.mjs` 整体移除
-- 同步改：`index.js` 装配壳、`check.mjs` R33 的 MUST 数组、`tools/gen-api.mjs`、`docs/API.md`、README 两条轨道表
+**a. 砍历史导出** ✅ 2026-11-26（commit 见 CHANGELOG 0.6.0）
+- ~~主入口 146 个导出~~ → 现在 **28** = 19 承诺面 + 6 装配 + `name`/`inject`/`default`
+- `unstable.mjs` 已删除；`check.mjs` 里 76 个内部名字改走具体模块 import
+- **待补**：`tools/gen-api.mjs` 与 `docs/API.md` 的生成物本轮没重跑，下次一并更新
+- **顺手修的 bug**：`apply.mjs` 的 `ctx.on('agent/pre-step')` 返回值没进 `disposers` → 每次 reload 漏一个 handler。新增 `tools/stress-lifecycle.mjs` 守这条，100 次全绿
 
 **b. 抽 `storage/` 层**
 ```
