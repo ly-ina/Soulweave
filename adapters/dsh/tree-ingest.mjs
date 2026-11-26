@@ -25,11 +25,13 @@ function contentText(data) {
 }
 
 /**
- * 原文库（soul.db）里的 sid 不带 `session-` 前缀，而宿主事件里的 session.id 带。
- * 不归一化就会把同一会话写成两个 sid（回填 t198、在线又 t1），这里必须对齐。
+ * sid 对齐：**不要剥 `session-` 前缀**。
+ * 2026-11-26 实测：本会话在原文库里是 `session-8a813a0b-…`（回填 6189 条），
+ * 剥了前缀反而写成第二个 sid（在线 t1、回填 t1..t6189 对不上）。
+ * 原文库里确实也有不带前缀的老 sid，所以这里以宿主事件为准，原样保留。
  */
 function normalizeSid(value) {
-  return String(value || '').trim().replace(/^session-/, '')
+  return String(value || '').trim()
 }
 
 /**

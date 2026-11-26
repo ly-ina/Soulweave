@@ -2838,7 +2838,7 @@ await test('T1', '树索引在线增量：turn/end 落 frag+summary+kw，注入�
   const hits = searchSummaries(db, '文件夹 加密', { limit: 3, expand: true, tokenizer: createTokenizer() })
   assert.ok(hits.length > 0, '增量写入后检索不到')
   assert.match(hits[0].summary.text, /文件夹/, `首条不对：${hits[0].summary.text}`)
-  assert.equal(hits[0].summary.sid, 't1', `sid 没归一化（应与原文库一致，不带 session- 前缀）：${hits[0].summary.sid}`)
+  assert.equal(hits[0].summary.sid, 'session-t1', `sid 应与宿主事件一致（保留 session- 前缀）：${hits[0].summary.sid}`)
   const frags = summaryFrags(db, hits[0].summary.id)
   assert.ok(frags.length >= 2 && frags[1].text.includes('AES'), '原文片段回溯不到 assistant 一侧')
 

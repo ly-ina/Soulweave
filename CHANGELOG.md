@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 0.11.2 — 2026-11-26
+
+sid 前缀修正：**不要剥 `session-`**。
+
+- 实测本会话在原文库里是 `session-8a813a0b-…`（回填 6189 条），0.11.0 的「剥前缀」反而把它写成第二个 sid（在线 t1、回填 t1..t6189 对不上）。
+- `adapters/dsh/tree-ingest.mjs` 的 `normalizeSid` 改为原样保留；T1 断言改回 `session-t1`。
+- 已把库里那条误写的 `8a813a0b-…:t1` 迁回 `session-8a813a0b-…:t6190`（summary / frag / frag_summary / kw_link 一起改）。
+- 在线写入首次实证：`t6190` 的 `scene_id` 非空，树 → scene 闭环。
 ## 0.11.1 — 2026-11-26
 
 树索引缓存落盘：热重载不再吃掉「改代码那一轮的 user 消息」。
@@ -415,4 +423,5 @@ node tools/route-records.mjs --in <records.jsonl> --db <soul-memory.db> [--dry-r
   - 自测：`selftest-when` 23→31 条（计数 / 误报 / 缺 id / 老表补列 ×3）；R13 加「dry-run 也要记账」断言；`check.mjs` 98/98。
   - **日志降噪**：未命中的 `when-scan` 每 10 步一行（行内带 `steps=` 累计 / `miss=` 累计，命中率的分母不丢）；`no-tool-call` 同样首次照写、之后每 10 步一行。soul.log 实测已 10 MB / 36 002 行，每步一行的写法撑不住。
   - 为什么先只做计数：调权没有 hit/bad 样本就是拍脑袋。dry-run 这几天顺手把数据攒了，有样本再定权重怎么改。
+
 
