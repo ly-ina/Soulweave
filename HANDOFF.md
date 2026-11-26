@@ -129,3 +129,45 @@ memory/*.mjs  →  storage/index.mjs  →  { node-sqlite | sql-wasm | file-forma
 `<home>\.dsh\soulweave\memory.db` 那个 6.4 MB 旧库，**11-25 12:40 还被写过**。
 profile 里写着"旧库留档，不再双读"，所以有东西在偷偷写它。怀疑是 WorkBuddy（当时 9 个进程在跑）。
 明天顺手确认一下：`Get-ChildItem <home>\.dsh\soulweave` 的 mtime，如果又变了，就去找是哪个进程。
+
+## 8. 11-26 上午补记：热重载通了 + 三个发现
+
+### 8.1 魂织源码热重载已打通（真机验证过两次）
+
+dsh 自带 `@deepseek-ai/dsh-hmr`（"Coordinated module and profile configuration hot reload"），由 `dsh-base` 默认启用，但默认 `root: []` —— **只热载 profile 配置，不监听源码**。
+
+开了它：`<home>\.dsh\profiles\desktop\cordis.patch.yml` 末尾加
+
+```yaml
+- id: hmr
+  config:
+    root:
+      - <workspace>/plugins/dsh-soulweave
+```
+
+`root` 是**启动时读**的，所以加完要重启一次；之后改 `.mjs` 下一轮 pre-step 即生效。
+回滚 = 删掉这条，备份在 `cordis.patch.yml.bak-20261126-1228`。
+
+验证方法（可复现）：在 `prestep.mjs` 实际执行的分支上临时拼一个 `[hmr-probe-N <Date.now()>]` 进魂引，看下一轮魂引里有没有。加也灵、删也灵，且魂引只注入一份 → dispose 干净，`ctx.on` 没重复挂。
+
+**坑**：探针必须埋在实际执行的分支。魂引走 `prestep.mjs:296/297` 的 `shadowStable`/`shadowState`；`:299` 的 `composed.text` 那条**根本不跑**。第一次埋错位置，白等两轮。
+
+### 8.2 ※结 验收结论：三词自然命中 = 0
+
+- `records.jsonl` 只有 11-25 12:28–12:46 的 8 条，之前全是刻意演练
+- 该会话 14178 个 reasoning 块里，12:47 后含触发词的 20 块，**独立触发行 0 个**；喂 `extract.mjs` 也是 0/20
+- 根因不是「不会写」，是**缺外部 cue**：「可以压」能 100% 命中就是因为压缩提示是外部信号
+
+已上线对策（memprobe）：`agent/pre-step` 每轮第一个 step 注入一条「记忆巡检」，已经真实命中（cue 1 次 → 记 1 条，`records.jsonl` 里有 `type:"cue"` 行可算比值）。
+**待观察**：命中率 vs 误报率（会不会为了交差硬写）。
+
+### 8.3 `memory/decay.mjs` 写了但没接线
+
+`decay|stale|supersed` 在生产代码里只命中 `check.mjs`。现在唯一的过期手段是人工标 `archived`（693 active / 5 archived）。
+风险不是「堆垃圾」，是**过时结论被当现在的读出来**（旧 lesson 和新 lesson 撞同一个词时随机命中）。
+
+### 8.4 待做：`superseded_by`
+
+`memories` 现有字段：`id/title/content/keywords/importance/status/corrected/project/level/created_at/updated_at/sha/source_session/source_turn/goal/version`。没有取代关系。
+SDK 之后加一个 `superseded_by`：写新结论时可选指向旧 id，旧的转 stale，检索降权但保留演进痕迹。比删好。
+`decay.mjs` 接线上线时**不要用时间当主判据**（陈年规则不该因老失效），用「长期没被检索到 + importance 低」沉底。
