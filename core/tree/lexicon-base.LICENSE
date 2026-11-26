@@ -1,0 +1,4 @@
+lexicon-base.txt
+来源：jieba 0.42.1 的 dict.txt（MIT License，https://github.com/fxsjy/jieba）
+筛选：纯中文 2–4 字、词频 >= 100，共约 2.9 万词。
+用途：Soulweave 抽词的基础词表；运行时不需要 jieba。

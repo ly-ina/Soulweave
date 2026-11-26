@@ -26,3 +26,5 @@ HANDOFF.md
 
 REPORT*.md
 TASK-解耦.md
+# 工具产物（回填报告等）
+tools/out/
