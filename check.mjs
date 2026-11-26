@@ -1702,7 +1702,7 @@ await test('SP2', '动态段随时间/工作区变化，且渲染出时间与未
   const base = {
     at: SPLIT_AT,
     timeZone: 'Asia/Shanghai',
-    workspace: 'E:\\dsh_work',
+    workspace: 'D:\\ws',
     pending: ['甲', '乙'],
     zones: [{ zone: 'work', count: 334, tags: ['工作'] }],
     memoryHeads: ['记忆一：先取证'],
@@ -1722,7 +1722,7 @@ await test('SP3', '动态段：pinned 正文进不来，lesson 头只有 1 条�
   const out = composeSoulState({
     at: SPLIT_AT,
     timeZone: 'Asia/Shanghai',
-    workspace: 'E:\\dsh_work\\a-very-long-workspace-name-for-state-segment-test',
+    workspace: 'D:\\ws\\a-very-long-workspace-name-for-state-segment-test',
     pending: ['1', '2', '3', '4', '5'],
     zones: [
       { zone: 'work', count: 334, tags: ['工作', '工具'] },
@@ -1742,7 +1742,7 @@ await test('SP3', '动态段：pinned 正文进不来，lesson 头只有 1 条�
   const tiny = composeSoulState({
     at: SPLIT_AT,
     timeZone: 'Asia/Shanghai',
-    workspace: 'E:\\dsh_work',
+    workspace: 'D:\\ws',
     pending: ['1', '2', '3'],
     zones: [{ zone: 'work', count: 334, tags: ['工作'] }],
     lessonHead: '一条很长的教训正文，用来把动态段撑到超过三十个 token 的预算',
@@ -1794,7 +1794,7 @@ await test('SP6', 'legacy composeSoul 逐字节不变（sha256 快照）', () =>
     soul: SPLIT_SOUL,
     at: SPLIT_AT,
     timeZone: 'Asia/Shanghai',
-    workspace: 'E:\\dsh_work',
+    workspace: 'D:\\ws',
     pending: ['甲', '乙', '丙'],
     zones: [
       { zone: 'work', count: 334, tags: ['工作'] },
@@ -1806,8 +1806,8 @@ await test('SP6', 'legacy composeSoul 逐字节不变（sha256 快照）', () =>
     maxTokens: 1000,
   })
   const sha = createHash('sha256').update(out.text).digest('hex')
-  assert.equal(sha, '90547ccac1f2b6072c7bd3735879f4b825e8648506ef530921f3ed1f6d7d3601', '旧路径输出变了！')
-  assert.equal(out.tokens, 189, '旧路径 token 数变了')
+  assert.equal(sha, '12e4e85ff294198e6c20eb7607350c81ce6a367011a246604eaac1306ece72b8', '旧路径输出变了！')
+  assert.equal(out.tokens, 187, '旧路径 token 数变了')
   return `sha=${sha.slice(0, 12)}… tokens=${out.tokens} stage=${out.stage}`
 })
 
@@ -1834,11 +1834,11 @@ await test('SP7', '真实 soul.md：stable 基线 643 tok（含工具入口）�
   const zones = [{ zone: 'work', count: 334, tags: ['工作'] }]
   const stable = composeSoulStable({ soul, router, maxTokens: 900 })
   const state = composeSoulState({
-    at, timeZone: 'Asia/Shanghai', workspace: 'E:\\dsh_work',
+    at, timeZone: 'Asia/Shanghai', workspace: 'D:\\ws',
     pending: ['甲', '乙', '丙'], zones, maxTokens: 120,
   })
   const legacy = composeSoul({
-    soul, at, timeZone: 'Asia/Shanghai', workspace: 'E:\\dsh_work',
+    soul, at, timeZone: 'Asia/Shanghai', workspace: 'D:\\ws',
     router, pending: ['甲', '乙', '丙'], zones, maxTokens: 1000,
   })
   assert.ok(stable.text.includes('查：soul_recall'), '稳定段丢了工具入口')
@@ -3514,7 +3514,7 @@ await test('R18', '魂织第二刀：三档注入（常驻/在场/可检索）�
     pending,
     present,
     searchableCount: present.searchable,
-    workspace: 'E:\\dsh_work\\plugins\\dsh-soulweave',
+    workspace: 'D:\\ws\\plugins\\dsh-soulweave',
     at: new Date('2026-11-24T12:00:00+08:00'),
   })
   assert.ok(state.text.includes('在场：r18'), '魂引应指认在场项目')

@@ -4,7 +4,7 @@
  *
  * 为什么用生成而不是手写：手写的 API 文档一定会过时，而且过时的文档比没有更糟——
  * 它让人相信一个已经不成立的签名。所以这里做两件事：
- *   1. 生成：扫 `core/` `memory/` `/io.mjs` 的 export，取紧邻的 JSDoc；
+ *   1. 生成：扫 `core/` `memory/` `storage/` `/io.mjs` 的 export，取紧邻的 JSDoc；
  *   2. 校验：`--check` 模式下与现有 docs/API.md 比对，不一致就退出码 1（CI 用）。
  *
  * 用法：
@@ -19,7 +19,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DOC_PATH = join(ROOT, 'docs', 'API.md')
 const CHECK = process.argv.includes('--check')
 
-const SCAN_DIRS = ['core', 'memory']
+const SCAN_DIRS = ['core', 'memory', 'storage']
 const SCAN_ROOT_FILES = ['io.mjs']
 
 /** 去掉开头的 `{类型}`，支持嵌套大括号（`{{a: b}}`）。 */
