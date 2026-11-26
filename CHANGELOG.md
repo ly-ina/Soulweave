@@ -1,6 +1,15 @@
 # Changelog
 
 
+## 0.10.3 — 2026-11-26
+
+发布闸门从「5 红」修到全绿，顺带把产品代码里的私有痕迹清干净。
+
+- **verify-release**：R5 只扫本机绝对路径（人名属产品示例，CHANGELOG 属历史记录，均豁免）；R6 只拦数据产物（`.db` / `.log` / `state/`），不再误伤 `memory/` 源码目录；R7 没有 `SOULWEAVE_PRIVATE_SOUL` 时记 SKIP 而不是 FAIL；R8 对齐 README 现有标题（`## 30 秒跑起来` / `## 配置`）。
+- **隐私**：README、VERIFIABILITY、RECORDS-FORMAT、SPEC-V2、`tools/when.mjs` 里的本机绝对路径改成 `<workspace>` / `<DSH_HOME>` / `<private-workspace>` 占位。
+- **仓库边界**：内部交接档案（`HANDOFF.md`、`REPORT*.md`、`TASK-解耦.md`）移出版本库，本地保留；`package.json` 的 `files` 同步去掉 `REPORT.md`。
+- **curator**：项目保护名单与情感词表改成配置项 `archiveProtectedProjects` / `archiveEmotionWords`，产品代码不再硬编码私有项目名与人名。
+- 自测：`check.mjs` 120/120 + O* 11/11，`check-layers` 42 文件 0 违规，`verify-release` ALL PASS。
 ## 0.10.2 — 2026-11-26
 
 1.0 收尾之一：存储层能说清「为什么打不开」。

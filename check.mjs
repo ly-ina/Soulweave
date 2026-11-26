@@ -1821,15 +1821,15 @@ await test('SP6', 'legacy composeSoul 逐字节不变（sha256 快照）', () =>
 //   627 tok  人格 + 【路由】两行（不含「查：soul_recall…」）
 //   658 tok  上面 + 工具入口行  ← 方案 §2.1 把「工具入口」划在稳定段，取这个做基线
 //   643 tok  2026-11-21 晚：soul.md 摘掉手写口味条目（-74 tok），改由 persona 快照从记忆注入
-//   717 tok  2026-11-21 起：禁令节加了一行「动 lanxi 文件先查路径」（日记走 vault/self/<日期>.md
+//   717 tok  2026-11-21 起：禁令节加了一行「动受保护目录先查路径」（日记走 vault/self/<日期>.md
 //            + diary-append.ps1，notes 不是日记位）。那行防的是同一个错犯了 5 次，故意付这 59 tok。
 //            以后改 soul.md 导致这条红了，先判断是新增强度值不值，再改这里的上下限——不要默认放宽。
 // 口径修正（2026-11-21）：原来断言 stable+state < legacy，比的是「首轮全量」，
 // 可拆分的收益在稳态——首轮之后只发 state。改成两条：stable 必须仍小于 legacy
 // （否则稳定段肥成 legacy 的翻版，拆分失去意义）；state 必须只占 legacy 的小头。
 await test('SP7', '真实 soul.md：stable 基线 643 tok（含工具入口），stable 小于 legacy 且 state 只占小头', () => {
-  const soulPath = process.env.SOULWEAVE_REAL_SOUL || '<workspace>/lanxi/soul.md'
-  const routerPath = process.env.SOULWEAVE_REAL_ROUTER || '<workspace>/lanxi/rules/router.md'
+  const soulPath = process.env.SOULWEAVE_REAL_SOUL || ''
+  const routerPath = process.env.SOULWEAVE_REAL_ROUTER || ''
   if (!existsSync(soulPath)) return `SKIP：没有真实 soul.md（${soulPath}）`
   const soul = parseSoul(readFileSync(soulPath, 'utf8'))
   const router = existsSync(routerPath) ? readRouterLines(routerPath) : []
@@ -3638,10 +3638,10 @@ await test('R21', '魂织第六刀：soul_todo 列未结、标完成、恢复', 
 
 await test('R22', '魂织第七刀：curator 并入（体检/候选/归档保护/备份）', async () => {
   const dbPath = join(root, 'soul-r22.db')
-  const cfg = normalizeConfig({ ...config, memoryDbPath: dbPath, memoryBackend: 'builtin', notesDir: join(root, 'notes-r22') })
+  const cfg = normalizeConfig({ ...config, memoryDbPath: dbPath, memoryBackend: 'builtin', notesDir: join(root, 'notes-r22'), archiveProtectedProjects: ['demo'] })
   const a = remember(cfg, { content: 'R22 普通事实：可归档', kind: 'fact', importance: 1 })
   const b = remember(cfg, { content: 'R22 人格条目：受保护', kind: 'soul', importance: 2 })
-  remember(cfg, { content: 'R22 lanxi 项目：受保护', kind: 'project', project: 'lanxi', importance: 1 })
+  remember(cfg, { content: 'R22 demo 项目：受保护', kind: 'project', project: 'demo', importance: 1 })
   const tools = createTools(cfg)
   const audit = tools.find((tool) => tool.name === 'soul_audit')
   const archive = tools.find((tool) => tool.name === 'soul_archive')

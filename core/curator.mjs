@@ -16,8 +16,10 @@ import { join } from '../io.mjs'
 export const JACCARD_THRESHOLD = 0.45
 export const HOT_KEYWORD_THRESHOLD = 6
 export const PROTECTED_LEVELS = ['soul', 'user', 'rules']
+/** 项目保护名单默认空：具体项目名属于使用者配置，不写进产品代码。 */
+export const DEFAULT_PROTECTED_PROJECTS = []
 export const EMOTION_WORDS = [
-  '伊纳', '喜欢', '害怕', '怕', '抱', '亲', '爱', '陪', '哭', '想你', '秘密', '日记', '晚安', '害羞',
+  '喜欢', '害怕', '怕', '抱', '亲', '爱', '陪', '哭', '想你', '秘密', '日记', '晚安', '害羞',
 ]
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -41,29 +43,29 @@ export function parseKeywords(raw) {
   return text.split(',').map((s) => s.trim().replace(/^"|"$/g, '')).filter(Boolean)
 }
 
-export function emotionHits(row) {
+export function emotionHits(row, words = EMOTION_WORDS) {
   const text = `${row.title ?? ''}\n${row.content ?? ''}`
-  return EMOTION_WORDS.filter((w) => text.includes(w))
+  return words.filter((w) => text.includes(w))
 }
 
 /** 保护名单：返回全部命中原因（为空 = 可归档）。 */
-export function protectionReasons(row) {
+export function protectionReasons(row, { protectedProjects = DEFAULT_PROTECTED_PROJECTS, emotionWords = EMOTION_WORDS } = {}) {
   const reasons = []
   if (PROTECTED_LEVELS.includes(row.level)) reasons.push(`level:${row.level}`)
-  if (projectTokens(row.project).includes('lanxi')) reasons.push('project:lanxi')
-  const emo = emotionHits(row)
+  const projectHit = projectTokens(row.project).find((p) => protectedProjects.includes(p)); if (projectHit) reasons.push(`project:${projectHit}`)
+  const emo = emotionHits(row, emotionWords)
   if (emo.length > 0) reasons.push(`情感词:${emo.slice(0, 3).join('/')}`)
   if (Number(row.importance) >= 4) reasons.push('importance>=4')
   return reasons
 }
 
-export function protectionReason(row) {
-  const reasons = protectionReasons(row)
+export function protectionReason(row, options = {}) {
+  const reasons = protectionReasons(row, options)
   return reasons.length > 0 ? reasons.join(' · ') : null
 }
 
-export function isProtected(row) {
-  return protectionReason(row) !== null
+export function isProtected(row, options = {}) {
+  return protectionReason(row, options) !== null
 }
 
 export function shingles(text) {
@@ -245,11 +247,11 @@ export function buildAudit(rows, { staleDays = 30, now = Date.now() } = {}) {
  *  - level=lesson 且 importance=1（低价值资料）。
  * 返回的只是建议；真正归档必须显式给 ids。
  */
-export function buildCandidates(rows, { limit = 0, staleDays = 30, now = Date.now() } = {}) {
+export function buildCandidates(rows, { limit = 0, staleDays = 30, now = Date.now(), protectedProjects = DEFAULT_PROTECTED_PROJECTS, emotionWords = EMOTION_WORDS } = {}) {
   const items = []
   for (const r of rows) {
     if (r.status !== 'active') continue
-    if (isProtected(r)) continue
+    if (isProtected(r, { protectedProjects, emotionWords })) continue
     const ts = Number(r.updated_at ?? r.created_at ?? 0)
     const old = ts > 0 && now - ts > staleDays * DAY_MS
     const lowValue = Number(r.importance) <= 1
@@ -298,7 +300,7 @@ export function backupDatabase(dbPath, backupDir, { now = new Date() } = {}) {
   return { ok: true, file, srcRows, dstRows }
 }
 
-export function applyArchive(rows, ids, { dbPath, backupDir, now = new Date(), logger } = {}) {
+export function applyArchive(rows, ids, { dbPath, backupDir, now = new Date(), logger, protectedProjects = DEFAULT_PROTECTED_PROJECTS, emotionWords = EMOTION_WORDS } = {}) {
   const wanted = [...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x).trim()).filter(Boolean))]
   if (wanted.length === 0) {
     return { ok: false, code: 'no-ids', error: '没有传 ids：apply 必须显式给要归档的条目', applied: [], rejected: [] }
@@ -311,7 +313,7 @@ export function applyArchive(rows, ids, { dbPath, backupDir, now = new Date(), l
   const rejected = []
   for (const id of wanted) {
     const row = index.get(id)
-    const reason = protectionReason(row)
+    const reason = protectionReason(row, { protectedProjects, emotionWords })
     if (reason !== null) rejected.push({ id, level: row.level, code: 'protected', reason })
   }
   if (rejected.length > 0) {

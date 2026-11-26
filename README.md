@@ -20,7 +20,7 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 禁令：未验证不写成已修复；不动 vault、不删原文。
 
 【魂引 · 现状】
-2026-11-24 21:23 周二 · <workspace>
+2026-11-24 21:23 周二 · ~/projects
 在场：dsh_work · 可检索 5 条 → soul_recall
 【分区】work 334 · intimacy 18 · relations 3 · rules 22 · misc 23
 ```

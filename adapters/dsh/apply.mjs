@@ -435,7 +435,7 @@ const SOUL_AUDIT_TOOL = Object.freeze({
 
 const SOUL_ARCHIVE_TOOL = Object.freeze({
   name: 'soul_archive',
-  description: '选择性归档：默认 dry-run；显式 mode=apply + ids 才把 status 改成 archived。永不删除，apply 前先 VACUUM INTO 备份。soul/user/rules、项目含 lanxi、含情感词、importance>=4 的条目受保护。',
+  description: '选择性归档：默认 dry-run；显式 mode=apply + ids 才把 status 改成 archived。永不删除，apply 前先 VACUUM INTO 备份。soul/user/rules、项目在保护名单、含情感词、importance>=4 的条目受保护。',
   parameters: {
     type: 'object',
     properties: {
@@ -889,6 +889,8 @@ export function createTools(config, deps = {}) {
       const result = curator.applyArchive(rows, ids, {
         dbPath: normalized.memoryDbPath,
         backupDir: join(dirname(normalized.memoryDbPath), 'backup'),
+        protectedProjects: normalized.archiveProtectedProjects,
+        emotionWords: normalized.archiveEmotionWords,
       })
       if (!result.ok) return { ok: false, text: `【soul_archive】拒绝：${result.error}` }
       const lines = [
@@ -912,7 +914,7 @@ export function createTools(config, deps = {}) {
       text: [
         '【soul_archive】dry-run（库未改动）',
         ...picked.map((r) => {
-          const reason = curator.protectionReason(r)
+          const reason = curator.protectionReason(r, { protectedProjects: normalized.archiveProtectedProjects, emotionWords: normalized.archiveEmotionWords })
           return `- ${r.id} · ${r.level} · ${String(r.title || r.content || '').slice(0, 30)} → ${reason ? `受保护（${reason}）` : '可归档'}`
         }),
       ].join('\n'),

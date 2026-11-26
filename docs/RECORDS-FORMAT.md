@@ -1,7 +1,7 @@
 # records.jsonl 格式契约
 
 > 消费者：`tools/route-records.mjs`（→ `memory/route.mjs` 的 `routeRecords()`）
-> 生产者：`<workspace>\plugins\dsh-memprobe\index.js`（dsh 插件，见文末「生产端在哪」）
+> 生产者：`<workspace>/plugins/dsh-memprobe/index.js`（dsh 插件，见文末「生产端在哪」）
 
 ---
 
@@ -88,7 +88,7 @@
 ## 5. 生产端在哪
 
 ```
-<workspace>\plugins\dsh-memprobe\
+<workspace>/plugins/dsh-memprobe/
 ├── index.js              dsh 插件：监听 session/event 的 assistant/message，抽 reasoning 里的触发词 → 写 JSONL
 ├── lib/extract.mjs       提取逻辑（多触发词、泄漏判定、空标记），54 项自测
 ├── cordis.patch.yml      挂载配置（insert 到 profiles 的 bundle）
@@ -97,7 +97,7 @@
 └── tools/demo-self.mjs   WorkBuddy 侧自测（宿主不给 reasoning，只能喂文本）
 ```
 
-**它不是独立仓库，也不在 soulweave 里。** 也没有 git 版本控制——是 `<workspace>\plugins\` 下的一个本地插件目录。
+**它不是独立仓库，也不在 soulweave 里。** 也没有 git 版本控制——是 `<workspace>/plugins/` 下的一个本地插件目录。
 
 为什么分开放：memprobe 是**探针**（运行时挂进 dsh，监听事件、只写 JSONL），
 soulweave 是**引擎**（不关心事件从哪来，只认 `records`）。两者靠这个 JSONL 格式解耦。
@@ -118,13 +118,13 @@ soulweave 是**引擎**（不关心事件从哪来，只认 `records`）。两�
 
 ### ① import 路径
 
-从 `dsh-memprobe/index.js` 出发，`<workspace>\plugins\` 下**同级**，所以是 `../`，不是 `../../`：
+从 `dsh-memprobe/index.js` 出发，`<workspace>/plugins/` 下**同级**，所以是 `../`，不是 `../../`：
 
 ```js
 // ✅ 正确：走 memory 层，不拉插件入口
 import { routeRecords } from '../dsh-soulweave/memory/route.mjs'
 
-// ❌ 会指到 <workspace>\dsh-soulweave（少一层）
+// ❌ 会指到 <workspace>/dsh-soulweave（少一层）
 import { routeRecords } from '../../dsh-soulweave/index.js'
 ```
 
@@ -136,7 +136,7 @@ import { routeRecords } from '../../dsh-soulweave/index.js'
 memprobe 读的是**自己包内**的 `cordis.patch.yml`；profile 里同 `id` 的 insert 只是声明挂载点，
 **不会覆盖包内配置**。所以改 `triggers` / `outPath` 时：
 
-1. `<workspace>\plugins\dsh-memprobe\cordis.patch.yml` ← 真正生效
+1. `<workspace>/plugins/dsh-memprobe/cordis.patch.yml` ← 真正生效
 2. `~/.dsh/profiles/desktop/cordis.patch.yml` ← 挂载声明
 
 只改一处会出现「改了配置没反应」。
@@ -144,7 +144,7 @@ memprobe 读的是**自己包内**的 `cordis.patch.yml`；profile 里同 `id` �
 ### ③ 触发词约束不要写进 soul.md
 
 `soul.md` 有 token 上限（实测：加三行触发词说明就让 SP7 stable 688 > legacy 665）。
-规则放在 `<workspace>\lanxi\rules\memprobe.md`，`soul.md` 保持原样。
+规则放在 `<private-workspace>/rules/memprobe.md`，`soul.md` 保持原样。
 
 ### ④ 讨论触发词时会被自己抓走（自我观察污染）
 

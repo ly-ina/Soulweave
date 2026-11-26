@@ -8,7 +8,7 @@
  *   node tools/when.mjs list
  *   node tools/when.mjs probe '{"tool":"write","path":"a.md"}'   # 看哪些条目会命中
  *
- * 记忆库路径默认 <workspace>\.dsh-meow\memory.db，可用 --db 覆盖。
+ * 记忆库路径默认为 <workspace>/.dsh-meow/memory.db，可用 --db 覆盖。
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'

@@ -69,9 +69,9 @@ memory_links   PPR 阻尼 α
 
 | 库 | when_index |
 |---|---|
-| `<home>\.dsh\soulweave\soul-memory.db`（魂织现用） | **表不存在** |
-| `<home>\.dsh\soulweave\memory.db`（6.4 MB 合体库） | 4 行 |
-| `<workspace>\.dsh-meow\memory.db` | 4 行 |
+| `<DSH_HOME>/soulweave\soul-memory.db`（魂织现用） | **表不存在** |
+| `<DSH_HOME>/soulweave\memory.db`（6.4 MB 合体库） | 4 行 |
+| `<workspace>/.dsh-meow/memory.db` | 4 行 |
 
 889 条记忆、4 条签过 when。**这是 V2 的最大实际瓶颈**：不是算法没写，是原料是空的。
 

@@ -267,6 +267,9 @@ export function normalizeConfig(config = {}) {
     memoryDbPath,
     /** 第三刀：旧 meow 库只读挂载（空 = 不挂）；builtin 模式双读比对用，不写。 */
     legacyMemoryDbPath: asText(config.legacyMemoryDbPath),
+    /** 归档保护名单：项目名（默认空）与情感词表，均由使用者在配置里给。 */
+    archiveProtectedProjects: (Array.isArray(config.archiveProtectedProjects) ? config.archiveProtectedProjects : []).map((x) => String(x).trim()).filter(Boolean),
+    archiveEmotionWords: (Array.isArray(config.archiveEmotionWords) ? config.archiveEmotionWords : []).map((x) => String(x)),
     pathNotes,
     // 2026-11-01：第四源 soul-index 原文库（全量会话原文）；空 = 不注册该源
     soulIndexDir: asText(config.soulIndexDir),
