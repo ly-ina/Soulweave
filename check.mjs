@@ -34,6 +34,10 @@ import { attachSceneRecorder } from './adapters/dsh/scene.mjs'
 import { extractScene, pathPatternOf, timeWindowOf, intimacyOf, createSceneTracker } from './memory/scene.mjs'
 import { latestScene, whenFromScene, pathGlobOf } from './memory/scene-link.mjs'
 import { getWhen } from './memory/when.mjs'
+import { personalizedPageRank } from './memory/ppr.mjs'
+import { nextMomentum, initialState, createMomentumStore, MOMENTUM_RESET } from './memory/momentum.mjs'
+import { sameSceneEdges, sameSourceEdges, graphStats, ensureEdgeTable, upsertEdges } from './memory/graph.mjs'
+import { associateByPPR } from './memory/assoc.mjs'
 import { createTokenizer } from './core/tree/terms.mjs'
 import { searchSummaries, summaryFrags } from './core/tree/retrieve.mjs'
 import { treeStats, ensureTreeSchema } from './core/tree/schema.mjs'
@@ -3000,6 +3004,103 @@ await test('M1', '记忆侧接 scene：soul_remember 自动生成 when_ctx、写
 
   rmSync(dir, { recursive: true, force: true })
   return `scene=${written.sceneId} when=${JSON.stringify(written.when)} hit=${hit.entries[0]?.loc}`
+})
+
+await test('P1', 'PPR 死守 2 跳：3 跳归零、rank 单调归一、星图枢纽不炸、空种子安全', () => {
+  const chain = ['A', 'B', 'C', 'D', 'E'].slice(1).map((to, i) => ({ from: ['A', 'B', 'C', 'D'][i], to }))
+  const pr = personalizedPageRank({ edges: chain, seeds: { A: 1 } })
+  assert.ok(pr.rank.has('A') && pr.rank.has('B') && pr.rank.has('C'), `2 跳内该有：${[...pr.rank.keys()]}`)
+  assert.equal(pr.rank.has('D') || pr.rank.has('E'), false, '3 跳必须归零')
+  assert.ok(pr.rank.get('A') > pr.rank.get('B') && pr.rank.get('B') > pr.rank.get('C'), 'rank 该单调递减')
+  let sum = 0
+  for (const value of pr.rank.values()) sum += value
+  assert.ok(Math.abs(sum - 1) < 1e-6, `rank 该归一：${sum}`)
+
+  const star = Array.from({ length: 20 }, (_, i) => ({ from: 'hub', to: `leaf${i}` }))
+  const prStar = personalizedPageRank({ edges: star, seeds: { hub: 1 } })
+  assert.equal(prStar.rank.size, 21, `星图该有 21 个：${prStar.rank.size}`)
+  assert.ok(prStar.rank.get('hub') > prStar.rank.get('leaf0'), 'hub 自身该最高')
+  assert.equal(personalizedPageRank({ edges: chain, seeds: {} }).rank.size, 0, '空种子该返回空')
+  return `chain=${[...pr.rank.entries()].map(([k, v]) => `${k}:${v.toFixed(2)}`).join(' ')} star=${prStar.rank.size}`
+})
+
+await test('MO1', 'Context Momentum：工作 +0.08 / 亲密 -0.15 / 覆写回拉 / 压缩归 0.60 / 落盘恢复', () => {
+  let state = initialState()
+  assert.equal(state.value, MOMENTUM_RESET)
+  state = nextMomentum(state, { toolMsWindow: 45_000, toolCount: 3 })
+  assert.ok(Math.abs(state.value - 0.68) < 1e-9, `工作拉高：${state.value}`)
+  state = nextMomentum(state, { intimacy: 1 })
+  assert.ok(Math.abs(state.value - 0.53) < 1e-9, `亲密压低：${state.value}`)
+  assert.ok(state.suppressed > 0, '压低要记 suppressed')
+  state = nextMomentum(state, { toolMsWindow: 45_000, toolCount: 3 })
+  assert.ok(Math.abs(state.value - 0.76) < 1e-9, `覆写回拉：${state.value}`)
+  assert.equal(state.suppressed, 0)
+  assert.equal(nextMomentum(initialState(0.5), { intimacy: 1 }).value, 0.5, '不该低于 0.5')
+  assert.equal(nextMomentum(initialState(0.85), { toolMsWindow: 99_999, toolCount: 9 }).value, 0.85, '不该高于 0.85')
+  assert.equal(nextMomentum({ value: 0.7, suppressed: 0.15, lastAt: 0 }, { compacted: true }).value, 0.6)
+
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-soul-mo-'))
+  const file = join(dir, 'momentum.json')
+  const store = createMomentumStore({ file })
+  store.observe('session-a', { toolMsWindow: 45_000, toolCount: 3 })
+  assert.ok(store.save(), '落盘失败')
+  const reloaded = createMomentumStore({ file })
+  assert.ok(reloaded.get('session-a').value > 0.6, '重载没恢复')
+  assert.equal(reloaded.get('session-other').value, 0.6, '别的会话该是默认值')
+  rmSync(dir, { recursive: true, force: true })
+  return `work=0.68 intimate=0.53 pullback=0.76 reload=${reloaded.get('session-a').value.toFixed(2)}`
+})
+
+await test('G1', 'same-scene 建边：命中任一 when 字段才连、maxDegree 限流、连通分量可统计', () => {
+  const entries = [
+    { id: 'm1', when: { pathPattern: '*memory/*', timeWindow: 'evening' }, at: 100 },
+    { id: 'm2', when: { pathPattern: '*memory/*', timeWindow: 'morning' }, at: 200 },
+    { id: 'm3', when: { timeWindow: 'evening' }, at: 300 },
+    { id: 'm4', when: { tool: 'bash', timeWindow: 'night' }, at: 400 },
+  ]
+  const edges = sameSceneEdges(entries)
+  const keys = edges.map((edge) => `${edge.a}-${edge.b}`).sort()
+  assert.deepEqual(keys, ['m1-m2', 'm1-m3'], `建边不对：${keys}`)
+  assert.deepEqual(edges.find((edge) => edge.a === 'm1' && edge.b === 'm2').fields, ['pathPattern'])
+  assert.deepEqual(edges.find((edge) => edge.a === 'm1' && edge.b === 'm3').fields, ['timeWindow'])
+  const stats = graphStats(edges)
+  assert.equal(stats.nodes, 3)
+  assert.equal(stats.components, 1)
+  assert.ok(Math.abs(stats.ratio - 1) < 1e-9, `连通占比：${stats.ratio}`)
+  assert.equal(sameSceneEdges(entries, { maxDegree: 1 }).length, 2, 'maxDegree=1 该留 2 条')
+  assert.equal(sameSceneEdges([{ id: 'x' }, { id: 'y' }]).length, 0, '没有 when 不该建边')
+  return `edges=${keys.join(',')} ratio=${stats.ratio}`
+})
+
+await test('L1', '联想第六路：associateByPPR 读 memory_edge、裸 id 自动补 memories# 前缀、2 跳外不返回', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-soul-a1-'))
+  const dbPath = join(dir, 'mem.db')
+  const ids = []
+  for (const text of ['种子记忆', '一跳记忆', '两跳记忆', '三跳记忆']) {
+    const written = remember({ memoryDbPath: dbPath }, { content: text })
+    assert.equal(written.ok, true, written.text)
+    ids.push(written.id)
+  }
+  const seedEdges = [
+    { a: `memories#${ids[0]}`, b: `memories#${ids[1]}`, relation: 'same-source' },
+    { a: `memories#${ids[1]}`, b: `memories#${ids[2]}`, relation: 'same-source' },
+    { a: `memories#${ids[2]}`, b: `memories#${ids[3]}`, relation: 'same-source' },
+  ]
+  const db = new DatabaseSync(dbPath)
+  ensureEdgeTable(db)
+  const written = upsertEdges(db, seedEdges, { now: 1 })
+  assert.equal(written.written, 3, `建边失败：${JSON.stringify(written)}`)
+  db.close()
+
+  const out = associateByPPR(dbPath, { seeds: [ids[0]], limit: 5 })
+  const got = out.entries.map((entry) => entry.id).sort()
+  assert.deepEqual(got, [ids[1], ids[2]].sort(), `2 跳内该有 2 条：${JSON.stringify(out)}`)
+  assert.ok(out.entries.every((entry) => entry.hops <= 2), '不该返回 3 跳')
+  assert.ok(out.entries.some((entry) => entry.snippet.includes('一跳')), '正文没还原')
+
+  assert.equal(associateByPPR(dbPath, { seeds: ['not-in-graph'], limit: 5 }).entries.length, 0, '不存在的种子该空')
+  rmSync(dir, { recursive: true, force: true })
+  return `seed=${ids[0].slice(0, 12)} got=${got.length} note=${out.note}`
 })
 
 

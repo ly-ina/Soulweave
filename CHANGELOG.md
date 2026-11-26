@@ -1,6 +1,18 @@
 # Changelog
 
 
+## 0.12.0 — 2026-11-26
+
+L1 记忆图：PPR 扩散 + Context Momentum + 建边。第六路的算法层齐了（还没接进注入）。
+
+- `memory/ppr.mjs`（新）：个人化 PageRank，**死守 2 跳**（BFS 跳数 > 2 的节点权重强制归零，不靠阻尼衰减）；枢纽惩罚 `deg > P95` 时乘 `1/log(deg)`；种子接受 Map / 数组 / 裸对象 / 单 id；边接受 `{from,to}` 和 `{a,b}` 两种形状。
+- `memory/momentum.mjs`（新）：分会话势能状态机。工作（60s 内 >30s 且 ≥2 次）`+0.08`，亲密 `-0.15`，压低后转工作「覆写回拉」，压缩归 `0.60`，软区间 `0.50~0.85`。`createMomentumStore` 落 `state/momentum.json`，重载按 `lastAt` 回弹一次。
+- `memory/graph.mjs`（新）：`same-scene`（when 的 tool/pathPattern/timeWindow 任一相等）+ `same-source`（同一会话，时间滑窗）建边；`maxDegree` 限流（默认 16），边表 `memory_edge(a,b,relation)`，a<b 归一化，hits/bad 留 §6 反馈口；`graphStats` 算连通分量。
+- `memory/assoc.mjs`（新）：查询壳。给种子记忆沿图扩散 2 跳，只补召回、不替代相似度检索；裸 id 自动补 `memories#` 前缀。
+- `tools/build-graph.mjs`（新）：默认 dry-run，`--apply` 写库；`--all` 把七层老表的 when 也收进来。
+- 真实库实测：606 节点 / 5934 条 same-source 边 / 46 个分量 / 最大分量 **37.4%**（验收线 30%）；PPR 从一条种子扩散出 2 跳 33 个邻居，联想内容语义相关。
+- check **129/129**（新增 P1 / MO1 / G1 / L1）。
+
 ## 0.11.4 — 2026-11-26
 
 记忆侧接 scene：`soul_remember` 写入时自动带情境签名，不用人填。
