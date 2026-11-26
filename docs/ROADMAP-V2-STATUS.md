@@ -1,4 +1,4 @@
-# Soulweave V2 落地对照（截至 0.12.2 / 2026-11-26）
+# Soulweave V2 落地对照（截至 0.12.5 / 2026-11-26）
 
 > 对照 `ROADMAP-V2.md`（2026-11-25 设计原稿，保留原文不改）。
 > 原稿回答「要做什么」，本文回答「实际做了什么、差在哪、为什么」。
@@ -68,6 +68,22 @@
 2. **黄金测试集**：有了真实语料才谈得上调 α。先用现有 716 条记忆 + 已入库的 summary 跑固定查询集，记录命中率。
 3. **日记挂载 / Super-Node**：等前两项稳定。
 4. **弱边清理**：只在 `compaction` 时做，且先 dry-run 记录数量。
+
+---
+
+## 1.0 待办（2026-11-26 记，以后做）
+
+**包名去 `dsh-` 前缀**：`@ly-ina/dsh-soulweave` → `@ly-ina/soulweave`。
+理由：`./sdk` 已经宿主无关，前缀把「不只是 DSH 插件」说小了；1.0 是 breaking 窗口，和其它 breaking 一起做。
+配套三件，缺一不可：
+
+1. **过渡包**：`@ly-ina/dsh-soulweave` 留成空壳，re-export 新包并标 deprecated，至少留一个大版本。
+2. **`install.mjs` 自动迁移**：识别 profile 里的旧依赖名 / 旧 junction，改写成新名并清掉旧的；
+   否则会同时挂两个包，`bundles` 里还留着旧 id。
+3. **目录一起改**：`~/.dsh/plugins/dsh-soulweave` → `~/.dsh/plugins/soulweave`；
+   README 的 clone 路径、升级命令、HMR 监听路径同步更新。
+
+顺手把 1.0 原本那一刀一起落：根入口只留 `./sdk` 与插件入口，内部面收干净。
 
 ---
 
