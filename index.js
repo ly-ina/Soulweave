@@ -9,6 +9,26 @@
 export const name = 'soulweave'
 
 /** §9.4：需要动 `ctx.tools` 就必须经 inject 声明。 */
+/**
+ * DSH / cordis 约定：设置面板看到的默认配置。
+ * 只列「用户会改」的键，且都是 normalizeConfig 的**原始输入**口径；
+ * 派生项（stateDir、sqlite 驱动、预算换算）不在这里，运行时仍以 normalizeConfig 为准。
+ * 其它宿主（MCP / SDK）不会读这个导出，忽略即可。
+ */
+export const Config = Object.freeze({
+  soulPath: '',
+  autoInitSoul: true,
+  memoryBackend: 'builtin',
+  memoryDbPath: '',
+  soulMaxTokens: 1000,
+  totalMaxTokens: 950,
+  recallLimit: 3,
+  rulesDir: '',
+  soulIndexDir: '',
+  sealedSegmentsModule: '',
+  hybridSearch: false,
+})
+
 export const inject = ['tools', 'webServer']
 
 // 宿主装配：Node 的 IO 与 sqlite 驱动。必须排在其它 import 之前（ESM 按声明顺序求值）。
@@ -23,4 +43,4 @@ export { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, crea
 
 export * from './sdk.mjs'
 
-export default { name, inject, apply, MESSAGE_KIND }
+export default { name, inject, Config, apply, MESSAGE_KIND }

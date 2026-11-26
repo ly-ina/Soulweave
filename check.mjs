@@ -120,6 +120,7 @@ import {
   planSoulSplit,
   decideReload,
   SOUL_STAGES,
+  MINIMAL_SOUL,
   parseSoul,
   readSoul,
   readSoulSources,
@@ -4565,6 +4566,34 @@ await test('R34', '记录捕获：一行多触发词按位置拆段（※办 与
   assert.deepEqual(splitTriggers('※记： ※办：B').empty, ['recall'], '空段要单独报')
   assert.deepEqual(splitTriggers('讨论 ※记：x').entries, [], '行首不是触发词就不抓')
   assert.deepEqual(splitTriggers('> ※记：x').entries, [], '引用块不抓')
+})
+
+await test('R35', '首装兜底：最小人格骨架可解析，autoInitSoul 默认开且可关', () => {
+  const parsed = parseSoul(MINIMAL_SOUL)
+  assert.ok(parsed.sections['身份'].length >= 3, '身份至少 3 条')
+  assert.ok(parsed.sections['认知'].length >= 2, '认知至少 2 条')
+  assert.ok(parsed.sections['禁令'].length >= 2, '禁令至少 2 条')
+  assert.equal(normalizeConfig({}).autoInitSoul, true, '默认开')
+  assert.equal(normalizeConfig({ autoInitSoul: false }).autoInitSoul, false, '可关')
+})
+
+await test('R36', '首装兜底真的落盘：没有 soul.md 时 prestep 写最小骨架并注入本轮', async () => {
+  const p = join(root, 'auto-init-soul.md')
+  if (existsSync(p)) rmSync(p)
+  const handler = createPreStepHandler({
+    config: { ...config, soulPath: p, autoInitSoul: true },
+    now: () => new Date('2026-11-26T22:00:00+08:00'),
+    pendingLoader: () => [],
+  })
+  const decision = await runHandler(handler, 1)
+  assert.ok(existsSync(p), 'soul.md 没被创建')
+  const text = readFileSync(p, 'utf8')
+  assert.ok(text.includes('## 身份') && text.includes('## 禁令'), '骨架缺小节')
+  const injected = decision.messages
+    .filter((m) => m?.source?.kind === 'soul')
+    .map((m) => m.content.map((part) => part.text).join(''))
+    .join('\n')
+  assert.ok(injected.includes('还没起'), '骨架没有被注入本轮')
 })
 
 for (const r of results) {

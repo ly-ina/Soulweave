@@ -3,12 +3,12 @@
  * dsh 宿主：pre-step 注入处理器（允许 ctx，业务全在 core）。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { appendLog, asText, clip, estimateTokens, logLine, sha256, PLUGIN_DIR } from '../../core/text.mjs'
 import { MESSAGE_KIND, MEMORY_HEAD_LIMIT } from '../../core/constants.mjs'
 import { buildReflectPrompt, shouldInjectReflect } from '../../core/reflect.mjs'
 import { normalizeConfig, readRouterLines } from '../../core/config.mjs'
-import { EMPTY_SOUL, composeSoul, composeSoulStable, composeSoulState, decideReload, planSoulSplit, readSoulSources } from '../../core/soul.mjs'
+import { EMPTY_SOUL, MINIMAL_SOUL, composeSoul, composeSoulStable, composeSoulState, decideReload, planSoulSplit, readSoulSources } from '../../core/soul.mjs'
 import { readSnapshot as readPersonaSnapshot } from '../../core/persona.mjs'
 import { RECALL_TEXT_MAX_CHARS, SOUL_ASSOC_KIND, SOUL_RECALL_KIND, SOUL_STATE_KIND, SOUL_TRIGGER_KIND, pickRecallEntry, planStateEmit, renderRecall, resetRecallCooldownOnReload } from '../../core/recall-state.mjs'
 import { applyBudgetPlan, countPinnedEntries, countResidentEntries, countSnapshotEntries, countSnapshots, countSoulNodes, detectPinnedAnomalies, detectSnapshotDrift, eventsOfSession, isSnapshotMessage, lastUserTexts, loadLessonHead, loadMemoryHeads, loadPendingItems, maybeLogTier, measureInjections, measureRequestBudget, planBudget, planSnapshotPrune, rememberUserTexts, snapshotMetaOf, soulTargetIndex, textOfMessage } from '../../core/budget.mjs'
@@ -99,7 +99,21 @@ export function createPreStepHandler(options = {}) {
     if (payload?.signal?.aborted === true) return decision
 
     const at = now()
-    const soulSources = readSoulSources([config.soulPath, ...config.extraSoulPaths])
+    let soulSources = readSoulSources([config.soulPath, ...config.extraSoulPaths])
+    // 首装兜底：一个 soul.md 都没有时落一份最小骨架，只写一次、绝不覆盖。
+    // 不这么做的话，新装用户第一眼看到的是空人格。
+    if (!soulSources.soul && config.autoInitSoul) {
+      try {
+        if (!existsSync(config.soulPath)) {
+          mkdirSync(dirname(config.soulPath), { recursive: true })
+          writeFileSync(config.soulPath, MINIMAL_SOUL, 'utf8')
+          logger?.info?.(`dsh-soul: 没找到 ${config.soulPath}，已写入最小人格骨架，可直接编辑`)
+          soulSources = readSoulSources([config.soulPath, ...config.extraSoulPaths])
+        }
+      } catch (err) {
+        logger?.warn?.(`dsh-soul: 最小人格骨架写入失败：${err?.message ?? err}`)
+      }
+    }
     const soul = soulSources.soul
     if (!soul && logger?.warn) logger.warn(`dsh-soul: 读不到 ${config.soulPath}，本轮只注入「现在在哪 / 怎么查」`)
     // v0.1.2 P1 R4：extraSoulPaths 里某个文件缺失时不报错，写一条 soul-warn 后继续用剩下的。

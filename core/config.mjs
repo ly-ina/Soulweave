@@ -253,6 +253,8 @@ export function normalizeConfig(config = {}) {
   const workspaceRoot = asText(config.memoryDbPath) ? resolve(dirname(memoryDbPath), '..') : dirname(PLUGIN_DIR)
   return Object.freeze({
     soulPath,
+    /** 首装没有任何 soul.md 时，prestep 自动落一份最小骨架（只写一次，不覆盖）。 */
+    autoInitSoul: config.autoInitSoul !== false,
     /** v0.1.2 P1：额外常驻文件（按顺序拼在 soul.md 之后；空数组 = 只读 soul.md）。 */
     extraSoulPaths,
     /** 分区索引与标签（待办 A）。 */

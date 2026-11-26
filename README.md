@@ -4,8 +4,8 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933)
 ![deps](https://img.shields.io/badge/npm%20deps-0-blue)
 ![License](https://img.shields.io/badge/license-proprietary-red)
-![version](https://img.shields.io/badge/version-0.12.4-8b5cf6)
-![check](https://img.shields.io/badge/check-131%2F131-22c55e)
+![version](https://img.shields.io/badge/version-0.12.5-8b5cf6)
+![check](https://img.shields.io/badge/check-133%2F133-22c55e)
 
 > 给 DeepSeek Harness 装一层**人格 + 记忆**。
 > 自建三层索引、自建记忆图，自己跑 PPR 与 RRF——**运行时零依赖**。
@@ -252,6 +252,7 @@ import { parseSoul } from '@ly-ina/dsh-soulweave/core'
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `soulPath` | `<插件目录>/soul.md` | 人格文件（只读） |
+| `autoInitSoul` | `true` | 首装没有任何 `soul.md` 时自动落一份最小骨架（只写一次，不覆盖） |
 | `memoryBackend` | `builtin` | `builtin` / `meow`（只读老库）/ `none` |
 | `memoryDbPath` | `<stateDir>/soul-memory.db` | 记忆库路径 |
 | `soulMaxTokens` | `1000` | 魂引上限，最高 8000 |

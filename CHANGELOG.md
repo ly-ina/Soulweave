@@ -1,6 +1,19 @@
 # Changelog
 
 
+## 0.12.5 — 2026-11-26
+
+两个「第一眼」的缺口：新装看到空人格，DSH 设置面板认不出配置。
+
+- `index.js`：新增 `export const Config`（DSH / cordis 约定），列出用户会改的 11 个原始键并给默认值；
+  `default` 导出也带上。MCP / SDK 宿主不读这个导出，行为不变。
+- `core/soul.mjs`：新增 `MINIMAL_SOUL` 最小人格骨架（身份 / 认知 / 禁令 / 反哺）。
+- `core/config.mjs`：新增 `autoInitSoul`（默认 `true`）。
+- `adapters/dsh/prestep.mjs`：没有任何 `soul.md` 时，把骨架写到 `soulPath` 并立即重读注入；
+  **只写一次、绝不覆盖**，写失败只 warn 不中断本轮。
+- `check.mjs` 新增 **R35 / R36**：骨架可解析、开关默认值、真落盘并注入本轮。check **133/133**。
+- check-layers / gen-api --check 全绿；API 导出总数 458 → 459。
+
 ## 0.12.4 — 2026-11-26
 
 记录捕获：一行里的多个触发词不再互相吞。
