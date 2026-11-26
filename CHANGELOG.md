@@ -1,6 +1,14 @@
 # Changelog
 
 
+## 0.11.3 — 2026-11-26
+
+scene 的 sid 也跟着保留 `session-` 前缀，和树索引/原文库对齐。
+
+- `memory/scene.mjs`：不再剥 `session-`；tracker 的 key 同样原样保留。
+- 0.11.2 里只改了 tree、scene 还剥前缀，导致 `summary.scene_id` 绑不上（S2 红了一次，已修）。
+- 库里已有的 45 行 scene 与那条 summary 的 `scene_id` 一起迁回带前缀的 id。
+- check **124/124**。
 ## 0.11.2 — 2026-11-26
 
 sid 前缀修正：**不要剥 `session-`**。
@@ -423,5 +431,6 @@ node tools/route-records.mjs --in <records.jsonl> --db <soul-memory.db> [--dry-r
   - 自测：`selftest-when` 23→31 条（计数 / 误报 / 缺 id / 老表补列 ×3）；R13 加「dry-run 也要记账」断言；`check.mjs` 98/98。
   - **日志降噪**：未命中的 `when-scan` 每 10 步一行（行内带 `steps=` 累计 / `miss=` 累计，命中率的分母不丢）；`no-tool-call` 同样首次照写、之后每 10 步一行。soul.log 实测已 10 MB / 36 002 行，每步一行的写法撑不住。
   - 为什么先只做计数：调权没有 hit/bad 样本就是拍脑袋。dry-run 这几天顺手把数据攒了，有样本再定权重怎么改。
+
 
 

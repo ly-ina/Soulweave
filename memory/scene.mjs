@@ -108,7 +108,7 @@ export function createSceneTracker(options = {}) {
   function observe(event, ctx = {}) {
     if (!isToolCall(event)) return null
     const data = event.data && typeof event.data === 'object' ? event.data : event
-    const sessionId = String(ctx.sessionId || data.sessionId || '').replace(/^session-/, '')
+    const sessionId = String(ctx.sessionId || data.sessionId || '').trim()
     if (!sessionId) return null
     const at = Number(ctx.at) || nowFn()
     const state = recent.get(sessionId) || { lastAt: 0, ms: 0, count: 0 }
@@ -141,10 +141,11 @@ export function createSceneTracker(options = {}) {
     }
   }
 
-  return { observe, reset: (sid) => recent.delete(String(sid || '').replace(/^session-/, '')) }
+  return { observe, reset: (sid) => recent.delete(String(sid || '').trim()) }
 }
 
 /** 便捷入口：只要一条 scene，不跟踪窗口。 */
 export function extractScene(event, ctx = {}) {
   return createSceneTracker(ctx).observe(event, ctx)
 }
+

@@ -2890,7 +2890,7 @@ await test('S1', 'scene 提取器：时间窗/亲密度/pathPattern 只留相对
   const tracker = createSceneTracker({ now: () => clock })
   const ev = (seq, args) => ({ type: 'tool/call', seq, data: { turn: 7, step: seq, name: 'ps', arguments: JSON.stringify(args) } })
   const first = tracker.observe(ev(1, {}), { sessionId: 'session-abc', cwd: 'E:\\dsh_work', text: '抱抱' })
-  assert.equal(first.sessionId, 'abc', 'session- 前缀没去掉')
+  assert.equal(first.sessionId, 'session-abc', 'session- 前缀应保留')
   assert.equal(first.tool, 'ps')
   assert.equal(first.timeWindow, 'night', '本地时间窗不对')
   assert.equal(first.intimacy, 0.75, '亲密度不对')
@@ -2927,7 +2927,7 @@ await test('S2', 'scene 落库：工具调用写行，summary 通过 scene_id �
   const db = new DatabaseSync(dbPath)
   const scenes = db.prepare('SELECT * FROM scene').all()
   assert.equal(scenes.length, 1, `scene 行数不对：${scenes.length}`)
-  assert.equal(scenes[0].sid, 's2', 'scene.sid 没归一化')
+  assert.equal(scenes[0].sid, 'session-s2', 'scene.sid 应保留 session- 前缀')
   assert.equal(scenes[0].tool, 'write')
   assert.equal(scenes[0].path_pattern, 'plugins/x.mjs', `path 不该存全路径：${scenes[0].path_pattern}`)
   assert.equal(scenes[0].time_window, timeWindowOf(1764000000000 + 2))
@@ -4323,6 +4323,8 @@ if (failed > 0) {
   console.error(`失败 ${failed} 条`)
   process.exit(1)
 }
+
+
 
 
 
