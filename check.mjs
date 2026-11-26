@@ -38,6 +38,7 @@ import { personalizedPageRank } from './memory/ppr.mjs'
 import { nextMomentum, initialState, createMomentumStore, MOMENTUM_RESET } from './memory/momentum.mjs'
 import { sameSceneEdges, sameSourceEdges, graphStats, ensureEdgeTable, upsertEdges } from './memory/graph.mjs'
 import { associateByPPR } from './memory/assoc.mjs'
+import { extractRecords, splitTriggers } from './core/record-extract.mjs'
 import { createTokenizer } from './core/tree/terms.mjs'
 import { searchSummaries, summaryFrags } from './core/tree/retrieve.mjs'
 import { treeStats, ensureTreeSchema } from './core/tree/schema.mjs'
@@ -4540,6 +4541,30 @@ await test('R33', 'SDK 承诺面：不碰宿主、核心导出必须在、且不
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
   )
   assert.match(probe, /sdk 导出数: 20/, 'loader 探针应报 20 个导出')
+})
+
+await test('R34', '记录捕获：一行多触发词按位置拆段（※办 与 ※记 不再互相吞）', () => {
+  const text = [
+    '普通讨论 ※记 这里不算，因为不在行首',
+    '※办：明天十点交材料 ※记：别用裸文件名写文件',
+    '※记：单独一条',
+    '※办「明天九点交材料」',
+    '- ※结：交材料',
+  ].join('\n')
+  const got = extractRecords(text).records.map((r) => `${r.kind}:${r.text}`)
+  assert.deepEqual(got, [
+    'todo:明天十点交材料',
+    'recall:别用裸文件名写文件',
+    'recall:单独一条',
+    'settle:交材料',
+  ], JSON.stringify(got))
+
+  const three = splitTriggers('※办：A ※记：B ※结：C')
+  assert.deepEqual(three.entries.map((e) => e.kind), ['todo', 'recall', 'settle'], '三词一行')
+  assert.deepEqual(three.entries.map((e) => e.text), ['A', 'B', 'C'], '三段正文')
+  assert.deepEqual(splitTriggers('※记： ※办：B').empty, ['recall'], '空段要单独报')
+  assert.deepEqual(splitTriggers('讨论 ※记：x').entries, [], '行首不是触发词就不抓')
+  assert.deepEqual(splitTriggers('> ※记：x').entries, [], '引用块不抓')
 })
 
 for (const r of results) {

@@ -102,6 +102,64 @@ export function matchTrigger(line, trigger = DEFAULT_TRIGGER) {
   return body
 }
 
+/**
+ * 一行里的**所有**触发词，按出现位置切段（0.12.4）。
+ *
+ * 历史问题：0.12.3 及以前一行只认第一个触发词，后面的会被吞进前一条正文里——
+ * `※办：明天交材料 ※记：别用裸文件名` 会变成一条 todo（正文含 `※记：…`），
+ * 而「记」根本没录上。现在一行可以有任意多条，各自成段。
+ *
+ * 切分规则（可预测优先）：
+ *  - 行首必须是某个触发词（允许前置空白 / 列表符），否则整行不算；
+ *  - 行首之后的触发词必须**前面有空白**才算分隔，避免误切词内字符；
+ *  - 每段各自判引文（`※办「明天九点交材料」` 仍不抓）；
+ *  - 空段返回在 `empty` 里，由调用方记成「空触发」。
+ *
+ * @param {string} line 单行文本
+ * @param {Record<string,string>} [triggers] kind → 触发词
+ * @returns {{entries:Array<{kind:string,text:string}>, empty:string[]}}
+ */
+export function splitTriggers(line, triggers = DEFAULT_TRIGGERS) {
+  if (typeof line !== 'string') return { entries: [], empty: [] }
+  if (/^[\s>*+-]*\\/.test(line)) return { entries: [], empty: [] }
+  const enabled = TRIGGER_KINDS.filter((kind) => triggers[kind])
+  if (enabled.length === 0) return { entries: [], empty: [] }
+  const words = enabled.map((kind) => ({ kind, word: triggers[kind] }))
+  const alternation = words.map((w) => escapeRegExp(w.word)).join('|')
+
+  const head = new RegExp(`^[\\t ]*(?:[-*+][\\t ]+)?(${alternation})[\\t ]*[:：]?[\\t ]*`)
+  const m = head.exec(line)
+  if (m === null) return { entries: [], empty: [] }
+
+  const kindOf = (word) => (words.find((w) => w.word === word) || {}).kind
+  const entries = []
+  const empty = []
+  const push = (kind, body) => {
+    if (body === '') {
+      if (kind) empty.push(kind)
+      return
+    }
+    if (isQuoted(body)) return
+    entries.push({ kind, text: body })
+  }
+
+  let kind = kindOf(m[1])
+  let rest = line.slice(m[0].length)
+  // `^` 让「上一段是空的」也能切出来（`※记： ※办：B` → 空 recall + todo）；
+  // 其余位置仍要求前面有空白，避免把正文里的字符当分隔。
+  const sep = new RegExp(`(?:^|[\\t ]+)(${alternation})[\\t ]*[:：]?[\\t ]*`, 'g')
+  let last = 0
+  let hit
+  while ((hit = sep.exec(rest)) !== null) {
+    push(kind, rest.slice(last, hit.index).trim())
+    kind = kindOf(hit[1])
+    last = hit.index + hit[0].length
+  }
+  push(kind, rest.slice(last).trim())
+
+  return { entries, empty }
+}
+
 /** 全文第一行（结束后 UI 摘要使用的值）。 */
 export function firstLine(text) {
   const s = String(text ?? '')
@@ -141,18 +199,16 @@ export function extractRecords(text, options = {}) {
   const records = []
   const empty = []
 
+  const emptyLines = new Set()
   for (let i = 0; i < lines.length; i++) {
-    for (const kind of enabled) {
-      const captured = matchTrigger(lines[i], triggers[kind])
-      if (captured === null) continue
-      if (captured === '') {
-        empty.push(i + 1) // 1-based，写给人看
-      } else {
-        records.push({ kind, text: captured, lineIndex: i, raw: lines[i] })
-      }
-      break // 一行只算一个触发
+    // 0.12.4：一行可以有多个触发词（`※办：A ※记：B` 拆成两条），不再只认第一个。
+    const split = splitTriggers(lines[i], triggers)
+    for (const entry of split.entries) {
+      records.push({ kind: entry.kind, text: entry.text, lineIndex: i, raw: lines[i] })
     }
+    for (const _kind of split.empty) emptyLines.add(i + 1) // 1-based，写给人看
   }
+  for (const lineNo of emptyLines) empty.push(lineNo)
 
   const headLive = lastParagraphFirstLine(src)
   const headSettled = firstLine(src)
