@@ -211,16 +211,16 @@ function runQuery(db, options) {
     const sql =
       'SELECT m.sid, m.seq, m.time, m.role, m.origin, m.text, bm25(msg_fts) AS score ' +
       'FROM msg_fts JOIN messages m ON m.id = msg_fts.rowid ' +
-      'WHERE msg_fts MATCH ?' + filterSql + ' ORDER BY bm25(msg_fts) LIMIT ?'
+      // 按时间倒序而不是 bm25：原文库是回忆最近发生过什么，
+      // bm25 会把很久以前的旧消息排到最前面。
+      'WHERE msg_fts MATCH ?' + filterSql + ' ORDER BY m.id DESC LIMIT ?'
     return db.prepare(sql).all(expr, n)
   }
 
   // 2 字中文词用不上 trigram 索引，只能 LIKE。旧写法是全表扫再按
-  // 「命中词数 + 时间」排序：12 万行要 250ms。改成按主键倒序扫、
-  // 凑够候选就停——常用词（压缩/巡检/纳）几毫秒到十几毫秒就出结果；
-  // 冷门词才退化成全表扫（那是它本来就该付的代价）。
-  // 代价：只在最近 want 条命中里按「命中词数」重排，而不是全库。
-  // 原文库是「回忆最近发生过什么」的地方，这个取舍值得。
+  // 「命中词数 + 时间」排序：12 万行要 250ms。
+  // 现在按主键倒序扫、凑够 n 条命中就停——最终顺序由上层统一按时间决定，
+  // 这里不再按命中词数重排（重排会把「命中同义词多但很旧」的顶上来）。
   const like = (words, n) => {
     if (words.length === 0) return []
     const cond = words.map(() => 'm.lex LIKE ?').join(' OR ')
@@ -229,24 +229,11 @@ function runQuery(db, options) {
     for (const w of words) condParams.push('%' + w + '%')
     for (const w of words) condParams.push('%' + w + '%')
     const cols = 'SELECT m.sid, m.seq, m.time, m.role, m.origin, m.text, (' + score + ') AS score '
-    // 有时间窗时只取 n 条：窗口内命中本来就少，取多了（48）会凑不满，
-    // SQLite 得扫完整表才能确认「没有更多」——今天+压缩从 5ms 变 255ms。
-    // 有时间窗时只取 n 条：窗口内命中本来就少，取多了（48）会凑不满，
-    // SQLite 得扫完整表才能确认「没有更多」——今天+压缩从 5ms 变 255ms。
-    const want = timeWindows.length > 0 ? n : Math.min(400, Math.max(n * 6, 48))
-    const byScore = (rows) =>
-      rows.sort(
-        (a, b) =>
-          Number(b.score ?? 0) - Number(a.score ?? 0) ||
-          Number(b.time ?? 0) - Number(a.time ?? 0) ||
-          String(a.text ?? '').length - String(b.text ?? '').length,
-      )
-    // 主键倒序 + LIMIT：SQLite 从最新一条往回扫，凑够 want 条命中就停。
-    // 带时间窗（今天/昨天）也一样——最近的数据就在文件尾部，扫得很浅。
-    const rows = db
+    // 只取 n 条：候选越多，稀疏词（害羞/脸红）就要往库里越挖越深。
+    // 48 条候选在两万行内凑不齐时，单次查询 130ms；n 条只要十几毫秒。
+    return db
       .prepare(cols + 'FROM messages m WHERE (' + cond + ')' + filterSql + ' ORDER BY m.id DESC LIMIT ?')
-      .all(...condParams, want)
-    return byScore(rows).slice(0, n)
+      .all(...condParams, n)
   }
 
   if (longPhrases.length > 0) {
@@ -257,11 +244,20 @@ function runQuery(db, options) {
       /* FTS 不可用（某些驱动的 fts5 没编进来）→ 全靠 LIKE */
     }
   }
-  if (rows.length < limit && shortPhrases.length > 0) add(like(shortPhrases, limit))
-  if (rows.length < limit && bigrams.length > 0) add(like(bigrams, limit))
+  // 短词 LIKE 总是跑：FTS 对「脸红」先命中的是扩展出来的三字词（可能很旧），
+  // 而且索引本身可能滞后；真正最近的「脸红」只有 LIKE 找得到。
+  if (shortPhrases.length > 0) add(like(shortPhrases, limit))
+  // 二元组也总是跑：长词（原文库）的 FTS 索引可能只覆盖旧数据，
+  // 「原文/文库」的 LIKE 能把最近的消息捞回来。
+  if (bigrams.length > 0) add(like(bigrams, limit))
   if (rows.length === 0 && tokens.length > 0) add(like(tokens, limit))
 
-  const entries = rows.slice(0, limit).map((row) => ({
+  // 原文库是回忆「最近发生过什么」：统一按时间倒序，同时间再看分数。
+  const entries = rows
+    .slice()
+    .sort((a, b) => Number(b.time ?? 0) - Number(a.time ?? 0) || Number(b.score ?? 0) - Number(a.score ?? 0))
+    .slice(0, limit)
+    .map((row) => ({
     when: formatWhen(row.time),
     role: String(row.role ?? ''),
     origin: String(row.origin ?? ''),
