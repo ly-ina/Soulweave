@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * smoke-soul-index —— 原文库检索（纯 JS）契约冒烟。
  *

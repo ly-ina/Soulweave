@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * recall —— 三源检索、原文库/规则/笔记搜索、persist（零宿主依赖）。
  */

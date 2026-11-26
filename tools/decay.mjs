@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 阶段衰退 CLI：先看，再动手。
  *

@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * dsh 宿主：pre-step 注入处理器（允许 ctx，业务全在 core）。
  */

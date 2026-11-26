@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * Soulweave 设置面板（server 半）。
  *

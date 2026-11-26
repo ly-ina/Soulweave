@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/migrate-pool.mjs —— 把旧库里的内容池（memories/todos/versions）搬进独立 builtin 库。
  *

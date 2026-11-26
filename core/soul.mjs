@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/soul.mjs —— soul.md 解析、魂引导出、稳定版、状态行、预算切分（零宿主依赖）。
  *

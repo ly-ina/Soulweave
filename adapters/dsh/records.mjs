@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * adapters/dsh/records.mjs —— ※记 / ※办 / ※结 记录捕获。
  *

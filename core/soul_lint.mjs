@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * soul_lint —— 只读查「三处数据双写」（v0.1.2 P0）。
  *

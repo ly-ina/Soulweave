@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * sha256.mjs —— 零依赖 SHA-256（1.0 剥离 node:crypto 的替身）。
  *

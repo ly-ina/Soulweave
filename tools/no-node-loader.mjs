@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /** 验收用：任何 node: 内置模块都算「还没剥离」。 */
 export async function resolve(specifier, context, next) {
   if (specifier.startsWith('node:')) {

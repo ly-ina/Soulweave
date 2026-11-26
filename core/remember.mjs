@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * remember —— 魂织记忆模型唯一写入口（2026-11-24 第一刀）。
  *

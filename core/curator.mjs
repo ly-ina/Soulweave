@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * curator —— 记忆库体检 + 选择性归档（2026-11-24 从 dsh-memory-curator 并入魂织）。
  *

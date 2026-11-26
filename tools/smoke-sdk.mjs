@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * smoke-sdk —— 宿主外冒烟：只用 sdk.mjs 的 20 个承诺面，不碰 adapters。
  *

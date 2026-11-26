@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 分区迁移（2026-11-03 待办 A）：把 meow 记忆库按 project/level 映射进 `memory/<zone>.md`。
  *

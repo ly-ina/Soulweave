@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * examples/sdk-quickstart.mjs —— 接入魂织的五步闭环：
  *   建库 → 写记忆 → 写待办 → 读现状段 → 按指针去检索。

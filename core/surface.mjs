@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 十期：存量魂引 / 记忆快照瘦身（surface replace —— **只遮不删**，日志原文一条不动）
  *

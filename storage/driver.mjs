@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * storage/driver.mjs —— **整个仓库唯一允许 import `node:sqlite` 的地方**。
  *

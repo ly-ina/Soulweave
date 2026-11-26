@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/stress-lifecycle.mjs —— SDK 生命周期验收（HANDOFF 第 3 节第 4 条）。
  *

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/migrate-legacy.mjs —— 把 meow 七层的 active 记忆迁进 builtin 池。
  *

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/smoke-records.mjs —— adapters/dsh/records.mjs 契约自检。
  *

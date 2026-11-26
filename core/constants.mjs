@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/constants.mjs —— 魂引的固定常量与文案表（零宿主依赖）。
  *

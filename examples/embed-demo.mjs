@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * examples/embed-demo.mjs —— 「在不是 DSH 的 Node 服务端里用魂织」的最小可跑样例。
  *

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 发布前自检（交办单 §2/§3）：只读仓库、不联网、不改任何文件。
  *
@@ -65,6 +66,14 @@ if (privateSoulPath && existsSync(privateSoulPath)) {
   skip('R7 示例无私人内容', '未提供 SOULWEAVE_PRIVATE_SOUL（私人 soul.md 路径）——本机验收时再跑')
 }
 
+// 3.5) 署名完整性：每个跟踪的源文件头三行内必须有版权行（删署名要动 85 个文件）
+const stamped = []
+for (const file of files) {
+  if (!/\.(m?js)$/.test(file)) continue
+  const head = readFileSync(join(ROOT, file), 'utf8').split('\n', 3).join('\n')
+  if (!head.includes('Soulweave · ©')) stamped.push(file)
+}
+check('R9 署名完整', stamped.length === 0, stamped.length === 0 ? `${files.filter((f) => /\.(m?js)$/.test(f)).length} 个源文件全部带版权头` : `缺：${stamped.join(', ')}`)
 // 4) README 三节 + 权限边界三条
 const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
 check('R8-安装段', readme.includes('## 30 秒跑起来'), '「## 30 秒跑起来」')

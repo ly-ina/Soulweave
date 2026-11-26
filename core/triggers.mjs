@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * triggers —— 触发词清单加载与选择（零宿主依赖）。
  */

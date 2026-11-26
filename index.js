@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * dsh-soulweave —— 插件入口薄壳：只做装配与宿主导出。
  *

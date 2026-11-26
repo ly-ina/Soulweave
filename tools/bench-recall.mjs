@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/bench-recall.mjs —— 记忆规模 × 召回耗时实测。
  *

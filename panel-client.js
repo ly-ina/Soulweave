@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 // Soulweave 设置面板（client 半）。
 // 宿主把这里当浏览器模块加载，通过 window.__ModuleLoader__ 注入 require。
 // 文案直接写中文：这是本机私有插件，不跟 locale 走。

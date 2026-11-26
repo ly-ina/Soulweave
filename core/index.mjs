@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 export * from './text.mjs'
 export * from './constants.mjs'
 export * from './config.mjs'

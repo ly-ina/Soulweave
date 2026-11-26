@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/probe.mjs —— dream 记忆探针：取词、跑检、状态读写、到点调度（零宿主依赖）。
  *

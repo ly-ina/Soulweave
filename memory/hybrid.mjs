@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * hybrid.mjs · RRF 混合召回（零依赖）
  *

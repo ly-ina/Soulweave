@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * dsh-memprobe · 提取层（零宿主依赖，可单独 node 跑）
  *

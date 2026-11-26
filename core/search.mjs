@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/search.mjs —— 记忆后端与检索（meow / builtin / none），零宿主依赖。
  *

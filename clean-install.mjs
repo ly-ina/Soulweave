@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 干净安装验证（交办单 §1）：证明「别人只装这个包、只配一个 soulPath」也能跑通。
  *

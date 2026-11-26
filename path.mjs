@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * path.mjs —— 零依赖路径运算（1.0 剥离 node:path 的替身）。
  *

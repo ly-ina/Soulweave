@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/config.mjs —— 关系层读取、profile 补丁路径、配置归一化、路由行（零宿主依赖）。
  *

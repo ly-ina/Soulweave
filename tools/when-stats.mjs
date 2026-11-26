@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/when-stats.mjs —— when_ctx 命中统计 + 误报标注。
  *

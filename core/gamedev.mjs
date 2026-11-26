@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 九期：gamedev 技能库接入能力层（`soul_capabilities` 的 `source: 'gamedev'`）。
  *

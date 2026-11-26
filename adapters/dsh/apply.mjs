@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * dsh 宿主：工具定义、apply 入口（允许 ctx）。
  */

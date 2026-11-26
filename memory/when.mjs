@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * memory/when.mjs —— 情境签名 when_ctx。
  *

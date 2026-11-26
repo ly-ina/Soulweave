@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 把旧 meow 库的行为层（soul / user / rules）active 条目迁进魂织新池。
  * 只读源库；目标库走 remember()，带正文 sha 去重与版本留痕。

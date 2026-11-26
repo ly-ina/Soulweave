@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/when.mjs —— 给记忆条目签情境（第 1 条的命令行入口）。
  *

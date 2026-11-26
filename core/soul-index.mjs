@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/soul-index.mjs —— soul-index 原文库检索（纯 JS，不 spawn python）。
  *

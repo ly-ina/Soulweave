@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/budget.mjs —— 注入分类与预算让步、请求体量统计、快照漂移、记忆库读取（零宿主依赖）。
  *

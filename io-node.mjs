@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 import { existsSync } from 'node:fs'
 import * as realFs from 'node:fs'
 import * as realOs from 'node:os'

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/route-records.mjs —— 把 memprobe 的 records.jsonl 路由进记忆库。
  *

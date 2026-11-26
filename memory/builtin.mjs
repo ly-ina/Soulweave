@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * builtin 记忆后端：单文件 SQLite，一张 `memories` 表。
  *

@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * memory/time.mjs —— 中文时间解析（`明天九点` → 绝对时间）。
  *

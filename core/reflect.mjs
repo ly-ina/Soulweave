@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/reflect.mjs —— 魂织反思轮（第四刀）。
  *

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/legacy-compare.mjs —— 新旧记忆库双读比对（第三刀）。
  *

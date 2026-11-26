@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * prompt —— 注入消息、工作区解析、分区行（零宿主依赖）。
  */

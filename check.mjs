@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * dsh-soul 自测（MVP）。对应交办单 §8 的断言 1–4、11，另加三条本地加固。
  * 全部用自建靶子（%TEMP% 下一次性目录 + 临时 SQLite 库），不碰真实会话与真实库（§9.8）。

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * tools/gen-api.mjs —— 从源码 JSDoc 生成 docs/API.md。
  *

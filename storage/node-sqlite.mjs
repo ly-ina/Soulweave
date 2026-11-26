@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * storage/node-sqlite.mjs —— 把 node:sqlite 驱动注册进存储层。
  *

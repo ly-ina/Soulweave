@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * storage/index.mjs —— 存储层的公共接口。core/ 与 memory/ 只从这里取句柄。
  *

@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/recall-state.mjs —— 召回条目挑选/渲染、重载冷却、状态行发射计划（零宿主依赖）。
  *

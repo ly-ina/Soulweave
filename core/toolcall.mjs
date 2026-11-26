@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 2026-11-21 v0.4.2：从 DSH prestep 的 payload.messages 里提取「最近一次工具调用」。
  * 只读、纯函数，不依赖宿主。

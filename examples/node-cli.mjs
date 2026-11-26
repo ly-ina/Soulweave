@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * examples/node-cli.mjs —— 「不装 DSH 也能用」的最小证明。
  *

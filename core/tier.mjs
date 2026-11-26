@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * 三期模块 A：遗忘曲线 / 常驻名单审计（**只读 + preview/apply 两段**，不改 meow-memory 源码）
  *

@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 import { pickLastToolCall } from '../core/toolcall.mjs'
 let pass = 0, fail = 0
 const ok = (name, cond) => { if (cond) { pass++ } else { fail++; console.log('FAIL', name) } }

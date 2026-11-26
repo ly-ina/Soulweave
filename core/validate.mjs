@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/validate.mjs —— 工具入参与执行边界的最后一道闸。
  *

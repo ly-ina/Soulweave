@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * memory/route.mjs —— 触发词记录 → 落库路由。
  *

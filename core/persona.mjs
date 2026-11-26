@@ -1,3 +1,4 @@
+// Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
  * core/persona.mjs — 人格塑型快照（零宿主依赖）。
  *
