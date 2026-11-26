@@ -42,6 +42,9 @@ function expandTemplate(tpl, vars) {
 export function attachRecords(ctx, config = {}) {
   // 并入魂织后的契约：返回一个 dispose 函数，apply 侧负责推进 disposers。
   // 原 dsh-memprobe 的 ctx.on 返回值没接，卸载不掉；这里统一走 on() 包装。
+  // ctx.logger 是工厂函数（apply 侧写的是 ctx.logger?.('soul')），不是对象。
+  // 原来这里当对象用，所有 warn/info 都是哑的——并入时修的。
+  const logger = typeof ctx.logger === 'function' ? ctx.logger('records') : (ctx.logger ?? console)
   const disposers = []
   const on = (event, handler, opts) => {
     const off = ctx.on(event, handler, opts)
@@ -73,7 +76,7 @@ export function attachRecords(ctx, config = {}) {
   try {
     mkdirSync(dirname(outPath), { recursive: true })
   } catch (e) {
-    try { ctx.logger?.warn?.(`memprobe: 输出目录创建失败，插件不启用: ${e?.message ?? e}`) } catch {}
+    try { logger.warn?.(`memprobe: 输出目录创建失败，插件不启用: ${e?.message ?? e}`) } catch {}
     return
   }
 
@@ -90,6 +93,7 @@ export function attachRecords(ctx, config = {}) {
     typeof cueConfig.text === 'string' && cueConfig.text.trim()
       ? cueConfig.text
       : '[记忆巡检] 刚结束的上一轮：纳有没有让你记住什么，或者你自己想记住什么？' +
+        '\n记的是舍不得忘的，不是明天还用得上的——不记版本号、不记「改成了什么」、不记干了哪些活。' +
         '\n有 → 单独一行，用 `※记` 开头写一句（正文或思考都行），不换行。待办用 `※办` 开头。' +
         '\n没有 → 什么都不写。'
   // 上次看到的上下文条数（-1 = 还没看过）；用来识别「压缩后开场」。
@@ -127,7 +131,7 @@ export function attachRecords(ctx, config = {}) {
         const body = texts.map((t) => expandTemplate(tpl, { ...vars, text: t })).join('\n')
         appendFileSync(abs, `${body}\n`)
       } catch (e) {
-        try { ctx.logger?.warn?.(`records: 追加到 ${target?.path} 失败（已忽略）: ${e?.message ?? e}`) } catch {}
+        try { logger.warn?.(`records: 追加到 ${target?.path} 失败（已忽略）: ${e?.message ?? e}`) } catch {}
       }
     }
   }
@@ -161,7 +165,7 @@ export function attachRecords(ctx, config = {}) {
           } catch {}
           return { ...(decision ?? {}), messages: [...msgs, cueMessage(cueText)] }
         } catch (e) {
-          try { ctx.logger?.warn?.(`records: cue 注入失败（已忽略）: ${e?.message ?? e}`) } catch {}
+          try { logger.warn?.(`records: cue 注入失败（已忽略）: ${e?.message ?? e}`) } catch {}
           return decision
         }
       },
@@ -238,14 +242,14 @@ export function attachRecords(ctx, config = {}) {
               }
               if (row.route.warnings.length > 0) {
                 try {
-                  ctx.logger?.warn?.(
+                  logger.warn?.(
                     `memprobe: 落库警告 ${row.route.warnings.map((w) => w.kind).join(',')}`,
                   )
                 } catch {}
               }
             } catch (e) {
               row.route = { error: String(e?.message ?? e) }
-              try { ctx.logger?.warn?.(`memprobe: 落库失败（已忽略）: ${e?.message ?? e}`) } catch {}
+              try { logger.warn?.(`memprobe: 落库失败（已忽略）: ${e?.message ?? e}`) } catch {}
             }
           }
         }
@@ -265,19 +269,19 @@ export function attachRecords(ctx, config = {}) {
 
         if (r.leak.live || r.leak.settled) {
           try {
-            ctx.logger?.warn?.(
+            logger.warn?.(
               `memprobe: 触发词出现在摘要位置上（live=${r.leak.live} settled=${r.leak.settled}），摘要=「${r.leak.live ? r.leak.headLive : r.leak.headSettled}」`
             )
           } catch {}
         }
       }
     } catch (e) {
-      try { ctx.logger?.warn?.(`records: 处理事件异常（已忽略）: ${e?.message ?? e}`) } catch {}
+      try { logger.warn?.(`records: 处理事件异常（已忽略）: ${e?.message ?? e}`) } catch {}
     }
   })
 
   const targetDesc = targets.length === 0 ? '无（只写 JSONL）' : targets.map((t) => t.path).join(' · ')
-  try { ctx.logger?.info?.(`records: 已挂载，触发词「${triggerLabel}」，日志 ${outPath}，定向 ${targetDesc}`) } catch {}
+  try { logger.info?.(`records: 已挂载，触发词「${triggerLabel}」，日志 ${outPath}，定向 ${targetDesc}`) } catch {}
 
   return () => {
     for (const off of disposers) try { off?.() } catch {}

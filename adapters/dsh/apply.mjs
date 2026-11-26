@@ -1150,6 +1150,7 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
    * 默认关——只有 config.records.enabled === true 才挂，避免 HMR 重载时和旧插件双写。
    * 字段沿用 memprobe 原名：outPath / dbPath / routeKinds / triggers / targets / cue / dumpReasoning。
    */
+  logger.warn?.(`dsh-soul: records 配置 enabled=${String(config?.records?.enabled)} hasOn=${typeof ctx.on === 'function'}`)
   if (config?.records?.enabled === true && typeof ctx.on === 'function') {
     try {
       const rc = config.records
