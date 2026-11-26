@@ -25,6 +25,14 @@ function contentText(data) {
 }
 
 /**
+ * 原文库（soul.db）里的 sid 不带 `session-` 前缀，而宿主事件里的 session.id 带。
+ * 不归一化就会把同一会话写成两个 sid（回填 t198、在线又 t1），这里必须对齐。
+ */
+function normalizeSid(value) {
+  return String(value || '').trim().replace(/^session-/, '')
+}
+
+/**
  * @param {{dbPath:string, logger?:any, tokenizer?:any, now?:()=>number, maxTurns?:number}} options
  */
 export function createTreeIngest(options = {}) {
@@ -49,7 +57,7 @@ export function createTreeIngest(options = {}) {
 
   function accept(session, event) {
     if (!dbPath) return false
-    const sid = String(session?.id || event?.sessionId || event?.data?.sessionId || '')
+    const sid = normalizeSid(session?.id || event?.sessionId || event?.data?.sessionId)
     if (!sid) return false
     const type = event?.type
     if (type === 'user/message') {
