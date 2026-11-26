@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 一次性夹具工作区：从 tmpdir 派生，绝不写本机真实目录。 */
@@ -3963,17 +3963,32 @@ await test('R22', '魂织第七刀：curator 并入（体检/候选/归档保护
   assert.ok(readdirSync(backupDir).some((f) => f.endsWith('.db')), 'apply 应生成备份')
 })
 
-await test('R23', '魂织第九刀：core 宿主隔离（io 单入口，机器守卫）', async () => {
+await test('R23', '魂织第九刀：core/memory/storage 宿主隔离（io 单入口，机器守卫）', async () => {
+  // 2026-11-26：原来只扫 core/ 顶层，漏掉 memory/ 与子目录——0.12.0 的
+  // memory/graph.mjs 直接 import node:fs 就是这样溜过去、到 CI 才红的。
   const projDir = dirname(fileURLToPath(import.meta.url))
-  const coreDir = join(projDir, 'core')
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) return walk(full)
+    return entry.isFile() && /\.(mjs|js)$/.test(entry.name) ? [full] : []
+  })
+  const relOf = (file) => relative(projDir, file).replace(/\\/g, '/')
   const violations = []
-  for (const name of readdirSync(coreDir).filter((n) => n.endsWith('.mjs') && n !== 'io.mjs')) {
-    const text = readFileSync(join(coreDir, name), 'utf8')
-    if (/from 'node:(fs|os|child_process)'/.test(text)) violations.push(name + ':host-import')
-    for (const line of text.split(/\r?\n/)) {
-      const t = line.trim()
-      if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) continue
-      if (/\bprocess\.(env|cwd)\b/.test(line)) violations.push(name + ':process')
+  for (const layer of ['core', 'memory', 'storage']) {
+    for (const file of walk(join(projDir, layer))) {
+      const name = relOf(file)
+      const text = readFileSync(file, 'utf8')
+      for (const match of text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+        const spec = match[1]
+        if (!spec.startsWith('node:')) continue
+        if (spec === 'node:sqlite' && name === 'storage/driver.mjs') continue
+        violations.push(`${name}: ${spec}`)
+      }
+      for (const line of text.split(/\r?\n/)) {
+        const t = line.trim()
+        if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) continue
+        if (/\bprocess\.(env|cwd)\b/.test(line)) violations.push(`${name}:process`)
+      }
     }
   }
   assert.deepEqual(violations, [], '违规：' + violations.join(', '))

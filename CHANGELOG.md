@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 0.12.1 — 2026-11-26
+
+修 CI 红：`memory/graph.mjs` 违反依赖方向守卫（0.12.0 带着这条上去了，本地没拦住）。
+
+- `memory/graph.mjs`：删掉 `node:fs` / `node:path` / `node:sqlite` 导入与 `openGraphDb`；DB 句柄改由调用方用 `storage/index.mjs` 的 `openDatabase()` 打开后传入。memory/ 层回到零 `node:` 依赖。
+- `check.mjs` R23：扫描范围从「core/ 顶层」扩到 `core` / `memory` / `storage` 全递归，`node:sqlite` 只放行 `storage/driver.mjs`。这条本地早该拦住。
+- check **129/129**；`check-layers` / `gen-api --check` / `clean-install` / `npm pack --dry-run` 四项全绿。
 ## 0.12.0 — 2026-11-26
 
 L1 记忆图：PPR 扩散 + Context Momentum + 建边。第六路的算法层齐了（还没接进注入）。

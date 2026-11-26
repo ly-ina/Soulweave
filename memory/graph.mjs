@@ -9,10 +9,6 @@
  * 建边是纯函数（sameSceneEdges），落库函数单独放下面，方便单测。
  */
 
-import { existsSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
-
 export const EDGE_TABLE = 'memory_edge'
 export const RELATION_SAME_SCENE = 'same-scene'
 export const RELATION_SAME_SOURCE = 'same-source'
@@ -151,17 +147,10 @@ export function sameSourceEdges(entries, options = {}) {
   return edges
 }
 
-/** 打开（必要时创建）图库。 */
-export function openGraphDb(dbPath) {
-  try {
-    if (!existsSync(dbPath)) mkdirSync(dirname(dbPath), { recursive: true })
-    const db = new DatabaseSync(dbPath)
-    ensureEdgeTable(db)
-    return db
-  } catch {
-    return null
-  }
-}
+/**
+ * 打开图库的活儿不在这里：memory/ 层零 `node:` 依赖。
+ * 调用方用 `storage/index.mjs` 的 `openDatabase(dbPath)`，再调 `ensureEdgeTable(db)`。
+ */
 
 /** 批量 upsert；已有边只刷新 updated_at，不覆盖 hits/bad/weight。 */
 export function upsertEdges(db, edges, { now = Date.now() } = {}) {
