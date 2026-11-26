@@ -33,7 +33,7 @@ const now = Date.parse('2026-11-26T13:00:00+08:00')
 const rows = [
   [1, 'sess-aaaa1111', 10, now - 3600_000, 'user', '纳说记东西要记舍不得忘的', 'raw'],
   [2, 'sess-bbbb2222', 20, now - 2 * 86400_000, 'assistant', '她说有点脸红，害羞得不行', 'raw'],
-  [3, 'sess-cccc3333', 30, now - 1800_000, 'tool', '工具输出：脸红这种词不该进原文库', 'tool'],
+  [3, 'sess-cccc3333', 30, now - 50 * 60_000, 'tool', '工具输出：脸红这种词不该进原文库', 'tool'],
 ]
 const ins = con.prepare('INSERT INTO messages(id,sid,seq,time,role,text,origin,lex) VALUES (?,?,?,?,?,?,?,?)')
 for (const r of rows) ins.run(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[5])
@@ -61,7 +61,12 @@ console.log('R3 短词走 LIKE + 同义词')
 const r2 = searchSoulIndex({ dbPath, dictPath, query: '脸红', limit: 5, now })
 ok('同义词扩到「害羞」也命中', r2.entries.length >= 1, `实际 ${r2.entries.length}`)
 
-console.log('R4 时间窗')
+console.log('R4 stale 判定')
+ok('最新一条早于 30 分钟 → stale', r1.stale === true, String(r1.stale))
+const fresh = searchSoulIndex({ dbPath, dictPath, query: '舍不得忘', limit: 5, now: now - 40 * 60_000 })
+ok('now 贴着最新一条 → 不 stale', fresh.stale === false, String(fresh.stale))
+
+console.log('R4b 时间窗')
 const r3 = searchSoulIndex({ dbPath, dictPath, query: '今天 记', limit: 5, now })
 ok('「今天」只要当天', r3.entries.every((e) => /^11-26/.test(e.when)), JSON.stringify(r3.entries.map((e) => e.when)))
 

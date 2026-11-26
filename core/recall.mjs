@@ -292,7 +292,10 @@ export function searchIndexSource(options, words, limit) {
         loc: r.when + ' ' + String(r.sid || '').slice(-8) + '#' + r.seq,
         snippet: r.snippet,
       })),
-      note: direct.note,
+      // 本层只读：索引旧了不主动刷（刷新归 turn/end 的 auto-sync），但必须说出来——
+      // 不说的话，查到的是旧库也看不出来，比查不到更糟。
+      note: direct.note || (direct.stale ? '原文库索引可能落后：最近一条比当前时间早 30 分钟以上' : ''),
+      stale: direct.stale === true,
     })
   }
 
