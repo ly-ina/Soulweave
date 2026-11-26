@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0 — 2026-11-26
+
+**1.0 第三步：并入 dsh-memprobe（※记 / ※办 / ※结 记录捕获）**
+
+- **feat(core)**：新增 `core/record-extract.mjs`（原 memprobe `lib/extract.mjs`，180 行纯函数，零宿主依赖）。触发词解析、段落抽取、泄漏检测都在这一层。
+- **feat(adapters)**：新增 `adapters/dsh/records.mjs`，导出 `attachRecords(ctx, config)`。挂两个监听：`agent/pre-step`（记忆巡检 cue，`turn===1` 或上下文骤降 ≥8 才注入）与 `session/event`（从 assistant 消息块里抽记录 → JSONL → 可选 `routeRecords` 落库）。
+- **feat(config)**：`config.records`，字段沿用 memprobe 原名（`outPath` / `dbPath` / `routeKinds` / `triggers` / `targets` / `cue` / `dumpReasoning`）。**默认关**——只有 `records.enabled === true` 才挂，避免 HMR 重载时和旧插件双写。
+- **fix(dispose)**：原 memprobe 的 `ctx.on` 返回值没接，卸载不掉；现在 `attachRecords` 返回 dispose，`apply` 推进 `disposers`。
+- **change(host)**：`cordis.patch.yml` 里 memprobe 段与依赖已摘除，配置搬进 soulweave 的 `records:`；profile `package.json` / `pnpm-lock.yaml` 同步（pnpm install 清了 11 个包）。
+- **test**：新增 `tools/smoke-records.mjs` 14 条：两个 handler 挂上、`※记` 捕获写 JSONL、同事件去重、无触发词不写、dispose 摘干净且可重复调用。
+
 ## 0.7.0 — 2026-11-26
 
 **1.0 第二步：抽出 `storage/` 层，`node:sqlite` 收口到一个文件**

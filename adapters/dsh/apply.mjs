@@ -2,6 +2,7 @@
  * dsh 宿主：工具定义、apply 入口（允许 ctx）。
  */
 import { DatabaseSync } from 'node:sqlite'
+import { attachRecords } from './records.mjs'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -1144,6 +1145,24 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
     logger.warn?.('dsh-soul: tools 服务不可用，soul_recall / soul_persist / soul_cue / soul_toolout / soul_capabilities / soul_surface 未注册')
   }
 
+  /**
+   * 2026-11-26：※记 / ※办 / ※结 记录捕获，从独立插件 dsh-memprobe 并入。
+   * 默认关——只有 config.records.enabled === true 才挂，避免 HMR 重载时和旧插件双写。
+   * 字段沿用 memprobe 原名：outPath / dbPath / routeKinds / triggers / targets / cue / dumpReasoning。
+   */
+  if (config?.records?.enabled === true && typeof ctx.on === 'function') {
+    try {
+      const rc = config.records
+      const off = attachRecords(ctx, {
+        ...rc,
+        outPath: asText(rc.outPath) || join(normalized.stateDir, 'records.jsonl'),
+        dbPath: asText(rc.dbPath) || normalized.memoryDbPath,
+      })
+      if (typeof off === 'function') disposers.push(off)
+    } catch (error) {
+      logger.warn?.(`dsh-soul: 记录捕获没挂上：${String(error?.message ?? error)}`)
+    }
+  }
   /** A3：只在配了原文库时挂监听；拿不到 session/event 也不影响其它功能。 */
   if (normalized.soulIndexAutoSync && normalized.soulIndexSyncScript !== '' && typeof ctx.on === 'function') {
     try {

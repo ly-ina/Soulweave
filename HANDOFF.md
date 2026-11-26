@@ -48,17 +48,20 @@ storage 接口（注入式 Host，core 里零 node: 前缀）
 
 ---
 
-## 2. memprobe 并入魂织
-
-**三个坎（第二条已改，注意）**：
+## 2. memprobe 并入魂织 ✅ 2026-11-26（CHANGELOG 0.8.0）
 
 | # | 坎 | 状态 |
 |---|---|---|
-| ① | `import '../dsh-soulweave/memory/route.mjs'` 变成内部模块 | 待做 |
-| ② | 配置从 memprobe 包内 `cordis.patch.yml` 挪进 soulweave 配置树，并停用旧的 | 待做 |
-| ③ | ~~soulweave 首次挂 `ctx.on('session/event')`~~ | **已过时——魂织早就挂了**：`adapters/dsh/apply.mjs:1111`（compaction/end）和 `:1149`（原文库同步）。真正要确认的是**第三个 handler 会不会打架**（事件多播，理论上不会，但要实测） |
+| ① | `import '../dsh-soulweave/memory/route.mjs'` 变成内部模块 | ✅ `core/record-extract.mjs` + `adapters/dsh/records.mjs` |
+| ② | 配置从 memprobe 包挪进 soulweave 配置树，并停用旧插件 | ✅ `cordis.patch.yml` 的 `records:`；profile 依赖与 lock 已清（pnpm install -11 包） |
+| ③ | 第三个 `session/event` handler 会不会打架 | ⬜ **只剩这一条要实测**：重启后确认三个 handler 都在、事件各自跑、`records:` 真的挂上（日志会出现 `records: 已挂载`） |
 
-**并入后验收**：memprobe 原来的三词触发（`※记` / `※办` / `※结`）在魂织里行为不变。
+- 实现要点：`attachRecords(ctx, config)` 返回 dispose，`apply` 推进 disposers（原 memprobe 漏了这一步）。
+- `records.enabled` 默认 **false**，配置里显式 `true` 才挂。
+- `dbPath` 省略时自动用 `normalized.memoryDbPath`；`outPath` 省略时用 `stateDir/records.jsonl`。
+- 契约测试：`node tools/smoke-records.mjs` → 14/14。
+
+**并入后验收**：三词触发（`※记` / `※办` / `※结`）行为不变。
 已知状态：`※记` ✅ 真机验过 / `※办` ✅ 真机验过 / `※结` ⬜ 就是第 1 节那件事。
 
 ---
