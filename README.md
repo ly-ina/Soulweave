@@ -4,10 +4,11 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933)
 ![deps](https://img.shields.io/badge/npm%20deps-0-blue)
 ![License](https://img.shields.io/badge/license-proprietary-red)
-![version](https://img.shields.io/badge/version-0.12.3-8b5cf6)
-![check](https://img.shields.io/badge/check-130%2F130-22c55e)
+![version](https://img.shields.io/badge/version-0.12.4-8b5cf6)
+![check](https://img.shields.io/badge/check-131%2F131-22c55e)
 
 > 给 DeepSeek Harness 装一层**人格 + 记忆**。
+> 自建三层索引、自建记忆图，自己跑 PPR 与 RRF——**运行时零依赖**。
 > 不是把聊天记录存下来，是让 AI 每次开会话先想起自己是谁，干活时知道该去哪儿翻旧账，想不起来时知道怎么找回来。
 
 ![魂织架构](docs/architecture.png)
@@ -32,18 +33,52 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 ---
 
-## 它不是小玩具
+## 不是套壳：四层地基全是自己写的，运行时零依赖
 
-一个人写、一个人用，从 2026-10 写到现在。下面的数字都是真的（截至 0.12.3）：
+第一眼很容易把它当成「给模型塞一段 MEMORY.md」。不是。魂织自己管数据库、自己切原文、自己建索引、自己跑图扩散，`package.json` 里 **dependencies 是空的**。
 
-| 项 | 量 |
+四层，一层都没外包：**存储**（`node:sqlite`）→ **索引**（frag → summary → kw 树）→ **记忆**（图 + PPR 扩散）→ **装配**（DSH / MCP / SDK 三个入口共用同一套 `core/`）。
+
+零依赖到什么程度：
+
+| 常规做法 | 魂织 |
 |---|---|
-| 原文碎片 `frag` | **29 842** 条——每轮对话切块，能定位到句 |
-| 压缩摘要 `summary` | **7 986** 条——自动压缩，坏了能从 frag 重建 |
-| 记忆节点 / 关系边 | **716** 条 / **5 934** 条 |
-| 检索源 | **5** 个：记忆库 · 封存段 · 笔记 · 规则原文 · 原文库 |
-| 自检用例 | **130** 项，全绿才算数 |
-| npm 依赖 | **0** |
+| `import fs from 'node:fs'` 满仓库 | 宿主能力全部经 `io.mjs` 注入，`core/` `memory/` `storage/` 里 grep 不到一个 `node:` |
+| `import path from 'node:path'` | 手写 `path.mjs`（238 行），跨平台 |
+| `crypto.createHash('sha256')` | 手写 `sha256.mjs`（113 行），纯 JS |
+| `better-sqlite3` / `sql.js` | Node ≥ 22.5 自带的 `node:sqlite`，全仓唯一放行点 |
+| 装个向量库才敢叫检索 | 没有向量也能跑；有向量就 RRF 合并名次，没有就纯 BM25 |
+| 嘴上说「分层了」 | `tools/check-layers.mjs` 每次 CI 机械校验，违规直接红 |
+
+这不是洁癖，是拿约束换可移植性：拷一个目录，`node install.mjs`，跑起来。没有 `node_modules` 地狱，没有原生模块编译，没有「换个 Node 版本全崩」。
+
+## 索引不是装饰：一棵树 + 一张图
+
+检索不是 `LIKE '%关键词%'`。
+
+**树索引（原文层）**：每轮对话切 `frag`（3 万条，能定位到句），压成 `summary`（8 千条，≤220 字，坏了能从 frag 重建），再抽出 `kw`（6 千个词）挂在摘要上。查询先分词，在 **L2 词图**上扩散 1–2 跳找同现词，再沿 `kw_link` 的权重落到摘要——不是关键词硬匹配，是「你说的词，和原文里的词，在同一个句子里一起出现过多少次」。
+
+**图扩散（记忆层）**：723 条记忆、5934 条边。边不靠词重叠连，靠情景关联系数：两条记忆的 `when_ctx` 在 tool / pathPattern / timeWindow 任一项相等，才连一条 `same-scene`。第六路召回从本轮注入的记忆出发跑 PPR：
+
+```text
+rank(v) = (1-α)·p(v) + α·Σ_u w(u,v)/deg(u)·rank(u)
+```
+
+硬约束：**只走 2 跳**，超过 2 跳权重强制归零——不靠阻尼自然衰减，因为衰减到 3 跳还有余量，会破坏「只联想两层」的语义。枢纽节点 `deg > P95` 时转移再乘 `1/log(deg)`，防止一个万能节点把整张图吸干。α 默认 0.6；Context Momentum 的接线已排进下一版，压缩过就降速、冷启动就敢跑。
+
+**混合召回**：BM25 与向量各出一份名次，用 RRF（k=60）相加——只看名次，不做跨量纲加权求和。没有向量模块就原样回退：重排是加分项，绝不把原有能力搞挂。
+
+## 能自证
+
+| 项 | 现在 |
+|---|---|
+| 自检用例 | **131** 项，全绿 |
+| 分层守卫 | `core/` `memory/` `storage/` 零 `node:` import，机械校验 |
+| API 文档 | 从源码 JSDoc 生成，`--check` 过期即红 |
+| CI | Windows / Ubuntu × Node 22 / 24 四格 |
+| 安装包 | `npm pack --dry-run` 每次跑 |
+
+数字都是从自己库里长出来的（截至 0.12.4）：**30 151** 条 frag · **8 013** 条 summary · **6 266** 个词 · **34 118** 条词边 · **723** 条记忆 · **5 934** 条记忆边。
 
 它不是一个 `MEMORY.md`，也不是把历史一股脑塞进 context。三层各司其职：
 **frag（原文）→ summary（压缩）→ kw（词）** 是索引，**memories** 是珍藏，**memory_edge** 是它们之间的路。
