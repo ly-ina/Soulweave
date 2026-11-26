@@ -43,23 +43,29 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 
 ## 30 秒跑起来
 
-需要 **Node.js ≥ 22.5**（运行时用自带的 `node:sqlite`，不装任何依赖）。
-SDK 面（`sdk.mjs`）本身零 `node:`——非 Node 宿主自行注入 IO 与存储驱动，见 [EMBEDDING.md](EMBEDDING.md)。
+需要 **Node.js ≥ 22.5**（运行时用自带的 `node:sqlite`，**不装任何依赖**）和本仓库的读权限（目前私有，需要授权）。
 
-**1. 挂进 profile**（`~/.dsh/profiles/<名字>/package.json`）：
+**1. clone 到固定位置**（之后升级就是 `git pull`）：
 
-```json
-{
-  "dependencies": {
-    "@ly-ina/dsh-soulweave": "link:/path/to/dsh-soulweave"
-  },
-  "dsh": { "profile": { "bundles": ["@ly-ina/dsh-soulweave"] } }
-}
+```bash
+git clone https://github.com/ly-ina/Soulweave.git ~/.dsh/plugins/dsh-soulweave
 ```
 
-再在 `node_modules` 下建链接（Windows 用 junction，macOS/Linux 用 symlink）指向源码目录。
+Windows 用 `%USERPROFILE%\.dsh\plugins\dsh-soulweave`。
 
-**2. 指人格路径**——先把 `soul.example.md` 复制成 `soul.md`（格式见 [ENGINEERING.md](docs/ENGINEERING.md#soulmd-格式)），再在 profile 的 `cordis.patch.yml` 里指过去：
+**2. 跑安装器**：
+
+```bash
+node ~/.dsh/plugins/dsh-soulweave/install.mjs
+```
+
+它会：把 `dependencies` 写成 `link:<本目录>`、把包名追加进 `dsh.profile.bundles`、建 `node_modules/@ly-ina/dsh-soulweave` 链接、复制 `soul.example.md → soul.md`（已存在则跳过），最后打印要贴进 `cordis.patch.yml` 的配置。
+
+- `--dry-run` 先看要改什么，不动盘；
+- 有多个 profile 时用 `--profile <名字>`；
+- 重复执行是幂等的，不会重复写。
+
+**3. 指人格路径**——把安装器打印的那段贴进 profile 的 `cordis.patch.yml`：
 
 ```yaml
 - id: soulweave
@@ -70,8 +76,7 @@ SDK 面（`sdk.mjs`）本身零 `node:`——非 Node 宿主自行注入 IO 与�
 
 > `config` 是**整体替换**，不是深合并。要调参数就一次写全，参考包里的 `cordis.patch.yml`。
 
-**3. 重启 DSH**（整进程重启，不是热重载）。`soul.md` 不存在也不报错，只是少了人格那一节。
-
+**4. 重启 DSH**（整进程重启，不是热重载）。`soul.md` 不存在也不报错，只是少了人格那一节。
 <details>
 <summary>不想手动折腾？把安装交给 DSH 里的 AI</summary>
 

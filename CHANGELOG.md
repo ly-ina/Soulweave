@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 0.10.4 — 2026-11-26
+
+不经过 npm 的一键安装。
+
+- 新增 `install.mjs`：自动找带 `dsh.profile.bundles` 的 profile，写 `link:` 依赖、追加 bundles、建 junction / symlink、复制 `soul.example.md → soul.md`，并打印 `cordis.patch.yml` 片段。支持 `--dry-run` / `--profile`，可重复执行（幂等）。装完即可用，不联网。
+- README 安装段改为「clone + `node install.mjs`」；npm 不是安装路径。
+- `package.json` 的 `files` 加入 `install.mjs`。
 ## 0.10.3 — 2026-11-26
 
 发布闸门从「5 红」修到全绿，顺带把产品代码里的私有痕迹清干净。
