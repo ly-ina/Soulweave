@@ -1,12 +1,13 @@
 /**
  * storage/index.mjs —— 存储层的公共接口。core/ 与 memory/ 只从这里取句柄。
  *
- * 五个方法：
+ * 六个方法：
  *   openReadonly(dbPath)            只读打开；库不存在/打不开 → null（不抛）
  *   openReadWrite(dbPath, opts)     读写打开，必要时建父目录
  *   withReadonly(dbPath, fn, fb)    打开→跑 fn→必关；任何异常走 fb
  *   closeQuietly(db)                关不掉不抛
  *   configureStorage(driver)        替换驱动（测试/未来后端）；传 null 复位
+ *   storageStatus()                 自检：当前驱动、ready、最近一次打开失败的原因
  *
  * 语义约定（很重要，调用方靠它决定要不要写 try/catch）：
  *   - **本层从不抛异常**。拿不到库就是 null / 走 fallback。
@@ -17,6 +18,18 @@
 import { existsSync, mkdirSync, statSync, dirname } from '../io.mjs'
 
 let current = null
+/** 最近一次打开失败的原因；只给诊断看，不参与控制流。 */
+let lastFailure = null
+
+function remember(dbPath, reason, detail) {
+  lastFailure = {
+    at: Date.now(),
+    dbPath: typeof dbPath === 'string' ? dbPath : null,
+    reason,
+    detail: detail instanceof Error ? detail.message : (detail ?? null),
+  }
+  return null
+}
 
 /**
  * 替换驱动。传 null / 不传 → 复位成「没有驱动」。
@@ -25,12 +38,26 @@ let current = null
  */
 export function configureStorage(driver = null) {
   current = driver
+  lastFailure = null
   return current
 }
 
 /** 当前驱动名（自检/申报用）。 */
 export function storageDriverName() {
   return current?.name ?? 'none'
+}
+
+/**
+ * 存储层自检：为什么打不开库，一眼能看出来。
+ *   ready=false 时 lastFailure.reason ∈
+ *     no-driver   宿主没调 configureStorage（Node 入口会自己装）
+ *     no-path     调用方没给库路径
+ *     not-a-file  路径不存在 / 是目录
+ *     mkdir-failed 建父目录失败
+ *     open-failed 驱动抛了（损坏、被锁、权限）
+ */
+export function storageStatus() {
+  return { driver: storageDriverName(), ready: current != null, lastFailure }
 }
 
 function usableFile(dbPath) {
@@ -44,29 +71,32 @@ function usableFile(dbPath) {
 
 /** 只读打开。库不存在、是目录、损坏、被独占锁 —— 一律 null。 */
 export function openReadonly(dbPath) {
-  if (!usableFile(dbPath)) return null
+  if (!current) return remember(dbPath, 'no-driver')
+  if (!dbPath) return remember(dbPath, 'no-path')
+  if (!usableFile(dbPath)) return remember(dbPath, 'not-a-file')
   try {
     return current.open(dbPath, { readOnly: true })
-  } catch {
-    return null
+  } catch (e) {
+    return remember(dbPath, 'open-failed', e)
   }
 }
 
 /** 读写打开（必要时建库建父目录）。失败返回 null，由调用方决定提示。 */
 export function openReadWrite(dbPath, { create = true } = {}) {
-  if (!dbPath) return null
+  if (!current) return remember(dbPath, 'no-driver')
+  if (!dbPath) return remember(dbPath, 'no-path')
   if (!existsSync(dbPath)) {
-    if (!create) return null
+    if (!create) return remember(dbPath, 'not-a-file')
     try {
       mkdirSync(dirname(dbPath), { recursive: true })
-    } catch {
-      return null
+    } catch (e) {
+      return remember(dbPath, 'mkdir-failed', e)
     }
   }
   try {
     return current.open(dbPath, { readOnly: false })
-  } catch {
-    return null
+  } catch (e) {
+    return remember(dbPath, 'open-failed', e)
   }
 }
 

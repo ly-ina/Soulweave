@@ -1,6 +1,17 @@
 # Changelog
 
 
+## 0.10.2 — 2026-11-26
+
+1.0 收尾之一：存储层能说清「为什么打不开」。
+
+- **feat(storage)**：新增 `storageStatus()` → `{ driver, ready, lastFailure }`。
+  `lastFailure.reason` 分 `no-driver` / `no-path` / `not-a-file` / `mkdir-failed` / `open-failed`。
+  以前没装驱动时 `current.open` 抛 TypeError，被 catch 成 null，和「库损坏」长得一模一样。
+- **fix(storage)**：`openReadonly` / `openReadWrite` 在无驱动、空路径时先行返回 null 并记账，
+  不再靠异常吞掉；`configureStorage()` 复位时清空记账。
+- **test**：smoke-storage 17 → 23 项（新增诊断断言）。
+
 ## 0.10.1 — 2026-11-26
 
 原文库检索提速：12 万行库上 `压缩 巡检` 从 ~760ms 降到 ~11ms。

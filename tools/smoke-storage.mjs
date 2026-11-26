@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import {
   configureStorage,
   storageDriverName,
+  storageStatus,
   openReadonly,
   openReadWrite,
   withReadonly,
@@ -81,6 +82,16 @@ try {
   ok('readOnly 传下去了', calls.at(-1)?.opts?.readOnly === true)
   configureStorage(null)
   ok('复位成无驱动（1.0 起默认不带驱动）', storageDriverName() === 'none')
+
+  console.log('S5b 诊断能说出为什么打不开')
+  ok('无驱动时 openReadonly 返回 null', openReadonly(dbPath) === null)
+  ok('原因 no-driver（不是 not-a-file）', storageStatus().lastFailure?.reason === 'no-driver')
+  ok('no-driver 时 ready=false', storageStatus().ready === false)
+  configureStorage(fake)
+  ok('装上驱动后 ready=true', storageStatus().ready === true)
+  ok('库不存在原因 not-a-file', openReadonly(join(dir, 'nope.db')) === null && storageStatus().lastFailure?.reason === 'not-a-file')
+  ok('空路径原因 no-path', openReadonly('') === null && storageStatus().lastFailure?.reason === 'no-path')
+  configureStorage(null)
 
   console.log('S6 closeQuietly 不抛')
   let threw = false
