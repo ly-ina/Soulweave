@@ -160,6 +160,25 @@ node ~/.dsh/plugins/dsh-soulweave/install.mjs
 
 ---
 
+## 升级
+
+不经过 npm，也不用手动迁移数据。三条命令：
+
+```bash
+cd ~/.dsh/plugins/dsh-soulweave
+git pull --ff-only
+node install.mjs      # 幂等：重挂 link，不动 soul.md，也不动记忆库
+# 然后重启 DSH
+```
+
+- **数据自动跟上**：打开旧库时会自动补新增的列（`core/tree/schema.mjs`），不需要跑迁移脚本。
+- **确认版本**：`node -p "require('./package.json').version"`。
+- **回滚**：`git log --oneline` 找到上一个版本 → `git checkout <sha>` → `node install.mjs` → 重启；
+  动之前先把 `<DSH_HOME>/soulweave/soul-memory.db` 复制一份，这是唯一不能重建的东西。
+- 仓库没有发布 tag 之前，`git pull` 就是唯一的升级通道；想看自己落后多少：`git log --oneline HEAD..origin/main`。
+
+---
+
 ## 当库用（不装 DSH）
 
 `import ... from '@ly-ina/dsh-soulweave'` 拿到的是 DSH 插件入口，会连带拉进 `adapters/dsh/*`。只想用数据层就走 `./sdk` 子路径：
