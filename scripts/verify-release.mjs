@@ -68,15 +68,16 @@ for (const key of ['soul_surface', 'soul_persist', 'builtin']) {
 // 5) package.json 元数据与 files 白名单
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 check('包名', pkg.name === '@ly-ina/dsh-soulweave', pkg.name)
-check('版本', /^0\.1\.\d+$/.test(pkg.version), pkg.version)
-check('license', pkg.license === 'MIT', String(pkg.license))
+check('版本', /^\d+\.\d+\.\d+$/.test(pkg.version), pkg.version)
+check('license 专有', pkg.license === 'SEE LICENSE IN LICENSE', String(pkg.license))
 check('repository', Boolean(pkg.repository?.url), String(pkg.repository?.url))
 const missing = (pkg.files ?? []).filter((file) => !existsSync(join(ROOT, file)))
 check('files 白名单存在性', Array.isArray(pkg.files) && missing.length === 0, missing.length === 0 ? `${pkg.files.length} 项全部存在` : `缺：${missing.join(', ')}`)
 
 // 6) LICENSE
 const license = readFileSync(join(ROOT, 'LICENSE'), 'utf8')
-check('LICENSE MIT + ly-ina', license.includes('MIT License') && license.includes('ly-ina'), `LICENSE ${statSync(join(ROOT, 'LICENSE')).size} 字节`)
+check('LICENSE 专有 + ly-ina', license.includes('proprietary') && license.includes('ly-ina'), `LICENSE ${statSync(join(ROOT, 'LICENSE')).size} 字节`)
+check('LICENSE-MIT 留档', existsSync(join(ROOT, 'LICENSE-MIT')), 'LICENSE-MIT')
 
 console.log(fail.length === 0 ? 'ALL PASS' : `FAILED: ${fail.join(' / ')}`)
 process.exit(fail.length === 0 ? 0 : 1)

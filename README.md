@@ -3,7 +3,7 @@
 [![CI](https://github.com/ly-ina/Soulweave/actions/workflows/ci.yml/badge.svg)](https://github.com/ly-ina/Soulweave/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933)
 ![deps](https://img.shields.io/badge/npm%20deps-0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-proprietary-red)
 
 > 给 DeepSeek Harness 装一层**人格 + 记忆**：每次开会话，AI 先想起自己是谁；平时干活，它知道该去哪儿翻旧账。
 
@@ -274,3 +274,9 @@ Node 的宿主实现集中在 `io-node.mjs`（fs/os/进程/zstd/动态加载）�
 包结构、分层约束、io.mjs 单入口、混合召回、完整自测清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md)。
 
 变更记录：[CHANGELOG.md](CHANGELOG.md)。
+
+## 许可
+
+**专有软件，不是开源项目。** 版权归 ly-ina 所有，保留一切权利。未经版权持有人事先书面许可，不得使用、复制、修改、合并、发布、分发、再许可或销售本软件的全部或任何部分。完整条款见 [LICENSE](LICENSE)。
+
+本项目 **0.5.6 及更早的版本**曾以 MIT 协议发布；那份许可对当时已发布的版本继续有效，原文保留在 [LICENSE-MIT](LICENSE-MIT)。0.5.7 起（含当前版本）不再以 MIT 授权。
