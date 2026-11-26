@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1 — 2026-11-26
+
+**触发词只认正文：`reasoning` 里写的不算**
+
+- **change(records)**：`adapters/dsh/records.mjs` 只从 `text` block 抓 `※记` / `※办` / `※结`，不再扫 `reasoning`。原因是纳指出的一句话：**「我脑子里过一遍 `※记`，它照样扫出来落库——等于心里嘟囔一句就算数。这个得掐掉，只认真写出来的。」** 顺带治掉同一条被记两遍的老毛病：思考里一份、正文里一份，措辞不同就绕过 sha 去重，库里出现两条近似记忆（11-26 上午 `m-mwx2vykv-gkah` / `m-mwx2vykl-04dd` 就是这类施工便条，已 archived）。
+- **change(cue)**：巡检文案跟着改——「单独一行，用 `※记` 开头写一句（写进正文，思考里不算）」「在下一次压缩之前……写进正文」。压缩后提醒同步。
+- **docs(core)**：`core/record-extract.mjs` 的职责与 `@param` 从「reasoning 全文」改成「正文全文」；纯解析逻辑未动（它本来就只吃字符串，不关心来源）。
+- **test(smoke-records)**：新增 R2b「只认正文：`reasoning` 块不抓」——同一条 `assistant/message` 里同时放 `reasoning` 和 `text` 块，断言只落一行、`from=text`、内容是正文那句。R3/R4 的硬编码行数改成跟着 R2b 走。17 通过 / 0 失败。
+- **docs(rules)**：`lanxi/rules/memprobe.md` 追加一条：原「写在思考里，正文不出现」作废，改为**只认正文**。
+- 全量回归：`check.mjs` 120/120 + O* 11/11、`check-layers` 41 文件 0 违规、`smoke-records` 17/17。
+
 ## 0.9.0 — 2026-11-26
 
 **1.0 第四步（最后一刀）：剥离 node 内置依赖，SDK 面零 `node:`**

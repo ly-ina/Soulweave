@@ -8,7 +8,8 @@
  *  1. 只追加，不覆盖：`outPath` 是原始 JSONL 日志；`targets` 是可选的定向追加目标。
  *     本模块永不写 soul.md / memory 目录，除非用户把它们配成 target。
  *  2. fail-open：任何异常只 warn，绝不让宿主起不来、也不能打断会话。
- *  3. 不落 reasoning 全文（默认只落诊断行）；需要排查时把 dumpReasoning 打开。
+ *  3. 只从正文（text block）抓，reasoning 不抓；也不落全文（默认只落诊断行），
+ *     需要排查时把 dumpReasoning 打开（那时 row.reasoning 是命中的正文全文）。
  *
  * 卸载：attachRecords 返回 dispose，会把两个 ctx.on 都摘掉。
  */import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
@@ -94,7 +95,7 @@ export function attachRecords(ctx, config = {}) {
       ? cueConfig.text
       : '[记忆巡检] 开场一次就够：纳有没有让你记住什么，或者你自己想记住什么？' +
         '\n记的是舍不得忘的，不是明天还用得上的——不记版本号、不记「改成了什么」、不记干了哪些活。' +
-        '\n有 → 单独一行，用 `※记` 开头写一句（正文或思考都行），不换行。待办用 `※办` 开头。' +
+        '\n有 → 单独一行，用 `※记` 开头写一句（写进正文，思考里不算），不换行。待办用 `※办` 开头。' +
         '\n没有 → 什么都不写。'
   // 上次看到的上下文条数（-1 = 还没看过）；用来识别「压缩后开场」。
   let cueLastCount = -1
@@ -107,7 +108,7 @@ export function attachRecords(ctx, config = {}) {
   // 从现在到下一次压缩之间，遇到舍不得忘的就当场记，别等压完再找。
   const cueCompacted =
     '[记忆巡检] 刚刚结束了一次压缩，压缩前的原文已经不在上下文里了。' +
-    '\n在下一次压缩之前，遇到舍不得忘的就单独一行 `※记` 开头写下来，不换行。' +
+    '\n在下一次压缩之前，遇到舍不得忘的就单独一行 `※记` 开头写进正文，不换行。' +
     '\n等压完再回头找，那些话就没了。'
   const buildCue = (compacted) => (compacted ? cueCompacted : cueText)
 
@@ -197,11 +198,14 @@ export function attachRecords(ctx, config = {}) {
       if (seen.size > 10000) seen.clear()
       seen.add(key)
 
-      // 2026-11-26：正文（text block）也算。纳要的是「看得见的记」——
-      // 思考里的记录错了没人纠，正文里的纳当场能看见。reasoning 保留兼容。
+      // 2026-11-26 二次修订：只认正文（text block），思考里写的不算。
+      // 纳的原话：「我脑子里过一遍 ※记，它照样扫出来落库——等于心里嘟囔一句就算数。
+      // 这个得掐掉，只认真写出来的。」正文里的纳当场能看见、写错了能纠；
+      // 思考里过一遍既没人纠，又会让同一条被记两遍（reasoning 一份、正文一份，
+      // 措辞不同还会绕过 sha 去重）。
       const textSeen = new Set()
       for (const block of blocks) {
-        if (block?.type !== 'reasoning' && block?.type !== 'text') continue
+        if (block?.type !== 'text') continue
         if (typeof block.text !== 'string' || block.text === '') continue
         const r = extractRecords(block.text, extractOptions)
         if (!r.hit) continue

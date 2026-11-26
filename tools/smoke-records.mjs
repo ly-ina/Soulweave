@@ -64,6 +64,34 @@ try {
   ok('正文正确', row.records?.[0]?.text === '测试用记录', String(row.records?.[0]?.text))
   ok('kind=recall', row.records?.[0]?.kind === 'recall', String(row.records?.[0]?.kind))
 
+  console.log('R2b 只认正文：reasoning 块不抓')
+  onEvent(
+    { id: 's-1' },
+    {
+      type: 'assistant/message',
+      seq: 8,
+      time: Date.parse('2026-11-26T12:00:01+08:00'),
+      data: {
+        turn: 3,
+        step: 2,
+        message: {
+          content: [
+            { type: 'reasoning', text: '※记 这只是心里过一遍' },
+            { type: 'text', text: '※记 这是正文里认真写的' },
+          ],
+        },
+      },
+    },
+  )
+  const rowsB = readFileSync(outPath, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  ok('reasoning 那份没落库（只多一行）', rowsB.length === 2, `实际 ${rowsB.length}`)
+  ok('第二行 from=text', rowsB[1]?.from === 'text', String(rowsB[1]?.from))
+  ok(
+    '第二行是正文那句，不是思考那句',
+    rowsB[1]?.records?.[0]?.text === '这是正文里认真写的',
+    String(rowsB[1]?.records?.[0]?.text),
+  )
+
   console.log('R3 去重：同一事件再来一次不重复写')
   onEvent(
     { id: 's-1' },
@@ -75,14 +103,14 @@ try {
     },
   )
   const rows2 = readFileSync(outPath, 'utf8').trim().split('\n').filter(Boolean)
-  ok('仍是 1 行', rows2.length === 1, `实际 ${rows2.length}`)
+  ok('仍是 2 行（没多写）', rows2.length === 2, `实际 ${rows2.length}`)
 
   console.log('R4 无触发词不写')
   onEvent(
     { id: 's-1' },
-    { type: 'assistant/message', seq: 8, data: { message: { content: [{ type: 'text', text: '普通回复' }] } } },
+    { type: 'assistant/message', seq: 9, data: { message: { content: [{ type: 'text', text: '普通回复' }] } } },
   )
-  ok('仍是 1 行', readFileSync(outPath, 'utf8').trim().split('\n').filter(Boolean).length === 1)
+  ok('仍是 2 行', readFileSync(outPath, 'utf8').trim().split('\n').filter(Boolean).length === 2)
 
   console.log('R5 dispose 摘干净')
   dispose()

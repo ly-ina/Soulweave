@@ -1,7 +1,7 @@
 /**
  * dsh-memprobe · 提取层（零宿主依赖，可单独 node 跑）
  *
- * 职责：从一段 reasoning 文本里找出「触发词行」，并判断这段文本在 UI 上
+ * 职责：从一段正文文本里找出「触发词行」，并判断这段文本在 UI 上
  * 会不会把触发词那行当摘要露出来。
  *
  * 三条规则来自 dsh 真实渲染代码，改之前先看 dsh-client-ui-chat/lib/client.js：
@@ -117,12 +117,12 @@ export function lastParagraphFirstLine(text) {
 }
 
 /**
- * 从 reasoning 文本提取记录，并判定两种泄漏。
+ * 从正文文本提取记录，并判定两种泄漏。
  *
  * live    = 运行中摘要（最后一段首行）就是触发词 → 会边想边漏
  * settled = 结束后摘要（全文第一行）就是触发词 → 想完仍挂在摘要上
  *
- * @param {string} text reasoning 全文
+ * @param {string} text 正文全文（adapters 只传 text block，不传 reasoning）
  * @param {{trigger?:string}} [options]
  * @returns {{
  *   trigger:string, hit:boolean, records:Array<{text:string,lineIndex:number,raw:string}>,
