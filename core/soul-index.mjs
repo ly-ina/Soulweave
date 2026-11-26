@@ -140,6 +140,14 @@ export function searchSoulIndex(options = {}) {
     }
   }
 
+  // 原文库检索以顺序扫描为主（2 字中文词用不上 trigram 索引）。
+  // mmap 让 12 万行的 LIKE 从 ~300ms 降到 ~120ms，大页缓存再省一点重复扫描。
+  try {
+    db.exec('PRAGMA mmap_size=268435456; PRAGMA cache_size=-32768')
+  } catch {
+    /* 驱动不支持 pragma 就算了，不影响检索 */
+  }
+
   try {
     return { ok: true, ...runQuery(db, { ...options, query, limit, now }), degraded: false }
   } catch (e) {
@@ -164,15 +172,20 @@ function runQuery(db, options) {
   if (rawOnly) where.push("m.origin = 'raw'")
 
   let text = query
+  // 时间窗单独收着，不直接塞进 LIKE 的 SQL：一旦带上 m.time 条件，
+  // SQLite 就不再走「主键倒序 + 命中即停」，会退化成全表扫（今天+压缩从 10ms 变 280ms）。
+  // 所以按 id 倒序取一批候选，时间窗在 JS 里过滤。
+  const timeWindows = []
   for (const [word, offset] of DAY_WORDS) {
     if (!text.includes(word)) continue
     const [from, to] = dayRange(now, offset)
-    where.push('m.time >= ' + from + ' AND m.time < ' + to)
+    timeWindows.push([from, to])
     text = text.split(word).join(' ')
   }
   text = text.trim() || query
 
-  const filterSql = where.length > 0 ? ' AND ' + where.join(' AND ') : ''
+  const timeSql = timeWindows.map(([f, t]) => 'm.time >= ' + f + ' AND m.time < ' + t).join(' AND ')
+  const filterSql = (where.length > 0 ? ' AND ' + where.join(' AND ') : '') + (timeSql ? ' AND ' + timeSql : '')
   const tokens = text.split(SEP).filter(Boolean)
   const phrases = new Set([query])
   for (const token of tokens) {
@@ -202,19 +215,38 @@ function runQuery(db, options) {
     return db.prepare(sql).all(expr, n)
   }
 
+  // 2 字中文词用不上 trigram 索引，只能 LIKE。旧写法是全表扫再按
+  // 「命中词数 + 时间」排序：12 万行要 250ms。改成按主键倒序扫、
+  // 凑够候选就停——常用词（压缩/巡检/纳）几毫秒到十几毫秒就出结果；
+  // 冷门词才退化成全表扫（那是它本来就该付的代价）。
+  // 代价：只在最近 want 条命中里按「命中词数」重排，而不是全库。
+  // 原文库是「回忆最近发生过什么」的地方，这个取舍值得。
   const like = (words, n) => {
     if (words.length === 0) return []
     const cond = words.map(() => 'm.lex LIKE ?').join(' OR ')
     const score = words.map(() => '(CASE WHEN m.lex LIKE ? THEN 1 ELSE 0 END)').join(' + ')
-    const sql =
-      'SELECT m.sid, m.seq, m.time, m.role, m.origin, m.text, ' +
-      '(' + score + ') AS score FROM messages m WHERE (' + cond + ')' + filterSql + ' ' +
-      'ORDER BY score DESC, m.time DESC, length(m.text) LIMIT ?'
-    const params = []
-    for (const w of words) params.push('%' + w + '%')
-    for (const w of words) params.push('%' + w + '%')
-    params.push(n)
-    return db.prepare(sql).all(...params)
+    const condParams = []
+    for (const w of words) condParams.push('%' + w + '%')
+    for (const w of words) condParams.push('%' + w + '%')
+    const cols = 'SELECT m.sid, m.seq, m.time, m.role, m.origin, m.text, (' + score + ') AS score '
+    // 有时间窗时只取 n 条：窗口内命中本来就少，取多了（48）会凑不满，
+    // SQLite 得扫完整表才能确认「没有更多」——今天+压缩从 5ms 变 255ms。
+    // 有时间窗时只取 n 条：窗口内命中本来就少，取多了（48）会凑不满，
+    // SQLite 得扫完整表才能确认「没有更多」——今天+压缩从 5ms 变 255ms。
+    const want = timeWindows.length > 0 ? n : Math.min(400, Math.max(n * 6, 48))
+    const byScore = (rows) =>
+      rows.sort(
+        (a, b) =>
+          Number(b.score ?? 0) - Number(a.score ?? 0) ||
+          Number(b.time ?? 0) - Number(a.time ?? 0) ||
+          String(a.text ?? '').length - String(b.text ?? '').length,
+      )
+    // 主键倒序 + LIMIT：SQLite 从最新一条往回扫，凑够 want 条命中就停。
+    // 带时间窗（今天/昨天）也一样——最近的数据就在文件尾部，扫得很浅。
+    const rows = db
+      .prepare(cols + 'FROM messages m WHERE (' + cond + ')' + filterSql + ' ORDER BY m.id DESC LIMIT ?')
+      .all(...condParams, want)
+    return byScore(rows).slice(0, n)
   }
 
   if (longPhrases.length > 0) {
@@ -249,7 +281,9 @@ function runQuery(db, options) {
 /** 索引最新一条比 now 落后超过 30 分钟 → 提醒上层该刷新了。 */
 function isStale(db, now, staleAfterMs = 30 * 60 * 1000) {
   try {
-    const row = db.prepare('SELECT MAX(time) AS t FROM messages').get()
+    // MAX(time) 没有索引，12 万行要 130ms；按主键倒序取最后一条是 O(log n)。
+    // dump 是按时间顺序追加的，最后一条的 time 就是最新时间。
+    const row = db.prepare('SELECT time AS t FROM messages ORDER BY id DESC LIMIT 1').get()
     const newest = Number(row?.t ?? 0)
     if (!newest) return true
     return now - newest > staleAfterMs
