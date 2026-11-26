@@ -93,6 +93,17 @@ core|memory/*.mjs  →  storage/index.mjs  →  storage/driver.mjs  →  node:sq
 
 ---
 
+**c. 剥离 node 内置依赖（1.0 的最后一刀，2026-11-26 只立了基线，未开工）**
+- 基线：`import sdk.mjs` → `io.mjs` → `node:fs`，第一块砖就断（`6253e6b`）
+- 现状：`core/` `memory/` `storage/` 共 25 个文件、40 处 `node:`——path ~20 / crypto 5 / url 4 / zlib 1 / module 1 / sqlite 1
+- 为什么「宿主外冒烟」不算数：它只证明了不依赖 DSH，没证明不依赖 Node
+- 三刀（从外往里）：
+  1. **storage**：`index.mjs` 不再静态 import `driver.mjs`；Node 驱动挪到 `storage/node-sqlite.mjs`，由宿主显式 `configureStorage()`
+  2. **io**：`io.mjs` 拆成零 `node:` 的门面 + `io-node.mjs` 默认实现
+  3. **core/memory**：path / crypto / url / zlib 全走 io 门面；`check-layers.mjs` 加一条「core/memory 禁止 import `node:*`」
+- 验收：`node --experimental-loader ./tools/no-node-loader.mjs tools/probe-no-node.mjs` 全绿（现在是红的，这就是进度条）
+- 代价：剥离后 **Node 用户也要多两行**注册驱动 / IO；对外契约破坏性变更，1.0 一起做
+
 ## 4. 今天（11-25）已经办完的，明天别重做
 
 | 项 | 结果 |
