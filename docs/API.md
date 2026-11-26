@@ -6,7 +6,19 @@
 只列 `sdk.mjs` **显式导出**且**有 JSDoc 摘要**的 API。
 内部 API 用 `--all` 查看；公开但没写摘要的在文末列名单。
 
-统计：共 405 个导出；公开 19 个，其中 19 个有文档、0 个待补。
+统计：共 410 个导出；公开 20 个，其中 20 个有文档、0 个待补。
+
+## `core/soul-index.mjs`
+
+### `searchSoulIndex(options = {})`
+
+在原文库里检索。
+
+| 参数 | 说明 |
+|---|---|
+| `options` |  |
+
+**返回** `{ok, entries, note, degraded, reason?, stale?}`； `entries` 每条是 `{when, role, origin, sid, seq, snippet, score}`。
 
 ## `core/soul.mjs`
 

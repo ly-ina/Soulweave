@@ -2,7 +2,7 @@
  * dsh-soulweave —— 插件入口薄壳：只做装配与宿主导出。
  *
  * 分层：core/（零宿主依赖）· memory/（存储与检索）· adapters/dsh/（宿主耦合）。
- * 对外契约只有 `./sdk`（19 个承诺导出）。1.0 起根路径不再附带内部面——
+ * 对外契约只有 `./sdk`（20 个承诺导出）。1.0 起根路径不再附带内部面——
  * `unstable.mjs` 已删除；确实要更深的入口请直接 import 具体模块。
  */
 export const name = 'soulweave'

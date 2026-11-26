@@ -1,6 +1,6 @@
 # 嵌入说明（1.0）
 
-> 这是 `@ly-ina/dsh-soulweave/sdk` 的接入指南。19 个承诺导出，**零 `node:` 依赖**——
+> 这是 `@ly-ina/dsh-soulweave/sdk` 的接入指南。20 个承诺导出，**零 `node:` 依赖**——
 > 静态扫描和运行时 loader 两道都验过（`tools/probe-no-node.mjs`）。
 > 跑得通的样例：`examples/sdk-quickstart.mjs`（10 条断言）、`examples/embed-demo.mjs`。
 
@@ -34,12 +34,18 @@ import { initMemoryDb, putMemory, search, health } from '@ly-ina/dsh-soulweave/s
 | `existsSync / mkdirSync / statSync / readdirSync` | 是 | 路径探测与建目录 |
 | `homedir / env / cwd / argv / platform` | 是 | 找配置、找会话目录 |
 | `zstdCompressSync / zstdDecompressSync` | 否 | 只有会话日志解析（`surface.mjs`）用 |
-| `requireResolve / spawnProcess` | 否 | 只有可选插件加载与原文库检索用 |
+| `requireResolve / spawnProcess` | 否 | 只有可选插件加载、以及原文库检索的 Python 兜底用 |
 | `driver` | 是 | 形状 = `node:sqlite` 的 `DatabaseSync`：`open(path,{readOnly})` → `{prepare,exec,close}` |
 
 浏览器里**不能**直接用：这套库的持久化就是 SQLite 文件，没有远端后端。
 要上 Web，得先写一个走 HTTP 的 driver —— 契约只有 `open/prepare/exec/close`，
 但 `prepare().all()/get()/run()` 的同步语义意味着后端必须是同步可用的（Worker + SharedArrayBuffer 或本地缓存）。
+
+**原文库检索不需要 Python。** `searchSoulIndex({ dbPath, dictPath, query })` 直接
+在 `soul.db` 上跑 FTS5 + LIKE（trigram 分词），只吃 `readFileSync / existsSync /
+statSync` 和一个 sqlite 驱动。接 DSH 的 `soul-index` 就把 `dbPath` 指向
+`<soulIndexDir>/out/soul.db`、`dictPath` 指向 `<soulIndexDir>/dict.json`。
+索引刷新（`dump.mjs` + `build.py`）仍归宿主，本层只读。
 
 ## 3. 一轮对话的最小顺序
 
@@ -97,7 +103,7 @@ health(db)                                               // → { ok, stage, rec
 
 ## 6. 稳定性
 
-`sdk.mjs` 的 19 个导出是承诺面，`check.mjs` 的 R33 守着三条：
+`sdk.mjs` 的 20 个导出是承诺面，`check.mjs` 的 R33 守着三条：
 不许碰 `node:`、必须齐、不许无限膨胀（上限 40）。
 更深的模块（`core/*`、`memory/*`）随时可能改，但都不会引入 `node:` ——
 这一条由 `tools/check-layers.mjs` 机器守着。

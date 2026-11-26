@@ -106,14 +106,14 @@ SDK 面（`sdk.mjs`）本身零 `node:`——非 Node 宿主自行注入 IO 与�
 `import ... from '@ly-ina/dsh-soulweave'` 拿到的是 DSH 插件入口，会连带拉进 `adapters/dsh/*`。只想用数据层就走 `./sdk` 子路径：
 
 ```js
-// 稳定契约：只有这些承诺语义化版本（19 个）
+// 稳定契约：只有这些承诺语义化版本（20 个）
 import { putMemory, search, routeRecords, anchorOf } from '@ly-ina/dsh-soulweave/sdk'
 
 // 内部面：随时可能改签名/改名，不承诺
 import { parseSoul } from '@ly-ina/dsh-soulweave/core'
 ```
 
-`sdk.mjs` 里一个宿主模块都不 import，单独用 node 就能加载。导出越多承诺越多，所以这里只放 19 个核心。
+`sdk.mjs` 里一个宿主模块都不 import，单独用 node 就能加载。导出越多承诺越多，所以这里只放 20 个核心。
 
 现在有**两条轨道**：
 

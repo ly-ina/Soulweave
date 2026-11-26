@@ -71,7 +71,7 @@ storage 接口（注入式 Host，core 里零 node: 前缀）
 三件事一起做，别拆：
 
 **a. 砍历史导出** ✅ 2026-11-26（commit 见 CHANGELOG 0.6.0）
-- ~~主入口 146 个导出~~ → 现在 **28** = 19 承诺面 + 6 装配 + `name`/`inject`/`default`
+- ~~主入口 146 个导出~~ → 现在 **29** = 20 承诺面 + 6 装配 + `name`/`inject`/`default`
 - `unstable.mjs` 已删除；`check.mjs` 里 76 个内部名字改走具体模块 import
 - `tools/gen-api.mjs` 的 `SCAN_DIRS` 已加 `storage`（`--all` 时列内部面）；`docs/API.md` 仍只列 `sdk.mjs` 显式公开面，147 行，`--check` 一致
 - **顺手修的 bug**：`apply.mjs` 的 `ctx.on('agent/pre-step')` 返回值没进 `disposers` → 每次 reload 漏一个 handler。新增 `tools/stress-lifecycle.mjs` 守这条，100 次全绿

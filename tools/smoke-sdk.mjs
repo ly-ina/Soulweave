@@ -1,5 +1,5 @@
 /**
- * smoke-sdk —— 宿主外冒烟：只用 sdk.mjs 的 19 个承诺面，不碰 adapters。
+ * smoke-sdk —— 宿主外冒烟：只用 sdk.mjs 的 20 个承诺面，不碰 adapters。
  *
  * 这是 SDK 真正的验收：一个普通 Node 程序（没有 DSH ctx、没有插件加载器）
  * 拿临时库写一条、查回来、跑一次体检。任何一步失败都说明承诺面漏了依赖。

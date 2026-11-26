@@ -25,3 +25,7 @@ export { putMemory, search, putTodo, listTodos, listDueItems, setTodoStatus } fr
 
 // 体检与首次初始化
 export { health, renderHealth, isBrokenSearchResult, initMemoryDb } from './memory/health.mjs'
+
+// 原文库检索（2026-11-26 提到承诺面）：纯 JS，不再 spawn python。
+// 只要宿主注入文件读 + 注册 sqlite 驱动就能用，任何宿主都能检索全量会话原文。
+export { searchSoulIndex } from './core/soul-index.mjs'

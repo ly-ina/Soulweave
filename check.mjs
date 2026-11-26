@@ -4168,7 +4168,7 @@ await test('R33', 'SDK 承诺面：不碰宿主、核心导出必须在、且不
     ],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
   )
-  assert.match(probe, /sdk 导出数: 19/, 'loader 探针应报 19 个导出')
+  assert.match(probe, /sdk 导出数: 20/, 'loader 探针应报 20 个导出')
 })
 
 for (const r of results) {

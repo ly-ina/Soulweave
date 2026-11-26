@@ -19,6 +19,7 @@ import {
   writeFileSync,
 } from '../io.mjs'
 import * as builtinMemory from '../memory/builtin.mjs'
+import { searchSoulIndex } from './soul-index.mjs'
 import { PLUGIN_DIR, asText, asInt, clip, estimateTokens, dsHome } from './text.mjs'
 import { RECALL_MAX_CHARS } from './constants.mjs'
 import { createMemoryBackend, hitAll, snippetAround, wordsOf, searchMemoryMeow, scoreOf } from './search.mjs'
@@ -272,9 +273,30 @@ export function searchIndexSource(options, words, limit) {
     const left = Math.ceil((indexCircuit.openUntil - Date.now()) / 1000)
     return Promise.resolve({ entries: [], note: `原文库熔断中（${left}s 后重试）：${indexCircuit.lastNote}` })
   }
+  const dir = options.soulIndexDir
+  const script = join(dir, 'query.py')
+
+  // 1.0（2026-11-26）：先走进程内检索，不再必须 Python。
+  // 只要宿主注册了 sqlite 驱动、库文件在，这条路就通——非 Node 宿主也能查原文。
+  // 走不通（无驱动 / 库不在 / SQL 报错）才退回原来的 spawn query.py。
+  const direct = searchSoulIndex({
+    dbPath: options.soulIndexDb || join(dir, 'out', 'soul.db'),
+    dictPath: join(dir, 'dict.json'),
+    query: words.join(' '),
+    limit,
+  })
+  if (direct.ok) {
+    resetIndexCircuit()
+    return Promise.resolve({
+      entries: direct.entries.map((r) => ({
+        loc: r.when + ' ' + String(r.sid || '').slice(-8) + '#' + r.seq,
+        snippet: r.snippet,
+      })),
+      note: direct.note,
+    })
+  }
+
   return new Promise((resolve) => {
-    const dir = options.soulIndexDir
-    const script = join(dir, 'query.py')
     if (!existsSync(script)) return resolve({ entries: [], note: '原文库脚本不在' })
     let child
     try {

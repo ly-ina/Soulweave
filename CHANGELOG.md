@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0 — 2026-11-26
+
+**原文库检索不再需要 Python：`core/soul-index.mjs`（SDK 第 20 个承诺面）**
+
+- **feat(core)**：新增 `core/soul-index.mjs`，把 `lanxi/tools/soul-index/query.py` 的检索逻辑 1:1 搬成 JS——读 `dict.json` 同义词、查 `msg_fts`（FTS5 trigram）走 `bm25`、短词与中文二元组走 `LIKE` 兜底、命中处抠 160 字摘要、`今天/昨晚/前天` 折算本地日历日时间窗。与 Python 版逐条对照过：`纳 记 珍藏` / `压缩 巡检` / `脸红` 三组查询的 `when / role / origin / sid / seq / snippet / score` 完全一致。
+- **feat(sdk)**：`searchSoulIndex` 进承诺面，导出 19 → 20。它只需要宿主注入 `readFileSync / existsSync / statSync` 并注册 sqlite 驱动——**不需要子进程、不需要 Python**。已在「不装配 io-node」的模拟宿主上实测通过（手工 `configureIo` + `configureStorage`，查真实 11.9 万条原文库）。
+- **change(recall)**：第四源改成**进程内检索优先**，`spawnProcess('python', query.py)` 退为兜底（无驱动 / 库不在 / SQL 报错时才走）。Node 宿主上不再每次起子进程；非 Node 宿主从「这条路整条消失」变成「装上驱动就能用」。
+- **feat(tools)**：新增 `tools/smoke-soul-index.mjs`（16 条断言）：纯函数、FTS 长词、LIKE 短词 + 同义词、时间窗、tool 过滤、三种降级原因。自己建同 schema 小库，不依赖真实原文库。
+- **docs**：`EMBEDDING.md` 补「原文库检索不需要 Python」一节与注入表更新；README / HANDOFF / index.js 的承诺面数字 19 → 20；`docs/API.md` 重新生成（410 个导出 / 公开 20）。
+- 回归：`check.mjs` 120/120 + O* 11/11、`check-layers` 42 文件 0 违规、`smoke-soul-index` 16/16、`smoke-sdk` 10/10、`smoke-storage` 17/17、`smoke-records` 17/17、`gen-api --check` PASS。
+
 ## 0.9.1 — 2026-11-26
 
 **触发词只认正文：`reasoning` 里写的不算**
