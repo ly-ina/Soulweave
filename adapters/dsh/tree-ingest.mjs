@@ -10,8 +10,8 @@
  *  2. 只收真实用户消息（source.kind === 'user'），注入的魂引/记忆快照不进索引；
  *  3. 与 build-tree 共用 core/tree/ingest.mjs，ID 口径一致（`sid:t<turn>`）。
  */
-import { existsSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { textOfMessage } from '../../core/budget.mjs'
 import { isNoiseText } from '../../core/tree/summary.mjs'
@@ -41,12 +41,36 @@ export function createTreeIngest(options = {}) {
   const tokenizer = options.tokenizer || createTokenizer()
   const now = typeof options.now === 'function' ? options.now : () => Date.now()
   const maxTurns = Number(options.maxTurns) || 32
+  const bufferPath = options.bufferPath || (dbPath ? join(dirname(dbPath), 'tree-buffer.json') : '')
   const buffers = new Map() // sid -> [{ userSeq, msgs:[{seq,role,text,t}] }]
   const flushed = new Set() // `${sid}:${userSeq}`，进程内去重
 
   function warn(msg) {
     try { logger?.warn?.(`tree-ingest: ${msg}`) } catch {}
   }
+
+  // 热重载会重建引擎：缓存落盘，重载后接着写，不然改代码那一轮的 user 就丢了。
+  function loadBuffer() {
+    if (!bufferPath || !existsSync(bufferPath)) return
+    try {
+      const data = JSON.parse(readFileSync(bufferPath, 'utf8'))
+      for (const [sid, list] of Object.entries(data || {})) {
+        if (Array.isArray(list) && list.length) buffers.set(sid, list)
+      }
+    } catch (e) { warn(`读缓存失败（忽略）：${e?.message ?? e}`) }
+  }
+
+  function saveBuffer() {
+    if (!bufferPath) return
+    try {
+      const out = {}
+      for (const [sid, list] of buffers) if (list.length) out[sid] = list
+      mkdirSync(dirname(bufferPath), { recursive: true })
+      writeFileSync(bufferPath, JSON.stringify(out))
+    } catch (e) { warn(`写缓存失败（忽略）：${e?.message ?? e}`) }
+  }
+
+  loadBuffer()
 
   function push(sid) {
     if (!buffers.has(sid)) buffers.set(sid, [])
@@ -68,6 +92,7 @@ export function createTreeIngest(options = {}) {
       const text = contentText(data)
       if (!text || isNoiseText(text)) return false
       push(sid).push({ userSeq: Number(event.seq) || 0, msgs: [{ seq: Number(event.seq) || 0, role: 'user', text, t: Number(event.time) || now() }] })
+      saveBuffer()
       return true
     }
     if (type === 'assistant/message') {
@@ -77,6 +102,7 @@ export function createTreeIngest(options = {}) {
       const text = contentText(event.data)
       if (!text || isNoiseText(text)) return false
       cur.msgs.push({ seq: Number(event.seq) || 0, role: 'assistant', text, t: Number(event.time) || now() })
+      saveBuffer()
       return true
     }
     if (type === 'turn/end') {
@@ -108,6 +134,7 @@ export function createTreeIngest(options = {}) {
         wrote += 1
       }
       buffers.set(String(sid), keep)
+      saveBuffer()
     } finally {
       try { db.close() } catch {}
     }
@@ -127,3 +154,4 @@ export function attachTreeIngest(ctx, options = {}) {
   })
   return () => { try { off?.() } catch {} }
 }
+

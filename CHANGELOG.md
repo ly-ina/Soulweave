@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 0.11.1 — 2026-11-26
+
+树索引缓存落盘：热重载不再吃掉「改代码那一轮的 user 消息」。
+
+- `adapters/dsh/tree-ingest.mjs`：每收一条 user/assistant 就把缓存写到 `tree-buffer.json`（与记忆库同目录），`turn/end` 写完清空。热重载重建引擎时从缓存恢复，未完成的那一轮接着写。
+- check 新增 T2：旧引擎收 user → 新引擎从缓存恢复收 assistant → `turn/end` 落库成功。**124/124**。
+- 前两轮在线 summary 一直验不到，原因就是 HMR 重建时内存缓存被丢；不是 turn/end 没来。
 ## 0.11.0 — 2026-11-26
 
 SPEC-V2 §1：scene 落库。工具调用第一次有了「在哪儿、用什么、碰了哪条路径」的坐标。
@@ -408,3 +415,4 @@ node tools/route-records.mjs --in <records.jsonl> --db <soul-memory.db> [--dry-r
   - 自测：`selftest-when` 23→31 条（计数 / 误报 / 缺 id / 老表补列 ×3）；R13 加「dry-run 也要记账」断言；`check.mjs` 98/98。
   - **日志降噪**：未命中的 `when-scan` 每 10 步一行（行内带 `steps=` 累计 / `miss=` 累计，命中率的分母不丢）；`no-tool-call` 同样首次照写、之后每 10 步一行。soul.log 实测已 10 MB / 36 002 行，每步一行的写法撑不住。
   - 为什么先只做计数：调权没有 hit/bad 样本就是拍脑袋。dry-run 这几天顺手把数据攒了，有样本再定权重怎么改。
+

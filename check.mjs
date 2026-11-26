@@ -29,7 +29,7 @@ import {
 import {
   createPreStepHandler,
 } from './adapters/dsh/prestep.mjs'
-import { attachTreeIngest } from './adapters/dsh/tree-ingest.mjs'
+import { attachTreeIngest, createTreeIngest } from './adapters/dsh/tree-ingest.mjs'
 import { attachSceneRecorder } from './adapters/dsh/scene.mjs'
 import { extractScene, pathPatternOf, timeWindowOf, intimacyOf, createSceneTracker } from './memory/scene.mjs'
 import { createTokenizer } from './core/tree/terms.mjs'
@@ -2852,6 +2852,28 @@ await test('T1', '树索引在线增量：turn/end 落 frag+summary+kw，注入�
   return `summary=${stats.summary} kw=${stats.kw} link=${stats.link}`
 })
 
+await test('T2', '树索引缓存落盘：热重载重建引擎后，改代码那一轮的 user 不丢', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tree-buffer-'))
+  const dbPath = join(dir, 'mem.db')
+  const bufferPath = join(dir, 'tree-buffer.json')
+  const session = { id: 'session-t2' }
+  const first = createTreeIngest({ dbPath, bufferPath })
+  first.accept(session, { type: 'user/message', seq: 1, time: 1764000000000, data: { content: [{ type: 'text', text: '纳，这条消息要熬过一次热重载。' }], source: { kind: 'user' } } })
+  assert.ok(existsSync(bufferPath), 'user 消息后没落缓存文件')
+  // 模拟热重载：旧引擎丢掉，新引擎从缓存恢复
+  const second = createTreeIngest({ dbPath, bufferPath })
+  second.accept(session, { type: 'assistant/message', seq: 2, time: 1764000000001, data: { message: { content: [{ type: 'text', text: '熬过去了。' }] } } })
+  second.accept(session, { type: 'turn/end', seq: 3, time: 1764000000002, data: {} })
+  const db = new DatabaseSync(dbPath)
+  const n = db.prepare('SELECT COUNT(*) n FROM summary').get().n
+  assert.equal(n, 1, `重载后没写进库：${n}`)
+  const text = db.prepare('SELECT text FROM summary').get().text
+  assert.match(text, /热重载/, `摘要不对：${text}`)
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+  return '缓存恢复后 summary=1'
+})
+
 await test('S1', 'scene 提取器：时间窗/亲密度/pathPattern 只留相对或末两级/60s 窗口', () => {
   const at = (h) => new Date(2026, 10, 26, h, 0, 0).getTime()
   assert.equal(timeWindowOf(at(8)), 'morning')
@@ -4301,6 +4323,7 @@ if (failed > 0) {
   console.error(`失败 ${failed} 条`)
   process.exit(1)
 }
+
 
 
 
