@@ -14,6 +14,9 @@ export const SOUL_TRIGGER_KIND = 'soul-trigger'
 /** 每轮关键记忆召回的消息来源（2026-11-11 v2）：另一种 kind，预算上排在 trigger 之后。 */
 export const SOUL_RECALL_KIND = 'soul-recall'
 
+/** 2026-11-26 v0.12.2 第六路：L1 图 2 跳联想补召回（与 recall 分开，日志好统计）。 */
+export const SOUL_ASSOC_KIND = 'soul-assoc'
+
 /** 召回正文与查询文本的截断长度（字）。 */
 export const RECALL_TEXT_MAX_CHARS = 120
 

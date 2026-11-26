@@ -10,7 +10,7 @@ import { buildReflectPrompt, shouldInjectReflect } from '../../core/reflect.mjs'
 import { normalizeConfig, readRouterLines } from '../../core/config.mjs'
 import { EMPTY_SOUL, composeSoul, composeSoulStable, composeSoulState, decideReload, planSoulSplit, readSoulSources } from '../../core/soul.mjs'
 import { readSnapshot as readPersonaSnapshot } from '../../core/persona.mjs'
-import { RECALL_TEXT_MAX_CHARS, SOUL_RECALL_KIND, SOUL_STATE_KIND, SOUL_TRIGGER_KIND, pickRecallEntry, planStateEmit, renderRecall, resetRecallCooldownOnReload } from '../../core/recall-state.mjs'
+import { RECALL_TEXT_MAX_CHARS, SOUL_ASSOC_KIND, SOUL_RECALL_KIND, SOUL_STATE_KIND, SOUL_TRIGGER_KIND, pickRecallEntry, planStateEmit, renderRecall, resetRecallCooldownOnReload } from '../../core/recall-state.mjs'
 import { applyBudgetPlan, countPinnedEntries, countResidentEntries, countSnapshotEntries, countSnapshots, countSoulNodes, detectPinnedAnomalies, detectSnapshotDrift, eventsOfSession, isSnapshotMessage, lastUserTexts, loadLessonHead, loadMemoryHeads, loadPendingItems, maybeLogTier, measureInjections, measureRequestBudget, planBudget, planSnapshotPrune, rememberUserTexts, snapshotMetaOf, soulTargetIndex, textOfMessage } from '../../core/budget.mjs'
 import { isDreamTurn, maybeRunProbe } from '../../core/probe.mjs'
 import { createSoulMessage, resolveWorkspace, zoneRowsOf } from '../../core/prompt.mjs'
@@ -19,6 +19,7 @@ import { createMemoryBackend, searchMemoryByContext } from '../../core/search.mj
 import { pickLastToolCall } from '../../core/toolcall.mjs'
 import { bumpWhenHit, timeWindowOf } from '../../memory/when.mjs'
 import { readRulesIndex } from '../../core/recall.mjs'
+import { associateByPPR } from '../../memory/assoc.mjs'
 
 export function createPreStepHandler(options = {}) {
   const config = options.config ?? normalizeConfig(options)
@@ -78,6 +79,16 @@ export function createPreStepHandler(options = {}) {
   const whenBump = typeof options.whenBump === 'function'
     ? options.whenBump
     : (entry) => bumpWhenHit(config.memoryDbPath, entry.level, entry.id)
+  /** 2026-11-26 v0.12.2 第六路：PPR 联想入口；默认 associateByPPR，check.mjs 用 options.assocSearcher 注入假实现。 */
+  const assocSearcher = typeof options.assocSearcher === 'function'
+    ? options.assocSearcher
+    : ({ seeds, limit }) => associateByPPR(config.memoryDbPath, { seeds, limit })
+  /** 2026-11-26 v0.12.2 第六路：同 session 同 id 冷却 / 告警节流 / 每轮最多一次 / 扫描分母。 */
+  const assocCooled = new Map()
+  const assocWarned = new Set()
+  let assocLastTurn = null
+  let assocScanSteps = 0
+  let assocScanMisses = 0
   // 待办 A：分区行（计数现扫，索引只定顺序），也是 60s 内复用。
   const zoneLoader = typeof options.zoneLoader === 'function' ? options.zoneLoader : () => zoneRowsOf(config)
   let zoneCache = { at: 0, rows: [] }
@@ -305,6 +316,8 @@ export function createPreStepHandler(options = {}) {
      * 命中清单就补一条 `soul-trigger` 小消息；同一 session 同一 id 有冷却。
      * `triggerInjection=false`（默认）时整段不执行 —— legacy/split 两条路径的输出逐字节不变。
      */
+    /** 2026-11-26 v0.12.2 第六路：本轮已注入的记忆 id，作为 PPR 的种子。 */
+    const assocSeeds = new Set()
     let triggerUsedTokens = 0
     if (config.triggerInjection && statePlan.emit) {
       resetTriggerCooldownOnReload(triggerCooled, sessionKey, shadowPlan)
@@ -332,6 +345,7 @@ export function createPreStepHandler(options = {}) {
         messages.push(createSoulMessage(item.text, SOUL_TRIGGER_KIND))
         cooled.set(item.id, at.getTime())
         fired.push(item)
+        if (item.id) assocSeeds.add(item.id)
       }
       if (fired.length > 0) {
         triggerCooled.set(sessionKey, cooled)
@@ -380,6 +394,7 @@ export function createPreStepHandler(options = {}) {
             // 冷却中：同 session 同 id 不重复注入（同样静默）。
           } else {
             messages.push(createSoulMessage(text, SOUL_RECALL_KIND))
+            if (entry.id) assocSeeds.add(entry.id)
             cooled.set(entry.id, at.getTime())
             recallCooled.set(sessionKey, cooled)
             appendLog(config.logPath, logLine(at, 'recall', `ids=${entry.id} tokens=${tokens}`))
@@ -449,6 +464,7 @@ export function createPreStepHandler(options = {}) {
           appendLog(config.logPath, logLine(at, 'when-scan', `tool=${call.tool} path=${call.path || '-'} scanned=${scanned} hit=${picked?.id ?? '-'} steps=${whenScanSteps} miss=${whenScanMisses}${failed ? ` err=${failed}` : ''}`))
         }
         if (picked) {
+          if (picked.id) assocSeeds.add(picked.id)
           const text = clip(String(picked.title || picked.snippet || ''), 60)
           const tokens = estimateTokens(text)
           if (config.whenDryRun) {
@@ -463,6 +479,62 @@ export function createPreStepHandler(options = {}) {
           if (!whenWarned.has(warnKey)) {
             whenWarned.add(warnKey)
             appendLog(config.logPath, logLine(at, 'when-warn', failed))
+          }
+        }
+      }
+    }
+    /*
+     * 2026-11-26 v0.12.2 第六路：L1 图 2 跳联想补召回（默认关）。
+     * 种子 = 本轮已经注入的记忆（trigger / recall / when），沿 same-scene + same-source 边扩散。
+     * assocDryRun 默认 true：只写 assoc-dry 日志，先量注入率（目标 10%–50%）与误报，再接真发。
+     * 硬约束：每轮最多 1 条；同 session 同 id 冷却 assocCooldownMinutes。
+     */
+    if (config.assocInjection && assocSeeds.size > 0) {
+      const turnNow = Number(payload?.turn ?? 0)
+      if (assocLastTurn !== turnNow) {
+        assocLastTurn = turnNow
+        assocScanSteps += 1
+        let entries = []
+        let assocFailed = ''
+        try {
+          const result = await Promise.resolve(assocSearcher({ seeds: [...assocSeeds], limit: config.assocLimit }))
+          entries = Array.isArray(result?.entries) ? result.entries : []
+        } catch (error) {
+          assocFailed = error instanceof Error ? error.message : String(error)
+        }
+        const cooled = assocCooled.get(sessionKey) ?? new Map()
+        const nowMs = at.getTime()
+        const cooldownMs = config.assocCooldownMinutes * 60_000
+        const fresh = entries.filter((entry) => {
+          if (!entry?.id || assocSeeds.has(entry.id)) return false
+          const last = cooled.get(entry.id)
+          return cooldownMs <= 0 || !last || nowMs - last >= cooldownMs
+        })
+        if (fresh.length === 0) {
+          assocScanMisses += 1
+          if (assocFailed && !assocWarned.has(assocFailed)) {
+            assocWarned.add(assocFailed)
+            appendLog(config.logPath, logLine(at, 'assoc-warn', assocFailed))
+          }
+          if (assocScanSteps === 1 || assocScanSteps % 10 === 0) {
+            appendLog(config.logPath, logLine(at, 'assoc-scan', `hit=- steps=${assocScanSteps} miss=${assocScanMisses}${assocFailed ? ` err=${assocFailed}` : ''}`))
+          }
+        } else {
+          const pickedText = fresh
+            .map((entry) => String(entry.title || entry.snippet || ''))
+            .filter(Boolean)
+            .join('；')
+          const text = clip(`联想：${pickedText}`, RECALL_TEXT_MAX_CHARS)
+          const tokens = estimateTokens(text)
+          if (tokens > config.assocBudgetTokens) {
+            appendLog(config.logPath, logLine(at, 'assoc-warn', `budget-exceeded tokens=${tokens} budget=${config.assocBudgetTokens} ids=${fresh.map((entry) => entry.id).join(',')}`))
+          } else if (config.assocDryRun) {
+            appendLog(config.logPath, logLine(at, 'assoc-dry', `ids=${fresh.map((entry) => entry.id).join(',')} tokens=${tokens} steps=${assocScanSteps} miss=${assocScanMisses}`))
+          } else {
+            for (const entry of fresh) cooled.set(entry.id, nowMs)
+            assocCooled.set(sessionKey, cooled)
+            messages.push(createSoulMessage(text, SOUL_ASSOC_KIND))
+            appendLog(config.logPath, logLine(at, 'assoc', `ids=${fresh.map((entry) => entry.id).join(',')} tokens=${tokens}`))
           }
         }
       }

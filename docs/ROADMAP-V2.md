@@ -1,5 +1,8 @@
 # Soulweave 进阶认知架构（V2）
 
+> **状态**：本文是 2026-11-25 的设计原稿，保留原文不改。
+> 实际落地情况、偏差原因与下一步见 [ROADMAP-V2-STATUS.md](ROADMAP-V2-STATUS.md)。
+
 > 来源：DeepSeek 分享对话 <https://chat.deepseek.com/share/mnajgsow6sikygqtlb>
 > 收录：2026-11-25 23:03（小汐用浏览器读到全文，非人工转述）
 

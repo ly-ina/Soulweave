@@ -1,6 +1,25 @@
 # Changelog
 
 
+## 0.12.3 — 2026-11-26
+
+Context Momentum 参数放宽，压缩重置改成窗口夹取。
+
+- `memory/momentum.mjs`：软区间 `0.50~0.85` → **`0.20~0.80`**；压缩不再固定归 `0.60`，改为夹进 `[0.40, 0.60]`——高于 0.6 压回 0.6，低于 0.4 抬回 0.4，落在中间保持。新增 `MOMENTUM_RESET_MIN / MOMENTUM_RESET_MAX`。
+- `check.mjs` MO1：断言同步（0.5 亲密压到 0.35、0.2 托底、0.85 封顶到 0.8、压缩三条边界各一条）。
+- check **130/130**；check-layers / gen-api --check 全绿。
+- 只改状态机常量，仍未接入生产（接线是下一步）。
+
+## 0.12.2 — 2026-11-26
+
+第六路接注入：本轮已注入的记忆当种子，沿 L1 图 2 跳扩散，补一条联想（默认关、默认 dry-run）。
+
+- `core/recall-state.mjs`：新增 `SOUL_ASSOC_KIND = 'soul-assoc'`。
+- `core/config.mjs`：新增 `assocInjection`（默认 false）/ `assocDryRun`（默认 true）/ `assocBudgetTokens`（100，夹 40–240）/ `assocCooldownMinutes`（10，夹 0–1440）/ `assocLimit`（3，夹 1–5）。
+- `adapters/dsh/prestep.mjs`：trigger / recall / when 三处注入成功时把记忆 id 收进 `assocSeeds`；when 之后跑 `associateByPPR`，2 跳内、去掉种子本身、按冷却过滤；每轮最多 1 条；dry-run 只写 `assoc-dry` 日志，真发写 `assoc`。PPR 失败静默降级，不挡本轮注入。
+- check **130/130**（新增 A1：种子来自本轮注入 / dry-run 只记日志 / 真发 1 条 / 同轮不重复 / 默认关零调用）。
+- 下一步：开 `assocInjection=true` + `assocDryRun=true` 实测注入率（目标 10%–50%），再决定是否真发。
+
 ## 0.12.1 — 2026-11-26
 
 修 CI 红：`memory/graph.mjs` 违反依赖方向守卫（0.12.0 带着这条上去了，本地没拦住）。

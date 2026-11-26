@@ -91,6 +91,7 @@ import {
   SOUL_STATE_KIND,
   SOUL_TRIGGER_KIND,
   SOUL_RECALL_KIND,
+  SOUL_ASSOC_KIND,
   RECALL_TEXT_MAX_CHARS,
   pickRecallEntry,
   renderRecall,
@@ -3024,7 +3025,7 @@ await test('P1', 'PPR 死守 2 跳：3 跳归零、rank 单调归一、星图枢
   return `chain=${[...pr.rank.entries()].map(([k, v]) => `${k}:${v.toFixed(2)}`).join(' ')} star=${prStar.rank.size}`
 })
 
-await test('MO1', 'Context Momentum：工作 +0.08 / 亲密 -0.15 / 覆写回拉 / 压缩归 0.60 / 落盘恢复', () => {
+await test('MO1', 'Context Momentum：软区间 0.20~0.80 / 工作 +0.08 / 亲密 -0.15 / 覆写回拉 / 压缩夹到 0.40~0.60 / 落盘恢复', () => {
   let state = initialState()
   assert.equal(state.value, MOMENTUM_RESET)
   state = nextMomentum(state, { toolMsWindow: 45_000, toolCount: 3 })
@@ -3035,9 +3036,12 @@ await test('MO1', 'Context Momentum：工作 +0.08 / 亲密 -0.15 / 覆写回拉
   state = nextMomentum(state, { toolMsWindow: 45_000, toolCount: 3 })
   assert.ok(Math.abs(state.value - 0.76) < 1e-9, `覆写回拉：${state.value}`)
   assert.equal(state.suppressed, 0)
-  assert.equal(nextMomentum(initialState(0.5), { intimacy: 1 }).value, 0.5, '不该低于 0.5')
-  assert.equal(nextMomentum(initialState(0.85), { toolMsWindow: 99_999, toolCount: 9 }).value, 0.85, '不该高于 0.85')
-  assert.equal(nextMomentum({ value: 0.7, suppressed: 0.15, lastAt: 0 }, { compacted: true }).value, 0.6)
+  assert.equal(nextMomentum(initialState(0.5), { intimacy: 1 }).value, 0.35, '0.5 亲密压到 0.35（下限 0.20 才拦）')
+  assert.equal(nextMomentum(initialState(0.85), { toolMsWindow: 99_999, toolCount: 9 }).value, 0.8, '不该高于 0.80')
+  assert.equal(nextMomentum(initialState(0.2), { intimacy: 1 }).value, 0.2, '不该低于 0.20')
+  assert.equal(nextMomentum({ value: 0.7, suppressed: 0.15, lastAt: 0 }, { compacted: true }).value, 0.6, '高于 0.6 压回 0.6')
+  assert.equal(nextMomentum({ value: 0.3, suppressed: 0.15, lastAt: 0 }, { compacted: true }).value, 0.4, '低于 0.4 抬回 0.4')
+  assert.equal(nextMomentum({ value: 0.5, suppressed: 0.15, lastAt: 0 }, { compacted: true }).value, 0.5, '中间保持')
 
   const dir = mkdtempSync(join(tmpdir(), 'dsh-soul-mo-'))
   const file = join(dir, 'momentum.json')
@@ -3583,6 +3587,59 @@ await test('R13', 'when 条件触发：dry-run 只记日志也记账、真发注
   const off = await handlerWith({})(mk(4, toolMessages()), async () => fakeDecision)
   assert.equal(calls, 0, '默认关不该检索')
   assert.equal(off.messages.filter((m) => m?.source?.kind === SOUL_TRIGGER_KIND).length, 0, '默认关不该注入')
+})
+
+await test('A1', '联想第六路：种子来自本轮注入、dry-run 只记日志、真发 1 条、同轮不重复、默认关零调用', async () => {
+  const fixedNow = () => new Date('2026-11-26T21:00:00+08:00')
+  const logPath = join(root, 'logs/assoc.log')
+  rmSync(logPath, { force: true })
+  const toolMessages = () => [
+    { role: 'assistant', content: [{ type: 'tool-call', name: 'write', input: { path: 'a.md' } }] },
+  ]
+  const whenSearcher = () => ({ entries: [{ id: 'm00001', title: '种子记忆', snippet: '种子记忆正文' }] })
+  let assocCalls = 0
+  let seenSeeds = null
+  const assocSearcher = ({ seeds }) => {
+    assocCalls += 1
+    seenSeeds = seeds
+    return { entries: [{ id: 'm00002', title: '联想记忆', snippet: '和图里种子相关' }] }
+  }
+  const mk = (turn) => ({
+    turn,
+    step: 1,
+    messages: toolMessages(),
+    agent: { session: { id: 'assoc-sess', cwd: FIXTURE_WS, events: [] } },
+  })
+  const handlerWith = (over) => createPreStepHandler({
+    config: { ...config, logPath, triggerInjection: false, autoRecall: false, whenInjection: true, whenDryRun: false, ...over },
+    now: fixedNow,
+    pendingLoader: () => [],
+    whenSearcher,
+    whenBump: () => {},
+    assocSearcher,
+  })
+
+  const off = await handlerWith({})(mk(1), async () => fakeDecision)
+  assert.equal(assocCalls, 0, '默认 assocInjection 关，不该调 PPR')
+  assert.equal(off.messages.filter((m) => m?.source?.kind === SOUL_ASSOC_KIND).length, 0, '默认关不注入')
+
+  const dry = await handlerWith({ assocInjection: true, assocDryRun: true })(mk(2), async () => fakeDecision)
+  assert.equal(assocCalls, 1, '开 dry-run 应调 1 次')
+  assert.deepEqual(seenSeeds, ['m00001'], '种子 = 本轮 when 注入的记忆')
+  assert.equal(dry.messages.filter((m) => m?.source?.kind === SOUL_ASSOC_KIND).length, 0, 'dry-run 不注入')
+  const dryLog = readFileSync(logPath, 'utf8')
+  assert.ok(dryLog.includes('assoc-dry'), '应写 assoc-dry')
+  assert.ok(dryLog.includes('m00002'), '日志带联想 id')
+
+  const liveHandler = handlerWith({ assocInjection: true, assocDryRun: false })
+  const live = await liveHandler(mk(3), async () => fakeDecision)
+  const injected = live.messages.filter((m) => m?.source?.kind === SOUL_ASSOC_KIND)
+  assert.equal(injected.length, 1, '真发 1 条')
+  assert.ok(textOfMessage(injected[0]).includes('联想记忆'), '正文是联想条目')
+
+  const sameTurn = await liveHandler(mk(3), async () => fakeDecision)
+  assert.equal(sameTurn.messages.filter((m) => m?.source?.kind === SOUL_ASSOC_KIND).length, 0, '同轮第二个 step 不重复')
+  return '种子/dry-run/真发/同轮去重/默认关 5 项'
 })
 
 await test('R14', '阶段衰退：老且没用的沉底（importance-1 + 自家标记），满 30 天转 stale，原文与裸词都不动', async () => {

@@ -420,6 +420,15 @@ export function normalizeConfig(config = {}) {
     whenBudgetTokens: asInt(config.whenBudgetTokens, 80, 40, 200),
     /** 同 session 同记忆 id 的 when 冷却分钟数（夹 0–1440；0 = 不冷却）。 */
     whenCooldownMinutes: asInt(config.whenCooldownMinutes, 90, 0, 1440),
+    /**
+     * 2026-11-26 v0.12.2 第六路：本轮已注入的记忆当种子，沿 L1 图 2 跳扩散，#soul-assoc 补一条。
+     * 默认 false；assocDryRun 默认 true —— 先量注入率（上限 50%、下限 10%）与误报，再接真发。
+     */
+    assocInjection: config.assocInjection === true,
+    assocDryRun: config.assocDryRun !== false,
+    assocBudgetTokens: asInt(config.assocBudgetTokens, 100, 40, 240),
+    assocCooldownMinutes: asInt(config.assocCooldownMinutes, 10, 0, 1440),
+    assocLimit: asInt(config.assocLimit, 3, 1, 5),
     /** 模块 C 扫插件的根目录：默认本工作区的 plugins + 当前 profile 的 node_modules。 */
     pluginRoots: Array.isArray(config.pluginRoots) && config.pluginRoots.length > 0
       ? config.pluginRoots.map((item) => asText(item)).filter(Boolean)

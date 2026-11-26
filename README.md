@@ -4,8 +4,11 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933)
 ![deps](https://img.shields.io/badge/npm%20deps-0-blue)
 ![License](https://img.shields.io/badge/license-proprietary-red)
+![version](https://img.shields.io/badge/version-0.12.3-8b5cf6)
+![check](https://img.shields.io/badge/check-130%2F130-22c55e)
 
-> 给 DeepSeek Harness 装一层**人格 + 记忆**：每次开会话，AI 先想起自己是谁；平时干活，它知道该去哪儿翻旧账。
+> 给 DeepSeek Harness 装一层**人格 + 记忆**。
+> 不是把聊天记录存下来，是让 AI 每次开会话先想起自己是谁，干活时知道该去哪儿翻旧账，想不起来时知道怎么找回来。
 
 ![魂织架构](docs/architecture.png)
 
@@ -28,6 +31,22 @@ DSH 开一个新会话，模型对你的全部了解就只剩当前这一屏对�
 一共两千字上下，只占上下文很小一角，但足够让模型认出「这是我待过的地方」。
 
 ---
+
+## 它不是小玩具
+
+一个人写、一个人用，从 2026-10 写到现在。下面的数字都是真的（截至 0.12.3）：
+
+| 项 | 量 |
+|---|---|
+| 原文碎片 `frag` | **29 842** 条——每轮对话切块，能定位到句 |
+| 压缩摘要 `summary` | **7 986** 条——自动压缩，坏了能从 frag 重建 |
+| 记忆节点 / 关系边 | **716** 条 / **5 934** 条 |
+| 检索源 | **5** 个：记忆库 · 封存段 · 笔记 · 规则原文 · 原文库 |
+| 自检用例 | **130** 项，全绿才算数 |
+| npm 依赖 | **0** |
+
+它不是一个 `MEMORY.md`，也不是把历史一股脑塞进 context。三层各司其职：
+**frag（原文）→ summary（压缩）→ kw（词）** 是索引，**memories** 是珍藏，**memory_edge** 是它们之间的路。
 
 ## 它解决什么
 
@@ -279,6 +298,14 @@ Node 的宿主实现集中在 `io-node.mjs`（fs/os/进程/zstd/动态加载）�
 包结构、分层约束、io.mjs 单入口、混合召回、完整自测清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md)。
 
 变更记录：[CHANGELOG.md](CHANGELOG.md)。
+
+## 为什么值得做
+
+记忆不是台账。留在库里的应该是舍不得忘的，不是明天还用得上的。
+
+这句话是这套东西的设计原点。所有取舍都从它推出来：魂引先省 token 不省「我是谁」；归档永不物理删除；压缩摘要必须能回溯原文；联想宁可少一条，也不塞满。
+
+如果它对你也有用，拿去用。它是专有软件，但你可以读每一行代码。
 
 ## 许可
 

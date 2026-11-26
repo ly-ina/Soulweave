@@ -6,15 +6,18 @@
  * 纯状态机 + 一个 JSON 持久化壳；不碰数据库。
  *
  * 状态：{ value, suppressed, lastAt }
- *  - value     当前势能，软区间 0.50 ~ 0.85
+ *  - value     当前势能，软区间 0.20 ~ 0.80
  *  - suppressed 被亲密压低的累计量，用来做「覆写回拉」
  */
 
 import { readFileSync, writeFileSync } from '../io.mjs'
 
-export const MOMENTUM_MIN = 0.5
-export const MOMENTUM_MAX = 0.85
+export const MOMENTUM_MIN = 0.2
+export const MOMENTUM_MAX = 0.8
+/** 压缩后的重置窗口：高于 0.6 压回 0.6，低于 0.4 抬回 0.4，落在中间就保持。 */
 export const MOMENTUM_RESET = 0.6
+export const MOMENTUM_RESET_MIN = 0.4
+export const MOMENTUM_RESET_MAX = 0.6
 export const MOMENTUM_BOUNCE = 0.02
 export const WORK_RAISE = 0.08
 export const INTIMACY_DROP = 0.15
@@ -44,7 +47,11 @@ export function bounce(state) {
 export function nextMomentum(state, input = {}) {
   const prev = state ?? initialState()
   if (input.compacted === true) {
-    return { value: MOMENTUM_RESET, suppressed: 0, lastAt: Number(input.now ?? prev.lastAt ?? 0) }
+    // 压缩不拉回固定值，只夹进重置窗口 [0.4, 0.6]：
+    // 工作态（>0.6）压回 0.6，亲密态（<0.4）抬回 0.4，中间就保持。
+    const carried = clamp(Number(prev.value ?? MOMENTUM_RESET))
+    const value = Math.min(MOMENTUM_RESET_MAX, Math.max(MOMENTUM_RESET_MIN, carried))
+    return { value, suppressed: 0, lastAt: Number(input.now ?? prev.lastAt ?? 0) }
   }
   let value = Number(prev.value ?? MOMENTUM_RESET)
   let suppressed = Number(prev.suppressed ?? 0)
