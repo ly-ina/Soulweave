@@ -6,7 +6,7 @@
  * 复跑：node scripts/verify-release.mjs
  * 期望：每条以 PASS 开头，最后一行 ALL PASS。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
