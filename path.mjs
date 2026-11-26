@@ -37,7 +37,12 @@ export function isAbsolute(p) {
 
 /** 把一段路径拆成 { prefix, segs, abs }，prefix 是盘符或 UNC 头。 */
 function splitPath(p, sep) {
-  const s = String(p ?? '').replace(/[\\/]+/g, sep)
+  // 先把 UNC（\\server\share）的前导双斜杠保住：直接折叠会压成一个，
+  // 后面 startsWith('\\\\') 就永远不成立，UNC 路径会退化成「根下的相对段」。
+  const raw = String(p ?? '')
+  const s = sep === '\\' && /^[\\/]{2}[^\\/]/.test(raw)
+    ? '\\\\' + raw.replace(/^[\\/]+/, '').replace(/[\\/]+/g, sep)
+    : raw.replace(/[\\/]+/g, sep)
   let prefix = ''
   let rest = s
   if (sep === '\\') {
@@ -160,3 +165,71 @@ export function relative(from, to) {
   return [...up, ...rest].join(sep)
 }
 
+
+// ---- node:path 兼容面的剩余部分（1.0 收尾）----
+// 原先缺 normalize/parse/format/toNamespacedPath，这里补齐默认平台版。
+// 常规路径对齐 node:path；重复分隔符、UNC 尾斜杠这类边角按"合理"处理，
+// 不追求逐字节等价（这些只给非 Node 宿主兜底用）。
+
+/** 归一化：折叠 . 和 ..，统一分隔符，保留绝对性与尾斜杠。 */
+export function normalize(p) {
+  const s = String(p ?? '')
+  if (s === '') return '.'
+  const sp = looksWin([s]) ? '\\' : sep
+  const out = normalizeWith(s, sp)
+  const trailing = s.length > 1 && (s.endsWith('/') || s.endsWith('\\'))
+  if (trailing && !out.endsWith(sp) && !/^[A-Za-z]:$/.test(out)) return out + sp
+  return out
+}
+
+function rootOf(s) {
+  if (WIN_ABS.test(s)) return s.slice(0, 3)
+  if (WIN_UNC.test(s)) {
+    const segs = s.replace(/\\/g, '/').split('/').filter(Boolean)
+    return segs.length >= 2 ? '\\\\' + segs[0] + '\\' + segs[1] : '\\\\' + segs[0]
+  }
+  if (s.startsWith('/')) return '/'
+  return ''
+}
+
+/** 拆成 { root, dir, base, ext, name }，与 node:path.parse 同形。 */
+export function parse(p) {
+  const s = String(p ?? '')
+  if (s === '') return { root: '', dir: '', base: '', ext: '', name: '' }
+  const root = rootOf(s)
+  let rest = s.slice(root.length)
+  if (rest.length > 1 && /[\\/]$/.test(rest)) rest = rest.slice(0, -1)
+  const i = Math.max(rest.lastIndexOf('/'), rest.lastIndexOf('\\'))
+  const dirPart = i >= 0 ? rest.slice(0, i) : ''
+  const base = i >= 0 ? rest.slice(i + 1) : rest
+  let dir = dirPart ? root + dirPart : root
+  if (!dirPart && base && WIN_UNC.test(root)) dir = root + '\\'
+  if (dir.length > 1 && dir !== root && /[\\/]$/.test(dir)) dir = dir.slice(0, -1)
+  const dot = base.lastIndexOf('.')
+  const ext = dot > 0 && !/^\.+$/.test(base) ? base.slice(dot) : ''
+  const name = ext ? base.slice(0, base.length - ext.length) : base
+  return { root, dir, base, ext, name }
+}
+
+/** parse 的逆操作；给了 base 就忽略 name/ext（和 Node 一致）。 */
+export function format(obj) {
+  const o = obj ?? {}
+  const base = o.base || (o.name || '') + (o.ext || '')
+  if (o.dir) {
+    const sp = looksWin([o.dir]) ? '\\' : sep
+    return o.dir.endsWith(sp) ? o.dir + base : o.dir + sp + base
+  }
+  return (o.root || '') + base
+}
+
+/** Windows 上 resolve 后加 \\?\ 前缀，其它平台原样返回（与 node:path 一致）。 */
+export function toNamespacedPath(p) {
+  const s = String(p ?? '')
+  if (s === '') return s
+  if (globalThis.process?.platform !== 'win32') return s
+  if (/^\\\\[?.]\\/.test(s)) return s
+  const r = resolve(s)
+  if (WIN_UNC.test(r)) return '\\\\?\\UNC\\' + r.slice(2)
+  if (WIN_ABS.test(r)) return '\\\\?\\' + r
+  return r
+}

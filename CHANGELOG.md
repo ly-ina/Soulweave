@@ -11,6 +11,13 @@
 - **fix(storage)**：`openReadonly` / `openReadWrite` 在无驱动、空路径时先行返回 null 并记账，
   不再靠异常吞掉；`configureStorage()` 复位时清空记账。
 - **test**：smoke-storage 17 → 23 项（新增诊断断言）。
+- **feat(path)**：补齐 `normalize` / `parse` / `format` / `toNamespacedPath`，
+  `io.mjs` 一并 re-export。（与 `node:path` 在 `C:/a//b/` 这类混合/重复分隔符、
+  Windows 盘根 `/x` 的解析上仍有边角差异，已注释说明；不影响插件内部调用。）
+- **fix(path)**：`splitPath` 先把 `\\server\share` 的前导双斜杠保住再折叠，
+  以前会压成一个反斜杠，UNC 路径退化成「根下的相对段」。
+- **fix(apply)**：`records` 挂载诊断原来无条件 warn 一次行；改为只在
+  `records.enabled=true` 但宿主没给 `ctx.on` 时报警。
 
 ## 0.10.1 — 2026-11-26
 

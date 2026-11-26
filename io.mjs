@@ -14,9 +14,9 @@
  *   - 写类与进程类抛错，错误信息直接告诉你怎么装配。
  *   这样「忘了装配」会以一条清楚的错出现，而不是静默写坏东西。
  */
-import { join, resolve, dirname, basename, extname, relative, isAbsolute, sep } from './path.mjs'
+import { join, resolve, dirname, basename, extname, relative, isAbsolute, sep, normalize, parse, format, toNamespacedPath } from './path.mjs'
 
-export { join, resolve, dirname, basename, extname, relative, isAbsolute, sep }
+export { join, resolve, dirname, basename, extname, relative, isAbsolute, sep, normalize, parse, format, toNamespacedPath }
 export { createHash, sha256Hex, sha256Bytes } from './sha256.mjs'
 
 const NOT_CONFIGURED = (what) =>
