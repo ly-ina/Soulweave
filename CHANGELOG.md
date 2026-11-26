@@ -1,6 +1,15 @@
 # Changelog
 
 
+## 0.10.6 — 2026-11-26
+
+树索引在线增量：新对话不再等离线回填。
+
+- 新增 `core/tree/ingest.mjs`：单轮落 `frag / summary / kw / kw_link`，df 现算、topk 砍枝；权重用 `log(1 + N/df)` 平滑（库里只有一条时 `log(N/df)=0` 会把词全删光，实测踩到）。
+- 新增 `adapters/dsh/tree-ingest.mjs`：挂 `session/event` 缓存本轮 user/assistant 正文，`turn/end` 写进记忆库；只收 `source.kind === 'user'`，魂引/记忆快照不进索引；全程 fail-open。
+- `apply` 默认挂载，`treeIngest: false` 可关；`memoryBackend: 'none'` 自动不挂。
+- check 新增 T1：真实事件序列 → 检索命中 → 原文回溯 → 注入过滤 → 同轮重跑不重复。121/121 通过。
+
 ## 0.10.5 — 2026-11-26
 
 署名防删（拦得住顺手抄的人，拦不住下决心的人）。

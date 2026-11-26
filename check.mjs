@@ -29,6 +29,10 @@ import {
 import {
   createPreStepHandler,
 } from './adapters/dsh/prestep.mjs'
+import { attachTreeIngest } from './adapters/dsh/tree-ingest.mjs'
+import { createTokenizer } from './core/tree/terms.mjs'
+import { searchSummaries, summaryFrags } from './core/tree/retrieve.mjs'
+import { treeStats } from './core/tree/schema.mjs'
 import {
   measureInjections,
   measureRequestBudget,
@@ -2803,6 +2807,46 @@ await test('Y2', 'A3：apply 只在配了原文库时挂 session/event，并在 
   assert.equal(handlers2.has('session/event'), false, '没配原文库时不该挂监听')
   dispose2()
   return '挂载/卸载/未配置三态正确'
+})
+
+await test('T1', '树索引在线增量：turn/end 落 frag+summary+kw，注入消息不进，同轮重跑不重复', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tree-ingest-'))
+  const dbPath = join(dir, 'mem.db')
+  const handlers = new Map()
+  let offCount = 0
+  const ctx = {
+    on: (event, fn) => { handlers.set(event, fn); return () => { offCount += 1; handlers.delete(event) } },
+    tools: { register: () => () => {} },
+    logger: () => ({ warn() {}, info() {}, debug() {} }),
+  }
+  const dispose = attachTreeIngest(ctx, { dbPath })
+  const fire = (type, seq, data) => handlers.get('session/event')({ id: 'session-t1' }, { type, seq, time: 1764000000000 + seq, data })
+
+  fire('user/message', 1, { content: [{ type: 'text', text: '纳，今天把文件夹加密那块重写了，密钥放到保险柜里。' }], source: { kind: 'user' } })
+  fire('assistant/message', 2, { message: { role: 'assistant', content: [{ type: 'text', text: '嗯，文件夹加密用 AES，密钥单独存保险柜，主密码不落盘。' }] } })
+  fire('turn/end', 3, {})
+  fire('user/message', 4, { content: [{ type: 'text', text: '【魂引 · 人格】身份：蓝汐' }], source: { kind: 'soul' } })
+  fire('turn/end', 5, {})
+  fire('user/message', 6, { content: [{ type: 'text', text: '顺便把树索引的摘要层也接上增量写入。' }], source: { kind: 'user' } })
+  fire('turn/end', 7, {})
+
+  const db = new DatabaseSync(dbPath)
+  const stats = treeStats(db)
+  assert.equal(stats.summary, 2, `只该落两轮真实对话，实际 ${stats.summary}`)
+  const hits = searchSummaries(db, '文件夹 加密', { limit: 3, expand: true, tokenizer: createTokenizer() })
+  assert.ok(hits.length > 0, '增量写入后检索不到')
+  assert.match(hits[0].summary.text, /文件夹/, `首条不对：${hits[0].summary.text}`)
+  const frags = summaryFrags(db, hits[0].summary.id)
+  assert.ok(frags.length >= 2 && frags[1].text.includes('AES'), '原文片段回溯不到 assistant 一侧')
+
+  // 同一轮再触发 turn/end：不能多出 summary
+  fire('turn/end', 8, {})
+  assert.equal(treeStats(db).summary, 2, '同一轮重跑产生了重复 summary')
+  db.close()
+  dispose()
+  assert.ok(offCount >= 1, 'dispose 没摘监听')
+  rmSync(dir, { recursive: true, force: true })
+  return `summary=${stats.summary} kw=${stats.kw} link=${stats.link}`
 })
 
 

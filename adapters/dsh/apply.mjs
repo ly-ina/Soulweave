@@ -4,6 +4,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { attachRecords } from './records.mjs'
+import { attachTreeIngest } from './tree-ingest.mjs'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -1179,6 +1180,19 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
       if (typeof off === 'function') disposers.push(off)
     } catch (error) {
       logger.warn?.(`dsh-soul: 原文库增量监听没挂上：${String(error?.message ?? error)}`)
+    }
+  }
+
+  /**
+   * 2026-11-26：树索引在线增量。turn/end 时把本轮落成 frag + summary + kw，
+   * 不再等离线回填。默认开；`treeIngest: false` 可关（HMR 排查或双写时）。
+   */
+  if (normalized.treeIngest !== false && normalized.memoryBackend !== 'none' && typeof ctx.on === 'function') {
+    try {
+      const dispose = attachTreeIngest(ctx, { dbPath: normalized.memoryDbPath, logger })
+      if (typeof dispose === 'function') disposers.push(dispose)
+    } catch (error) {
+      logger.warn?.(`dsh-soul: 树索引增量监听没挂上：${String(error?.message ?? error)}`)
     }
   }
 

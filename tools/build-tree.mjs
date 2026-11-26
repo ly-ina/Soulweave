@@ -10,8 +10,8 @@
  *   node tools/build-tree.mjs                             # 全量（会跑一会）
  *
  * 参数：
- *   --db <path>        原文库，默认 E:\dsh_work\lanxi\tools\soul-index\out\soul.db
- *   --mem-db <path>    魂织记忆库，默认 %USERPROFILE%\.dsh\soulweave\soul-memory.db
+ *   --db <path>        原文库，默认 $DSH_HOME/soul-index/out/soul.db（或 SOULWEAVE_SOUL_INDEX_DB）
+ *   --mem-db <path>    魂织记忆库，默认 $DSH_HOME/soulweave/soul-memory.db
  *   --limit <n>        最多处理多少条摘要（从最近的会话往回取）
  *   --sessions <n>     最多处理多少个会话
  *   --max-msg <n>      单条消息进摘要器前截断到多少字（默认 8000，不影响 frag）
@@ -22,7 +22,8 @@
 import '../io-node.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { ensureTreeSchema, treeStats } from '../core/tree/schema.mjs'
 import { splitFragments, extractiveSummary, classifyZone, layerOf, stripNoise, isNoiseText } from '../core/tree/summary.mjs'
 import { createTokenizer } from '../core/tree/terms.mjs'
@@ -38,8 +39,10 @@ const num = (n, def) => {
   return v === undefined ? def : Number(v)
 }
 
-const DB = opt('db', 'E:\\dsh_work\\lanxi\\tools\\soul-index\\out\\soul.db')
-const MEM = opt('mem-db', `${process.env.USERPROFILE || 'C:\\Users\\Lenovo'}\\.dsh\\soulweave\\soul-memory.db`)
+// 不在产品代码里写死本机路径：用 --db / 环境变量，默认从 DSH_HOME 推。
+const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
+const DB = opt('db', process.env.SOULWEAVE_SOUL_INDEX_DB || join(DSH_HOME, 'soul-index', 'out', 'soul.db'))
+const MEM = opt('mem-db', join(DSH_HOME, 'soulweave', 'soul-memory.db'))
 const LIMIT = num('limit', 0)
 const SESSIONS = num('sessions', 0)
 const MAX_MSG = num('max-msg', 8000)
