@@ -102,6 +102,39 @@ export function attachRecords(ctx, config = {}) {
   const cueMaxChars = Number.isFinite(cueConfig.maxChars) ? Number(cueConfig.maxChars) : 0
   let cueCount = 0
 
+  // 2026-11-26：压缩后模型只看得到摘要，这时候问「刚结束的上一轮」等于让它凭空编。
+  // 宿主不给「压缩前插话」的窗口——compaction/start→end 是一次原子操作，不跨 turn，模型不在循环里。
+  // 所以自己缓存最近几条消息原文；压缩发生时留一份快照，压缩后首轮把原文当抓手递过去。
+  const recentMsgs = []
+  let compactedSnapshot = null
+  const pushRecent = (who, text) => {
+    if (typeof text !== 'string') return
+    const t = text.replace(/\s+/g, ' ').trim()
+    if (!t) return
+    recentMsgs.push({ who, t: t.length > 180 ? `${t.slice(0, 180)}…` : t })
+    if (recentMsgs.length > 24) recentMsgs.shift()
+  }
+  const messageText = (message) => {
+    const blocks = message?.content
+    if (!Array.isArray(blocks)) return ''
+    return blocks
+      .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('\n')
+  }
+  const buildCue = (compacted) => {
+    if (!compacted) return cueText
+    const snap = compactedSnapshot ?? []
+    compactedSnapshot = null
+    if (!snap.length) return cueText
+    return (
+      '[记忆巡检] 刚才发生过一次压缩——上一段的原文已经不在上下文里了，不必凭印象编。' +
+      '\n压缩前最后几条是：\n' +
+      snap.map((x) => `- ${x.who}：${x.t}`).join('\n') +
+      '\n这里面有舍不得忘的吗？有 → 单独一行 `※记` 开头写一句，不换行。没有 → 什么都不写。'
+    )
+  }
+
   /** 注入消息：role=user + source.kind 标记，宿主和日志里都能认出来源。 */
   function cueMessage(text) {
     return {
@@ -160,10 +193,11 @@ export function attachRecords(ctx, config = {}) {
           cueLastCount = msgs.length
           if (turn !== 1 && !compacted) return decision
           cueCount++
+          const text = buildCue(compacted)
           try {
-            write({ ts: new Date().toISOString(), type: 'cue', turn, step, chars: cueText.length })
+            write({ ts: new Date().toISOString(), type: 'cue', turn, step, chars: text.length, compacted })
           } catch {}
-          return { ...(decision ?? {}), messages: [...msgs, cueMessage(cueText)] }
+          return { ...(decision ?? {}), messages: [...msgs, cueMessage(text)] }
         } catch (e) {
           try { logger.warn?.(`records: cue 注入失败（已忽略）: ${e?.message ?? e}`) } catch {}
           return decision
@@ -175,11 +209,21 @@ export function attachRecords(ctx, config = {}) {
 
   on('session/event', (session, event) => {
     try {
+      // 压缩发生：留一份「压缩前最近几条」的快照，压缩后首轮 cue 拿它当抓手。
+      if (event?.type === 'compaction/end') {
+        compactedSnapshot = recentMsgs.slice(-8)
+        return
+      }
+      if (event?.type === 'user/message') {
+        pushRecent('纳', messageText(event.data?.message))
+        return
+      }
       if (event?.type !== 'assistant/message') return
 
       const message = event.data?.message
       const blocks = message?.content
       if (!Array.isArray(blocks)) return
+      pushRecent('我', messageText(message))
 
       const sid = session?.id ?? session?.sessionId ?? 'unknown'
       const key = `${sid}:${event.seq ?? '-'}`
