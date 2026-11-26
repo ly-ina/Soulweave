@@ -1,6 +1,17 @@
 # Changelog
 
 
+## 0.11.4 — 2026-11-26
+
+记忆侧接 scene：`soul_remember` 写入时自动带情境签名，不用人填。
+
+- `memory/builtin.mjs`：`memories` 补列 `scene_id`（老库自动 ALTER）；`putMemory` 写入/更新都带上。
+- `memory/scene-link.mjs`（新）：`latestScene` 只取 15 分钟内的最近一行（按 sid 过滤）；`whenFromScene` 由 `path_pattern` 生成目录 glob（`memory/scene.mjs` → `*memory/*`）+ `time_window`；`tool` 不自动签（太窄，签上几乎不会再命中）。
+- `core/remember.mjs`：显式 `when` 优先、scene 只补缺；when 写进 `when_index`（level 口径用表名 `memories`，否则情境检索按表查取不到）；回执带 `when=… / scene=…`。fail-open，签不上不影响正文。
+- `core/search.mjs`：情境检索加读 `memories` 表——之前只扫七层老表，自动签的 when 没有消费方。
+- `adapters/dsh/apply.mjs`：`soul_remember` schema 加 `when` 参数（tool / pathPattern / timeWindow）。
+- check **125/125**（新增 M1：提取 → 自动签名 → 落库 → 情境命中 / 时段不符不命中 → 显式覆盖自动）。
+
 ## 0.11.3 — 2026-11-26
 
 scene 的 sid 也跟着保留 `session-` 前缀，和树索引/原文库对齐。

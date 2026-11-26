@@ -362,6 +362,16 @@ const SOUL_REMEMBER_TOOL = Object.freeze({
       due: { type: 'string', description: 'todo 到期日 YYYY-MM-DD，可省' },
       goal: { type: 'string', description: '话题目标句，可省' },
       why: { type: 'string', description: '为什么写这条/为什么改（版本留痕用），可省' },
+      when: {
+        type: 'object',
+        properties: {
+          tool: { type: 'string', description: '在跑哪个工具时想起（一般留空，太窄）' },
+          pathPattern: { type: 'string', description: '路径 glob，如 *memory/*' },
+          timeWindow: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'] },
+        },
+        additionalProperties: false,
+        description: '什么时候该想起这条；不传则从当前 scene 自动生成（路径目录 + 时段）',
+      },
       source: {
         type: 'object',
         properties: {
@@ -777,6 +787,7 @@ export function createTools(config, deps = {}) {
       due: args?.due,
       goal: args?.goal,
       why: args?.why,
+      when: args?.when,
       source: args?.source,
     })
     if (!result.ok) return { ok: false, text: String(result.text ?? 'soul_remember 失败') }

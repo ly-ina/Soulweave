@@ -9,7 +9,27 @@
  *  - kind=todo 或 input.todo=true 时，额外写 todos 表（生命周期与记忆正文分开）。
  */
 import * as builtinMemory from '../memory/builtin.mjs'
+import { latestScene, whenFromScene, sceneLabel } from '../memory/scene-link.mjs'
+import { putWhen } from '../memory/when.mjs'
 import { asInt, asText } from './text.mjs'
+
+/**
+ * 显式 when 优先，自动 when 补缺；显式给空串不算覆盖。
+ * 2026-11-26：这就是「记忆侧接 scene」的合并规则。
+ */
+export function mergeWhen(explicit, auto) {
+  const out = {}
+  for (const source of [auto, explicit]) {
+    if (!source || typeof source !== 'object') continue
+    for (const key of ['tool', 'pathPattern', 'timeWindow']) {
+      const value = source[key]
+      if (value == null) continue
+      if (Array.isArray(value) ? value.length === 0 : String(value).trim() === '') continue
+      out[key] = value
+    }
+  }
+  return Object.keys(out).length === 0 ? null : out
+}
 
 const KINDS = new Set(builtinMemory.BUILTIN_LEVELS)
 
@@ -51,6 +71,14 @@ export function remember(config, input = {}) {
           .split(/\s+/)
           .filter(Boolean)
 
+  // 2026-11-26 记忆侧接 scene：写入时顺手看一眼「刚才在干什么」。
+  // 显式 when 优先，scene 只补缺；传了 source.session 就只看那个会话的 scene。
+  const scene = input.scene && typeof input.scene === 'object'
+    ? input.scene
+    : latestScene(dbPath, { sid: asText(input.source?.session) })
+  const when = mergeWhen(input.when, whenFromScene(scene))
+  const sceneId = asText(input.scene_id) || String(scene?.id ?? existing?.scene_id ?? '')
+
   const written = builtinMemory.putMemory(dbPath, {
     id: id || undefined,
     content,
@@ -64,8 +92,20 @@ export function remember(config, input = {}) {
     goal: input.goal !== undefined ? asText(input.goal) : String(existing?.goal ?? ''),
     source: input.source,
     why: asText(input.why) || 'remember',
+    scene_id: sceneId,
   })
   if (!written.ok) return { ok: false, text: `soul_remember 写入失败：${written.error ?? '未知错误'}` }
+
+  // when 是旁路索引：签不上不影响正文写入（fail-open），但在回执里说清楚。
+  let whenNote = ''
+  if (when) {
+    // when_index 的 level 口径是「哪张表」：soul_remember 的行都在 memories 表，
+    // 所以写 'memories' 而不是 kind（fact/lesson…），否则情境检索按表查会取不到。
+    const signed = putWhen(dbPath, 'memories', written.id, when)
+    whenNote = signed?.ok
+      ? `when=${JSON.stringify(when)}`
+      : `when 未签上：${signed?.error ?? '未知'}`
+  }
 
   let todo = null
   if (kind === 'todo' || input.todo === true) {
@@ -83,6 +123,8 @@ export function remember(config, input = {}) {
   if (project) bits.push(`project=${project}`)
   if (todo?.ok) bits.push(`todo#${todo.id}`)
   if (!todo?.ok && (kind === 'todo' || input.todo === true)) bits.push(`todo 写入失败：${todo?.error ?? '未知'}`)
+  if (whenNote) bits.push(whenNote)
+  if (sceneId) bits.push(`scene=${sceneLabel(scene) || sceneId}`)
   return {
     ok: true,
     id: written.id,
@@ -93,6 +135,8 @@ export function remember(config, input = {}) {
     status,
     project,
     importance,
+    sceneId,
+    when,
     todo: todo?.ok ? { id: todo.id, status: todo.status } : null,
     text: bits.join(' · '),
   }

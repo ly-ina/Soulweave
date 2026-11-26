@@ -170,7 +170,7 @@ export function searchMemoryMeow(options, words, limit) {
         score += words.filter((word) => content.toLowerCase().includes(word)).length
         scored.push({
           score,
-          loc: `记忆库/${level}#${row.id}`,
+          loc: `记忆库/${level === 'memories' ? 'remember' : level}#${row.id}`,
           snippet: snippetAround(content !== '' ? content : title, words),
         })
       }
@@ -230,7 +230,9 @@ export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
     const out = []
     let scanned = 0
     for (const [level, ids] of byLevel) {
-      if (!MEMORY_LEVELS.includes(level) || ids.length === 0) continue
+      // 2026-11-26：`memories`（soul_remember 写的行）也进情境检索，
+      // 否则自动签的 when 没有消费方。七层老表照旧。
+      if ((!MEMORY_LEVELS.includes(level) && level !== 'memories') || ids.length === 0) continue
       const cols = tableColumns(db, level)
       if (cols.length === 0) continue
       const pick = ['id']
@@ -253,7 +255,7 @@ export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
         out.push({
           // 2026-11-21 修：entry 必须带 id，prestep 的冷却（cooled.get(entry.id)）和 when-scan 的 hit= 都靠它。
           id: String(row.id),
-          loc: `记忆库/${level}#${row.id}`,
+          loc: `记忆库/${level === 'memories' ? 'remember' : level}#${row.id}`,
           level,
           title: String(row.title ?? ''),
           snippet: snippetAround(String(row.content ?? row.title ?? ''), []),

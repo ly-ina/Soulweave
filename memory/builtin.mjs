@@ -220,6 +220,7 @@ const MEMORY_EXTRA_COLUMNS = [
   ['source_turn', "text default ''"],
   ['goal', "text default ''"],
   ['version', 'integer default 1'],
+  ['scene_id', "text default ''"],
 ]
 
 /**
@@ -304,6 +305,7 @@ export function putMemory(dbPath, memory = {}) {
       source_turn: String(memory.source_turn ?? memory.source?.turn ?? pick('source_turn', '')),
       goal: String(pick('goal', '')),
       version: Number(existing?.version ?? 1),
+      scene_id: String(pick('scene_id', '')),
     }
     if (existing && String(existing.content ?? '') !== content) {
       row.version = Number(existing.version ?? 1) + 1
@@ -312,19 +314,19 @@ export function putMemory(dbPath, memory = {}) {
       ).run(row.id, Number(existing.version ?? 1), String(existing.content ?? ''), now, String(memory.why ?? 'update'))
     }
     db.prepare(
-      `insert into memories (id,title,content,keywords,importance,status,corrected,project,level,created_at,updated_at,sha,source_session,source_turn,goal,version)
-       values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `insert into memories (id,title,content,keywords,importance,status,corrected,project,level,created_at,updated_at,sha,source_session,source_turn,goal,version,scene_id)
+       values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        on conflict(id) do update set title=excluded.title, content=excluded.content, keywords=excluded.keywords,
          importance=excluded.importance, status=excluded.status, corrected=excluded.corrected,
          project=excluded.project, level=excluded.level, updated_at=excluded.updated_at, sha=excluded.sha,
          source_session=excluded.source_session, source_turn=excluded.source_turn, goal=excluded.goal,
-         version=excluded.version`,
+         version=excluded.version, scene_id=excluded.scene_id`,
     ).run(
       row.id, row.title, row.content, row.keywords, row.importance, row.status, row.corrected,
       row.project, row.level, row.created_at, row.updated_at, row.sha,
-      row.source_session, row.source_turn, row.goal, row.version,
+      row.source_session, row.source_turn, row.goal, row.version, row.scene_id,
     )
-    return { ok: true, id: row.id, dedup: false, version: row.version, updated: Boolean(existing) }
+    return { ok: true, id: row.id, dedup: false, version: row.version, updated: Boolean(existing), scene_id: row.scene_id }
   } catch (error) {
     return { ok: false, error: String(error?.message ?? error) }
   } finally {

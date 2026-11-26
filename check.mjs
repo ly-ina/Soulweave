@@ -32,9 +32,11 @@ import {
 import { attachTreeIngest, createTreeIngest } from './adapters/dsh/tree-ingest.mjs'
 import { attachSceneRecorder } from './adapters/dsh/scene.mjs'
 import { extractScene, pathPatternOf, timeWindowOf, intimacyOf, createSceneTracker } from './memory/scene.mjs'
+import { latestScene, whenFromScene, pathGlobOf } from './memory/scene-link.mjs'
+import { getWhen } from './memory/when.mjs'
 import { createTokenizer } from './core/tree/terms.mjs'
 import { searchSummaries, summaryFrags } from './core/tree/retrieve.mjs'
-import { treeStats } from './core/tree/schema.mjs'
+import { treeStats, ensureTreeSchema } from './core/tree/schema.mjs'
 import {
   measureInjections,
   measureRequestBudget,
@@ -102,6 +104,7 @@ import {
 } from './core/recall.mjs'
 import {
   createMemoryBackend,
+  searchMemoryByContext,
 } from './core/search.mjs'
 import {
   composeSoul,
@@ -2938,6 +2941,65 @@ await test('S2', 'scene 落库：工具调用写行，summary 通过 scene_id �
   assert.equal(handlers.length, 0, 'dispose 没摘干净')
   rmSync(dir, { recursive: true, force: true })
   return `scene=${scenes[0].id} summary.scene_id=${sum.scene_id}`
+})
+
+await test('M1', '记忆侧接 scene：soul_remember 自动生成 when_ctx、写 memories.scene_id、情境检索能命中', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-soul-m1-'))
+  const dbPath = join(dir, 'memory.db')
+  const now = Date.now()
+  const db = new DatabaseSync(dbPath)
+  ensureTreeSchema(db)
+  db.prepare(`INSERT INTO scene
+    (id,sid,seq,turn,step,tool,cwd,path_pattern,time_window,intimacy,tool_ms_window,tool_count,t)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    'session-m1:42', 'session-m1', 42, 7, 3, 'ps', 'E:\\dsh_work\\plugins\\dsh-soulweave',
+    'memory/scene.mjs', 'evening', 0.3, 0, 1, now - 1000,
+  )
+  db.close()
+
+  assert.equal(pathGlobOf('memory/scene.mjs'), '*memory/*')
+  assert.equal(pathGlobOf('a.mjs'), 'a.mjs')
+  const scene = latestScene(dbPath, { sid: 'session-m1', now })
+  assert.equal(scene?.id, 'session-m1:42', 'latestScene 没取到')
+  assert.deepEqual(whenFromScene(scene), { pathPattern: '*memory/*', timeWindow: 'evening' })
+  assert.equal(latestScene(dbPath, { sid: 'session-m1', now: now + 20 * 60_000 }), null, '过期 scene 不该算')
+  assert.equal(latestScene(dbPath, { sid: 'session-other', now }), null, '别的会话不该串')
+
+  const written = remember({ memoryDbPath: dbPath }, {
+    content: '记忆侧接 scene 的实现落在 memory/scene-link.mjs。',
+    source: { session: 'session-m1' },
+  })
+  assert.equal(written.ok, true, written.text)
+  assert.equal(written.sceneId, 'session-m1:42', `sceneId 不对：${written.sceneId}`)
+  assert.equal(written.when?.pathPattern, '*memory/*', '没自动生成 when')
+  // when_index 的 level 是表名口径：soul_remember 的行都在 memories 表
+  assert.equal(getWhen(dbPath, 'memories', written.id)?.timeWindow, 'evening', 'when_index 没写进去')
+
+  const hit = searchMemoryByContext(
+    { memoryDbPath: dbPath },
+    { path: 'plugins/dsh-soulweave/memory/scene.mjs', timeWindow: 'evening' },
+    5,
+  )
+  assert.equal(hit.entries.length, 1, `情境检索该命中：${JSON.stringify(hit)}`)
+  const miss = searchMemoryByContext(
+    { memoryDbPath: dbPath },
+    { path: 'plugins/dsh-soulweave/memory/scene.mjs', timeWindow: 'morning' },
+    5,
+  )
+  assert.equal(miss.entries.length, 0, `时段不符不该命中：${JSON.stringify(miss)}`)
+
+  const explicit = remember({ memoryDbPath: dbPath }, {
+    content: '显式 when 覆盖自动 when。',
+    when: { tool: 'ps', timeWindow: 'night' },
+    source: { session: 'session-m1' },
+  })
+  assert.equal(explicit.ok, true, explicit.text)
+  assert.equal(explicit.when.tool, 'ps')
+  assert.equal(explicit.when.timeWindow, 'night', '显式 timeWindow 没覆盖')
+  assert.equal(explicit.when.pathPattern, '*memory/*', '自动 pathPattern 该补缺')
+
+  rmSync(dir, { recursive: true, force: true })
+  return `scene=${written.sceneId} when=${JSON.stringify(written.when)} hit=${hit.entries[0]?.loc}`
 })
 
 
