@@ -9,7 +9,7 @@
  * 幂等：全部 IF NOT EXISTS，老库直接跑不伤数据。
  */
 
-export const TREE_SCHEMA_VERSION = 1
+export const TREE_SCHEMA_VERSION = 2
 
 export function ensureTreeSchema(db) {
   db.exec(`
@@ -78,8 +78,31 @@ export function ensureTreeSchema(db) {
       k TEXT PRIMARY KEY,
       v TEXT
     );
+
+    -- SPEC-V2 §1：每次工具调用一行情景坐标（同库，和树索引一起搬/一起备份）
+    CREATE TABLE IF NOT EXISTS scene (
+      id TEXT PRIMARY KEY,          -- sid:seq
+      sid TEXT NOT NULL,
+      seq INTEGER NOT NULL DEFAULT 0,
+      turn INTEGER NOT NULL DEFAULT 0,
+      step INTEGER NOT NULL DEFAULT 0,
+      tool TEXT,
+      cwd TEXT NOT NULL DEFAULT '',
+      path_pattern TEXT NOT NULL DEFAULT '',
+      time_window TEXT NOT NULL DEFAULT '',
+      intimacy REAL NOT NULL DEFAULT 0,
+      tool_ms_window INTEGER NOT NULL DEFAULT 0,
+      tool_count INTEGER NOT NULL DEFAULT 0,
+      t INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS scene_sid ON scene(sid, seq);
+    CREATE INDEX IF NOT EXISTS scene_tool ON scene(tool, path_pattern);
+    CREATE INDEX IF NOT EXISTS scene_t ON scene(t);
   `)
-  db.prepare('INSERT INTO tree_meta(k, v) VALUES (?, ?) ON CONFLICT(k) DO NOTHING').run('schema_version', String(TREE_SCHEMA_VERSION))
+  // 老库补列：summary.scene_id（SQLite 的 ADD COLUMN 只能一条条来）
+  const summaryCols = db.prepare('PRAGMA table_info(summary)').all().map((c) => c.name)
+  if (!summaryCols.includes('scene_id')) db.exec('ALTER TABLE summary ADD COLUMN scene_id TEXT')
+  db.prepare('INSERT INTO tree_meta(k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').run('schema_version', String(TREE_SCHEMA_VERSION))
 }
 
 /** 读树的规模，给工具和自检用。 */
@@ -93,5 +116,6 @@ export function treeStats(db) {
     kw: one('SELECT COUNT(*) n FROM kw'),
     link: one('SELECT COUNT(*) n FROM kw_link'),
     vec: one('SELECT COUNT(*) n FROM summary_vec'),
+    scene: one('SELECT COUNT(*) n FROM scene'),
   }
 }

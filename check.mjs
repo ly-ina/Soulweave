@@ -30,6 +30,8 @@ import {
   createPreStepHandler,
 } from './adapters/dsh/prestep.mjs'
 import { attachTreeIngest } from './adapters/dsh/tree-ingest.mjs'
+import { attachSceneRecorder } from './adapters/dsh/scene.mjs'
+import { extractScene, pathPatternOf, timeWindowOf, intimacyOf, createSceneTracker } from './memory/scene.mjs'
 import { createTokenizer } from './core/tree/terms.mjs'
 import { searchSummaries, summaryFrags } from './core/tree/retrieve.mjs'
 import { treeStats } from './core/tree/schema.mjs'
@@ -2742,7 +2744,7 @@ await test('Y1', 'A3：turn/end 拉起原文库增量，60 秒内不重复，其
   assert.equal(config.soulIndexSyncIntervalMs, 60_000, '节流默认值不是 60s')
 
   const calls = []
-  let clock = 1_000_000
+  let clock = new Date(2026, 10, 26, 2, 0, 0).getTime()
   const trigger = createSoulIndexSyncTrigger({
     config,
     now: () => clock,
@@ -2848,6 +2850,72 @@ await test('T1', '树索引在线增量：turn/end 落 frag+summary+kw，注入�
   assert.ok(offCount >= 1, 'dispose 没摘监听')
   rmSync(dir, { recursive: true, force: true })
   return `summary=${stats.summary} kw=${stats.kw} link=${stats.link}`
+})
+
+await test('S1', 'scene 提取器：时间窗/亲密度/pathPattern 只留相对或末两级/60s 窗口', () => {
+  const at = (h) => new Date(2026, 10, 26, h, 0, 0).getTime()
+  assert.equal(timeWindowOf(at(8)), 'morning')
+  assert.equal(timeWindowOf(at(14)), 'afternoon')
+  assert.equal(timeWindowOf(at(19)), 'evening')
+  assert.equal(timeWindowOf(at(2)), 'night')
+  assert.equal(intimacyOf('纳，抱抱小汐，亲亲'), 1)
+  assert.equal(intimacyOf('改完这个文件'), 0)
+  assert.equal(pathPatternOf('E:\\dsh_work\\plugins\\a.mjs', 'E:\\dsh_work'), 'plugins/a.mjs')
+  assert.equal(pathPatternOf('C:\\Users\\Lenovo\\secret\\deep\\x.txt', 'E:\\dsh_work'), 'deep/x.txt')
+  assert.equal(pathPatternOf('', 'E:\\dsh_work'), '')
+
+  let clock = new Date(2026, 10, 26, 2, 0, 0).getTime()
+  const tracker = createSceneTracker({ now: () => clock })
+  const ev = (seq, args) => ({ type: 'tool/call', seq, data: { turn: 7, step: seq, name: 'ps', arguments: JSON.stringify(args) } })
+  const first = tracker.observe(ev(1, {}), { sessionId: 'session-abc', cwd: 'E:\\dsh_work', text: '抱抱' })
+  assert.equal(first.sessionId, 'abc', 'session- 前缀没去掉')
+  assert.equal(first.tool, 'ps')
+  assert.equal(first.timeWindow, 'night', '本地时间窗不对')
+  assert.equal(first.intimacy, 0.75, '亲密度不对')
+  clock += 5_000
+  const second = tracker.observe(ev(2, { path: 'E:\\dsh_work\\plugins\\x.mjs' }), { sessionId: 'session-abc', cwd: 'E:\\dsh_work' })
+  assert.equal(second.pathPattern, 'plugins/x.mjs')
+  assert.equal(second.toolCount, 1, '60s 内第二次工具调用应计数')
+  assert.equal(second.toolMsWindow, 5_000, '间隔累计不对')
+  return `1st=${first.timeWindow}/${first.intimacy} 2nd=${second.pathPattern}/${second.toolMsWindow}ms`
+})
+
+await test('S2', 'scene 落库：工具调用写行，summary 通过 scene_id 绑定', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'scene-rec-'))
+  const dbPath = join(dir, 'mem.db')
+  const handlers = []
+  const ctx = {
+    on: (event, fn) => {
+      if (event === 'session/event') handlers.push(fn)
+      return () => { const i = handlers.indexOf(fn); if (i >= 0) handlers.splice(i, 1) }
+    },
+    tools: { register: () => () => {} },
+    logger: () => ({ warn() {}, info() {}, debug() {} }),
+  }
+  const offScene = attachSceneRecorder(ctx, { dbPath })
+  const offTree = attachTreeIngest(ctx, { dbPath })
+  const session = { id: 'session-s2', header: { cwd: 'E:\\dsh_work' } }
+  const fire = (type, seq, data) => { for (const fn of handlers.slice()) fn(session, { type, seq, time: 1764000000000 + seq, data }) }
+
+  fire('user/message', 1, { content: [{ type: 'text', text: '纳，把这个文件改一下' }], source: { kind: 'user' } })
+  fire('tool/call', 2, { turn: 3, step: 1, name: 'write', arguments: JSON.stringify({ path: 'E:\\dsh_work\\plugins\\x.mjs' }) })
+  fire('assistant/message', 3, { message: { role: 'assistant', content: [{ type: 'text', text: '改好了。' }] } })
+  fire('turn/end', 4, {})
+
+  const db = new DatabaseSync(dbPath)
+  const scenes = db.prepare('SELECT * FROM scene').all()
+  assert.equal(scenes.length, 1, `scene 行数不对：${scenes.length}`)
+  assert.equal(scenes[0].sid, 's2', 'scene.sid 没归一化')
+  assert.equal(scenes[0].tool, 'write')
+  assert.equal(scenes[0].path_pattern, 'plugins/x.mjs', `path 不该存全路径：${scenes[0].path_pattern}`)
+  assert.equal(scenes[0].time_window, timeWindowOf(1764000000000 + 2))
+  const sum = db.prepare('SELECT scene_id FROM summary').get()
+  assert.equal(sum.scene_id, scenes[0].id, 'summary 没绑到 scene')
+  db.close()
+  offScene(); offTree()
+  assert.equal(handlers.length, 0, 'dispose 没摘干净')
+  rmSync(dir, { recursive: true, force: true })
+  return `scene=${scenes[0].id} summary.scene_id=${sum.scene_id}`
 })
 
 
@@ -4233,4 +4301,7 @@ if (failed > 0) {
   console.error(`失败 ${failed} 条`)
   process.exit(1)
 }
+
+
+
 

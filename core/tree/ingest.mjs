@@ -40,7 +40,8 @@ export function buildTurnRecord({ sid, turn, msgs, tokenizer, maxMsg = 8000, top
   const tf = tokenizer ? tokenizer.count(summaryText) : new Map()
   return {
     id, sid, turn, zone, layer: 'search', text: summaryText, model: INGEST_MODEL,
-    srcLen: allText.length, t: Number(list[0].t) || 0, frags, tf, topk,
+    srcLen: allText.length, t: Number(list[0].t) || 0,
+    userSeq: Number(list[0].seq) || 0, frags, tf, topk,
   }
 }
 
@@ -73,10 +74,18 @@ export function ingestTurn(db, rec, { now = Date.now() } = {}) {
       linkFrag.run(f.id, rec.id)
     }
 
-    db.prepare(`INSERT INTO summary(id,sid,turn,zone,layer,text,model,src_len,t,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+    // SPEC-V2 §1：summary 绑到「这一轮之前最近的一次工具调用」的 scene 上。
+    let sceneId = rec.sceneId || null
+    if (!sceneId) {
+      try {
+        sceneId = db.prepare('SELECT id FROM scene WHERE sid = ? ORDER BY seq DESC, t DESC LIMIT 1')
+          .get(rec.sid)?.id || null
+      } catch { sceneId = null }
+    }
+    db.prepare(`INSERT INTO summary(id,sid,turn,zone,layer,text,model,src_len,t,created_at,scene_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
       rec.id, rec.sid, rec.turn, rec.zone || 'misc', rec.layer || 'search',
-      rec.text, rec.model || INGEST_MODEL, rec.srcLen || 0, rec.t || 0, now,
+      rec.text, rec.model || INGEST_MODEL, rec.srcLen || 0, rec.t || 0, now, sceneId,
     )
 
     // 词先全部挂上（weight 先占位），再按库里现算的 df 算权重、砍到 topk。
@@ -122,3 +131,4 @@ export function ingestTurn(db, rec, { now = Date.now() } = {}) {
   }
   return { summaryId: rec.id, frags: (rec.frags || []).length, links: touched.length }
 }
+

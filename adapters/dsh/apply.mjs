@@ -5,6 +5,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { attachRecords } from './records.mjs'
 import { attachTreeIngest } from './tree-ingest.mjs'
+import { attachSceneRecorder } from './scene.mjs'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -1193,6 +1194,16 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
       if (typeof dispose === 'function') disposers.push(dispose)
     } catch (error) {
       logger.warn?.(`dsh-soul: 树索引增量监听没挂上：${String(error?.message ?? error)}`)
+    }
+  }
+
+  /** 2026-11-26：SPEC-V2 §1 scene 落库——每次工具调用一行情景坐标。 */
+  if (normalized.sceneRecorder !== false && normalized.memoryBackend !== 'none' && typeof ctx.on === 'function') {
+    try {
+      const dispose = attachSceneRecorder(ctx, { dbPath: normalized.memoryDbPath, logger })
+      if (typeof dispose === 'function') disposers.push(dispose)
+    } catch (error) {
+      logger.warn?.(`dsh-soul: scene 监听没挂上：${String(error?.message ?? error)}`)
     }
   }
 

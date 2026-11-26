@@ -1,6 +1,18 @@
 # Changelog
 
 
+## 0.11.0 — 2026-11-26
+
+SPEC-V2 §1：scene 落库。工具调用第一次有了「在哪儿、用什么、碰了哪条路径」的坐标。
+
+- 新增 `memory/scene.mjs`：纯提取器 + 无 IO 的 tracker。输出 `sessionId / tool / cwd / pathPattern / timeWindow / intimacy / toolMsWindow / toolCount / at`；`pathPattern` 只存工作区相对路径或末两级，不落完整用户目录。
+- 新增 `adapters/dsh/scene.mjs`：挂 `session/event`，每次 `tool/call` 写一行；同轮重放 `INSERT OR REPLACE`，全程 fail-open。
+- `core/tree/schema.mjs` 升到 **v2**：建 `scene` 表（sid/seq/turn/step/tool/cwd/path_pattern/time_window/intimacy/tool_ms_window/tool_count/t），`summary` 补 `scene_id` 列（老库自动 `ALTER TABLE`）；`tree_meta.schema_version` 改为可更新。
+- `core/tree/ingest.mjs`：写 summary 时自动绑该会话最近一条 scene。
+- `apply` 默认挂载 scene 记录，`sceneRecorder: false` 可关。
+- 真实事件验证：从当前会话日志里抽 `tool/call`（`{"type":"tool/call","data":{"turn":6141,"step":24,"name":"ps","arguments":"…"}}`），提取器输出非空；实跑后库里已有 10 行真实 scene。
+- check 新增 S1/S2（提取器 + 落库 + summary 绑定），**123/123** 通过。
+
 ## 0.10.6 — 2026-11-26
 
 树索引在线增量：新对话不再等离线回填。
