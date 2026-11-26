@@ -102,7 +102,9 @@ export function join(...parts) {
     segs.push(...splitPath(usable[i], sep).segs)
   }
   // 后面各段的绝对性被忽略（与 node:path.join 一致）
-  return joinParts({ prefix: first.prefix, segs, abs: first.abs }, sep)
+  // 必须走 normalizeParts：node:path.join 会消 . / ..，这里以前直接拼，
+  // join(p, '..') 会变成 "p/.." 原样留着，调用方拿它去 mkdir 就把文件建成了目录。
+  return joinParts(normalizeParts({ prefix: first.prefix, segs, abs: first.abs }), sep)
 }
 
 export function resolve(...parts) {

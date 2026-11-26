@@ -14,7 +14,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from '../io.mjs'
-import { join, basename } from '../io.mjs'
+import { join, basename, dirname } from '../io.mjs'
 
 /** 固定区。区名进不了 tags（§1：区本身不重复写进 tags）。 */
 export const ZONES = Object.freeze({
@@ -182,7 +182,7 @@ export function buildZoneIndex(zoneMap, { updated = new Date().toISOString().sli
 }
 
 export function writeZoneIndex(indexPath, rows) {
-  mkdirSync(join(indexPath, '..'), { recursive: true })
+  mkdirSync(dirname(indexPath), { recursive: true })
   const body = rows.map((row) => JSON.stringify(row)).join('\n')
   writeFileSync(indexPath, `${body}${body ? '\n' : ''}`, 'utf8')
 }
