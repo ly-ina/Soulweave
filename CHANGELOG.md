@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 — 2026-11-26
+
+**1.0 第二步：抽出 `storage/` 层，`node:sqlite` 收口到一个文件**
+
+- **feat(storage)**：新增 `storage/driver.mjs`（**全仓库唯一** `import 'node:sqlite'` 的文件）与 `storage/index.mjs`（公共接口：`openReadonly` / `openReadWrite` / `openDatabase` / `withReadonly` / `closeQuietly` / `configureStorage` / `storageDriverName`）。契约保持 sqlite 语句形状（`prepare / exec / close`），所以 14 个调用文件只换了构造那一行，查询代码一字未动；换后端时只要实现同样形状的 `open()`。
+- **change(核心 14 文件)**：`core/` 的 budget / capabilities / cue / curator / persona / probe / search / soul_lint / tier / toolout 与 `memory/` 的 builtin / decay / legacy / when，全部改走 storage 入口。行为上多了一条统一保证：**只读打不开就返回 null，本层从不抛**（原来靠每个调用点自己 try/catch）。
+- **feat(check-layers)**：守卫加 `storage` 为第四层——`node:sqlite` 只许 `storage/driver.mjs`；`storage/` 不得反向依赖 `core/` / `memory/`。39 个文件全绿。
+- **fix(curator)**：`backupDatabase` 里 `VACUUM INTO` 原来用 `new DatabaseSync(dbPath)`（读写），改成 storage 入口时撞上 curator 自己导出的只读 `openDatabase`，变成「attempt to write a readonly database」。R22 逮住的。现按原语义分开：备份走 `openReadWrite`，核对走 `openReadonly`。
+- **test**：新增 `tools/smoke-storage.mjs`（17 条断言）：路径不存在/是目录/空串 → null、只读连接写入被拒、`withReadonly` 必关且异常降级、`configureStorage` 换假驱动后 `readOnly` 正确透传、`closeQuietly` 吞异常。
+
 ## 0.6.0 — 2026-11-26
 
 **1.0 第一步：根路径不再导出内部面**

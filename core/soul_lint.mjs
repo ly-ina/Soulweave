@@ -19,7 +19,7 @@
  */
 
 import { env, existsSync, homedir, readFileSync, readdirSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -94,7 +94,7 @@ export function readDbEntries(memoryDbPath) {
   }
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
   } catch (error) {
     return { entries: [], note: `memory.db 打不开，已跳过：${error?.message ?? error}` }
   }

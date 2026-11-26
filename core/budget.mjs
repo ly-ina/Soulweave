@@ -4,7 +4,7 @@
  * 2026-11-19 解耦第 5 块：从 index.js 原样搬出，逻辑未改。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 import { dirname, join } from 'node:path'
 import { planForDb } from './tier.mjs'
@@ -351,7 +351,7 @@ export function countResidentEntries(memoryDbPath) {
   if (!memoryDbPath || !existsSync(memoryDbPath)) return 0
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     // 第三刀：纯 builtin 库没有七层表，回退到 memories 口径。
     if (!tableColumns(db, 'soul').length && !tableColumns(db, 'rules').length) {
       return builtinMemory.countResident(memoryDbPath)
@@ -387,7 +387,7 @@ export function loadPendingItems(memoryDbPath, limit = 3) {
   if (limit <= 0 || !existsSync(memoryDbPath)) return []
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     const cols = tableColumns(db, 'project')
     // 第三刀：没有 project 表时读 todos（builtin 的未结口径）。
     if (!cols.includes('content')) return builtinMemory.listPending(memoryDbPath, limit)
@@ -420,7 +420,7 @@ export function loadMemoryHeads(memoryDbPath, limit = 3) {
   if (limit <= 0 || !existsSync(memoryDbPath)) return []
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     // 第三刀：没有七层表时读 memories 的 rules/lesson。
     if (!tableColumns(db, 'rules').length && !tableColumns(db, 'lesson').length) {
       return builtinMemory.listHeads(memoryDbPath, limit)
@@ -484,7 +484,7 @@ export function loadLessonHead(memoryDbPath) {
   if (!memoryDbPath || !existsSync(memoryDbPath)) return ''
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     const cols = tableColumns(db, 'lesson')
     // 第三刀：没有 lesson 表时读 memories 里最高重要性的 lesson。
     if (!cols.includes('content')) return builtinMemory.lessonHead(memoryDbPath)
@@ -520,7 +520,7 @@ export function detectPinnedAnomalies(memoryDbPath) {
   if (!memoryDbPath || !existsSync(memoryDbPath)) return []
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     const found = []
     for (const table of ['lesson', 'fact', 'project', 'topic']) {
       if (!tableColumns(db, table).includes('lifecycle')) continue
@@ -548,7 +548,7 @@ export function countPinnedEntries(memoryDbPath) {
   if (!memoryDbPath || !existsSync(memoryDbPath)) return 0
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     let total = 0
     for (const table of ['rules', 'user']) {
       if (!tableColumns(db, table).includes('lifecycle')) continue
@@ -592,7 +592,7 @@ export function loadCorrectedLessons(memoryDbPath, limit = 200) {
   if (!existsSync(memoryDbPath)) return []
   let db
   try {
-    db = new DatabaseSync(memoryDbPath, { readOnly: true })
+    db = openDatabase(memoryDbPath, { readOnly: true })
     const cols = new Set(tableColumns(db, 'lesson'))
     if (!cols.has('corrected')) return []
     const select = ['id', 'title', 'content', 'project', 'created_at']

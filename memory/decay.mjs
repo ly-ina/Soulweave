@@ -15,7 +15,7 @@
 
 import { existsSync, mkdirSync } from '../io.mjs'
 import { dirname, join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 const DAY = 86_400_000
 const SINK_RE = /^decay:沉底@(\d{4}-\d{2}-\d{2})$/
@@ -31,7 +31,7 @@ export const DECAY_DEFAULTS = Object.freeze({
 function openDb(dbPath, readOnly) {
   if (!dbPath || !existsSync(dbPath)) return null
   try {
-    return new DatabaseSync(dbPath, { readOnly: !!readOnly })
+    return openDatabase(dbPath, { readOnly: !!readOnly })
   } catch {
     return null
   }
@@ -258,7 +258,7 @@ export function applyDecay(dbPath, picks, options = {}) {
     const kind = fresh.kind
     const before = countAll(db)
     backup = backupDb(db, dbPath, 'decay')
-    const bdb = new DatabaseSync(backup, { readOnly: true })
+    const bdb = openDatabase(backup, { readOnly: true })
     const after = countAll(bdb)
     bdb.close()
     const drift = Object.keys(before).filter((k) => before[k] !== after[k])

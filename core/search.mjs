@@ -4,7 +4,7 @@
  * 2026-11-19 解耦第 10 块（提前搬，probe 需要 searchMemory）：从 index.js 原样搬出，逻辑未改。
  */
 import { existsSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 import { join } from 'node:path'
 import * as builtinMemory from '../memory/builtin.mjs'
@@ -132,7 +132,7 @@ export function searchMemoryMeow(options, words, limit) {
   if (!existsSync(dbPath)) return { entries: [], note: '记忆库不存在' }
   let db
   try {
-    db = new DatabaseSync(dbPath, { readOnly: true })
+    db = openDatabase(dbPath, { readOnly: true })
     // 模块 A：cue 表存在时先走 cue 匹配，只在候选命中后才去读正文（二期 §2.3）。
     // 表不存在（老库/首次安装）保持一期行为，不做静默降级。
     const cueMap = readCueMap(db)
@@ -212,7 +212,7 @@ export function searchMemoryByContext(cfg, ctx = {}, limit = 5) {
   if (!dbPath || !existsSync(dbPath)) return { entries: [], note: '记忆库不存在', scanned: 0 }
   let db
   try {
-    db = new DatabaseSync(dbPath, { readOnly: true })
+    db = openDatabase(dbPath, { readOnly: true })
     const whenMap = whenMemory.readWhenMap(db)
     if (whenMap.size === 0) return { entries: [], note: '还没有条目签过 when', scanned: 0 }
     // 2026-11-21 优化：原来全表扫（实测 1427 条），改成只查签过 when 的那几条。

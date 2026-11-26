@@ -17,10 +17,11 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const layers = ['core', 'memory']
+const layers = ['core', 'memory', 'storage']
 const FORBIDDEN = [/^dsh(\/|$)/, /^cordis(\/|$)/, /^@deepseek/, /(^|\/)adapters\//]
 const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s[^\n]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
 const HOST_MODULES = /^node:(fs|os|child_process|process)(\/|$)/
+const SQLITE_OWNER = 'storage/driver.mjs'
 const ENV_READ_RE = /\bprocess\.(env|cwd)\b/
 const IO_ENTRY = 'io.mjs'
 
@@ -58,6 +59,12 @@ for (const layer of layers) {
       const spec = match[1] ?? match[2]
       if (!spec) continue
       if (spec.startsWith('node:')) {
+        // 存储驱动收口：整个仓库只有 storage/driver.mjs 能碰 node:sqlite。
+        // 上层要库就 import storage/index.mjs 的 openReadonly / openReadWrite。
+        if (spec === 'node:sqlite' && rel !== SQLITE_OWNER) {
+          problems.push(`${rel}: node:sqlite 只许在 ${SQLITE_OWNER} 里 import；改用 ../storage/index.mjs`)
+          continue
+        }
         if (HOST_MODULES.test(spec) && !isIoEntry) {
           // 提示必须指向**真实存在**的出口：io.mjs 在仓库根，不是 core/ 下。
           // 且 memory/ 也不许 import core/，所以两层都用同一个相对路径 '../io.mjs'。
@@ -69,6 +76,9 @@ for (const layer of layers) {
         const target = resolve(dirname(file), spec).replace(/\\/g, '/')
         if (layer === 'memory' && target.includes('/core/')) {
           problems.push(`${rel}: memory 不得反向依赖 core（${spec}）`)
+        }
+        if (layer === 'storage' && (/\/core\//.test(target) || /\/memory\//.test(target))) {
+          problems.push(`${rel}: storage 是底座，不得依赖 core/memory（${spec}）`)
         }
         if (FORBIDDEN.some((re) => re.test(spec.replace(/^\.\.?\//, '')))) {
           problems.push(`${rel}: 相对路径指向宿主层（${spec}）`)
@@ -105,7 +115,7 @@ try {
 }
 
 if (problems.length === 0) {
-  console.log(`PASS 依赖方向：${scanned} 个文件，core/memory 全部零宿主依赖；core 宿主入口仅 ${IO_ENTRY}`)
+  console.log(`PASS 依赖方向：${scanned} 个文件，core/memory/storage 全部零宿主依赖；core 宿主入口仅 ${IO_ENTRY}；node:sqlite 仅 ${SQLITE_OWNER}`)
   process.exit(0)
 }
 console.error(`FAIL 依赖方向：${problems.length} 处违规`)

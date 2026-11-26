@@ -12,7 +12,7 @@
  * - 不 delete 任何行（红线 1）。
  */
 import { existsSync, mkdirSync, readFileSync, statSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 import { join } from 'node:path'
 
@@ -140,7 +140,7 @@ export function cueTableExists(db) {
  */
 export function planCues(dbPath, { refresh = false } = {}) {
   if (!existsSync(dbPath)) return { ok: false, error: `记忆库不存在：${dbPath}`, plan: [] }
-  const db = new DatabaseSync(dbPath, { readOnly: true })
+  const db = openDatabase(dbPath, { readOnly: true })
   const plan = []
   let already = 0
   try {
@@ -204,7 +204,7 @@ export function applyCues(dbPath, stateDir, items) {
   let backup = join(backupDir, `memory-cue-${stamp}.db`)
   let suffix = 0
   while (existsSync(backup)) backup = join(backupDir, `memory-cue-${stamp}-${++suffix}.db`)
-  const db = new DatabaseSync(dbPath)
+  const db = openDatabase(dbPath)
   try {
     db.exec(`VACUUM INTO ${sqlQuote(backup)}`)
     if (!existsSync(backup) || statSync(backup).size === 0) {
@@ -306,7 +306,7 @@ export function runCue(dbPath, stateDir, { mode = 'preview', refresh = false, li
 /** cue 表规模（给报告和 README 用）。 */
 export function cueStats(dbPath) {
   if (!existsSync(dbPath)) return { total: 0, tables: 0, bytes: 0 }
-  const db = new DatabaseSync(dbPath, { readOnly: true })
+  const db = openDatabase(dbPath, { readOnly: true })
   try {
     if (!cueTableExists(db)) return { total: 0, tables: 0, bytes: 0 }
     const total = Number(db.prepare(`select count(*) as n from ${CUE_TABLE}`).get()?.n ?? 0)

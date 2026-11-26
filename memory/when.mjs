@@ -11,7 +11,7 @@
  */
 
 import { existsSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 export const WHEN_TABLE = 'when_index'
 export const WHEN_KEYS = Object.freeze(['tool', 'pathPattern', 'timeWindow'])
@@ -68,7 +68,7 @@ export function ensureWhenTable(db) {
 function openWrite(dbPath) {
   if (!dbPath || !existsSync(dbPath)) return null
   try {
-    return new DatabaseSync(dbPath)
+    return openDatabase(dbPath)
   } catch {
     return null
   }

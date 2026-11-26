@@ -18,7 +18,7 @@
  */
 
 import { existsSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 export const PERSONA_DEFAULTS = Object.freeze({
   maxItems: 3,
@@ -99,7 +99,7 @@ export function readSnapshot(dbPath, opts = {}) {
   let db
   let columns = []
   try {
-    db = new DatabaseSync(path, { readOnly: true })
+    db = openDatabase(path, { readOnly: true })
     columns = db.prepare(`PRAGMA table_info(${PERSONA_DEFAULTS.table})`).all()
   } catch (error) {
     try { db?.close() } catch {}

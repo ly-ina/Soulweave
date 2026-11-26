@@ -9,7 +9,7 @@
  * `"contentType":"tool-call","toolName":"…"` 的消息，数它即可。只读，不改库。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 import { dirname, join } from 'node:path'
 
@@ -74,7 +74,7 @@ export function collectPluginTools({ pluginRoots = [] } = {}) {
 export function countCalls(dbPath, { days = DEFAULT_DAYS } = {}) {
   if (!dbPath || !existsSync(dbPath)) return { ok: false, error: `库不存在：${dbPath}`, counts: new Map() }
   const cutoff = Math.floor((Date.now() - days * 86400000) / 1000)
-  const db = new DatabaseSync(dbPath, { readOnly: true })
+  const db = openDatabase(dbPath, { readOnly: true })
   const counts = new Map()
   try {
     let rows = []

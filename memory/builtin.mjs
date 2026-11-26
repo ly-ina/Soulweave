@@ -14,7 +14,7 @@
 import { existsSync, mkdirSync } from '../io.mjs'
 import { dirname } from 'node:path'
 import { createHash } from 'node:crypto'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 import { anchorOf } from './anchor.mjs'
 
 /** 与 meow 的七层同名，便于上层逻辑不分叉。 */
@@ -92,7 +92,7 @@ function charsOf(text) {
 const BUSY_TIMEOUT_MS = 4000
 
 function openSqlite(dbPath, options = {}) {
-  const db = new DatabaseSync(dbPath, options)
+  const db = openDatabase(dbPath, options)
   try {
     db.exec(`pragma busy_timeout = ${BUSY_TIMEOUT_MS}`)
   } catch {

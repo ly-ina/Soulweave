@@ -73,12 +73,16 @@ storage 接口（注入式 Host，core 里零 node: 前缀）
 - **待补**：`tools/gen-api.mjs` 与 `docs/API.md` 的生成物本轮没重跑，下次一并更新
 - **顺手修的 bug**：`apply.mjs` 的 `ctx.on('agent/pre-step')` 返回值没进 `disposers` → 每次 reload 漏一个 handler。新增 `tools/stress-lifecycle.mjs` 守这条，100 次全绿
 
-**b. 抽 `storage/` 层**
+**b. 抽 `storage/` 层** ✅ 2026-11-26（CHANGELOG 0.7.0）
 ```
-memory/*.mjs  →  storage/index.mjs  →  { node-sqlite | sql-wasm | file-format }
+core|memory/*.mjs  →  storage/index.mjs  →  storage/driver.mjs  →  node:sqlite
 ```
-接口只要五个：`open / get / query / write / close`。
-现在 `node:sqlite` 散在 `builtin.mjs` / `when.mjs` / `health.mjs` / `decay.mjs` 四个文件里——抽出来成本最低就是现在。
+- 实际落地的是 **7 个入口**，不是原计划的五方法：`openReadonly` / `openReadWrite` / `openDatabase` / `withReadonly` / `closeQuietly` / `configureStorage` / `storageDriverName`
+- **和原计划的偏差（要记住）**：原想收成 `open/get/query/write/close` 的抽象句柄，那要改 50 个查询调用点、风险大；改成**保持 sqlite 语句形状**（`prepare/exec/close`）只换构造那一行，14 个文件、36 处构造、查询代码一字未动。换后端时实现同形状的 `open()` 即可
+- `node:sqlite` 从 14 个文件收口到 **`storage/driver.mjs` 1 个**；层守卫把 `storage` 列为第四层并守住这条
+- 统一了「只读打不开 → null，本层从不抛」；`openReadWrite` 会补父目录 + `pragma busy_timeout`
+- **踩到的坑**：`core/curator.mjs` 自己导出过 `openDatabase`（只读），和 storage 同名门面撞了，`VACUUM INTO` 变成写只读库，被 R22 逮住。现已按原语义拆开（备份 `openReadWrite`、核对 `openReadonly`）
+- 验证：check 120/120 · check-layers 39 文件 · smoke-storage 17/17 · stress-lifecycle 100/100 · root exports 28
 
 **c. 清掉本机路径**
 `check.mjs` 里测试夹具的 `<workspace>` 换成中性值（不是 bug，只是抽象时该干净）。

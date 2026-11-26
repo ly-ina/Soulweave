@@ -8,7 +8,7 @@
  *  - 默认 dry-run，只有显式 mode='apply' 才写库。
  */
 import { appendFileSync, existsSync, mkdirSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openReadonly, openReadWrite } from '../storage/index.mjs'
 import { createHash } from 'node:crypto'
 
 import { join } from 'node:path'
@@ -101,7 +101,7 @@ export function dayKey(now = new Date()) {
 
 /** 只读打开。 */
 export function openDatabase(dbPath) {
-  return new DatabaseSync(dbPath, { readOnly: true })
+  return openReadonly(dbPath)
 }
 
 function tableColumns(db, table) {
@@ -275,14 +275,14 @@ export function buildCandidates(rows, { limit = 0, staleDays = 30, now = Date.no
 export function backupDatabase(dbPath, backupDir, { now = new Date() } = {}) {
   mkdirSync(backupDir, { recursive: true })
   const file = join(backupDir, `memory-${stampForBackup(now)}.db`)
-  const db = new DatabaseSync(dbPath)
+  const db = openReadWrite(dbPath)
   try {
     db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`)
   } finally {
     db.close()
   }
-  const src = new DatabaseSync(dbPath, { readOnly: true })
-  const dst = new DatabaseSync(file, { readOnly: true })
+  const src = openReadonly(dbPath)
+  const dst = openReadonly(file)
   let srcRows = 0
   let dstRows = 0
   try {
@@ -331,7 +331,7 @@ export function applyArchive(rows, ids, { dbPath, backupDir, now = new Date(), l
   const backup = backupDatabase(dbPath, backupDir, { now })
   if (!backup.ok) return { ok: false, code: 'backup-failed', error: backup.error, backup, applied: [], rejected: [] }
 
-  const db = new DatabaseSync(dbPath)
+  const db = openReadWrite(dbPath)
   const applied = []
   const written = []
   let inTransaction = false
@@ -380,7 +380,7 @@ export function applyArchive(rows, ids, { dbPath, backupDir, now = new Date(), l
 
   // 写完复核：正文一字节没被改写。
   let verified = true
-  const check = new DatabaseSync(dbPath, { readOnly: true })
+  const check = openReadonly(dbPath)
   try {
     for (const item of before) {
       const row = check.prepare('select content, status from memories where id=?').get(item.id)

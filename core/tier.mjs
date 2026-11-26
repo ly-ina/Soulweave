@@ -18,7 +18,7 @@
  * 永不删、永不 archived、永不改 content。
  */
 import { existsSync, readFileSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 /** 各表行数快照，用来校验 VACUUM INTO 备份与源库一致。 */
 function snapshotCounts(db) {
@@ -204,7 +204,7 @@ export function readInjectionRows(dbPath) {
   if (!dbPath || !existsSync(dbPath)) return { ok: false, error: `记忆库不存在：${dbPath}` }
   let db
   try {
-    db = new DatabaseSync(dbPath, { readOnly: true })
+    db = openDatabase(dbPath, { readOnly: true })
     const has = (table) => {
       try {
         return db.prepare('select name from sqlite_master where type=? and name=?').get('table', table) !== undefined
@@ -504,14 +504,14 @@ export function applyTier(dbPath, plan, { now = new Date() } = {}) {
   try {
     // 备份先做，且必须**行数对得上**才继续（交办单 G3：任何 apply 都要有可还原的备份）
     // 注意：VACUUM INTO 出来的库做过整理，字节数天然不等于源库，所以校验用的是各表行数，不是字节数。
-    const source = new DatabaseSync(dbPath, { readOnly: true })
+    const source = openDatabase(dbPath, { readOnly: true })
     const snapshot = snapshotCounts(source)
     source.close()
-    db = new DatabaseSync(dbPath)
+    db = openDatabase(dbPath)
     db.prepare(`VACUUM INTO '${backup.replace(/'/g, "''")}'`).run()
     db.close()
     db = null
-    const check = new DatabaseSync(backup, { readOnly: true })
+    const check = openDatabase(backup, { readOnly: true })
     const restored = snapshotCounts(check)
     check.close()
     const diff = Object.keys(snapshot).filter((table) => snapshot[table] !== restored[table])
@@ -519,7 +519,7 @@ export function applyTier(dbPath, plan, { now = new Date() } = {}) {
       return { ok: false, error: `备份校验失败（${diff.join(',')} 行数不一致），未改任何数据` }
     }
 
-    db = new DatabaseSync(dbPath)
+    db = openDatabase(dbPath)
     const changes = []
     const sql = []
     db.exec('BEGIN')

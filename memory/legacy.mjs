@@ -5,7 +5,7 @@
  * 不建表、不写库、不开写连接；旧库不存在或没有七层表都返回 ok:false，不抛错。
  */
 import { existsSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 export const LEGACY_LAYERS = ['soul', 'user', 'rules', 'project', 'fact', 'lesson', 'topic']
 
@@ -26,7 +26,7 @@ export function inspectLegacyDb(dbPath) {
   }
   let db
   try {
-    db = new DatabaseSync(path, { readOnly: true })
+    db = openDatabase(path, { readOnly: true })
     const names = new Set(
       db.prepare("select name from sqlite_master where type='table'").all().map((row) => String(row.name)),
     )

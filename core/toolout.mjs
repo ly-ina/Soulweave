@@ -16,7 +16,7 @@
  * 红线：不 DELETE 任何行；每写一次都要有备份路径 + 日志行 + 报告条目（由调用方负责写报告）。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 import { createHash } from 'node:crypto'
 
 import { dirname, join } from 'node:path'
@@ -52,7 +52,7 @@ export function turnCutoff(db, sessionId, recentTurns = RECENT_TURNS) {
 /** 只读盘点：返回待归档段（含原文，供 apply 复用）。 */
 export function planToolOutputs(dbPath, { sessionId, recentTurns = RECENT_TURNS, minChars = MIN_CHARS } = {}) {
   if (!dbPath || !existsSync(dbPath)) return { ok: false, error: `库不存在：${dbPath}`, items: [] }
-  const db = new DatabaseSync(dbPath, { readOnly: true })
+  const db = openDatabase(dbPath, { readOnly: true })
   try {
     if (!sessionId) {
       const row = db.prepare('select session_id from messages group by session_id order by count(*) desc limit 1').get()
@@ -118,7 +118,7 @@ export function applyToolout(dbPath, archiveRoot, plan, { stamp, log } = {}) {
   const backup = join(backupDir, `index-toolout-${date}-${Date.now()}.db`)
 
   // 1) 备份：VACUUM INTO 是 SQLite 自带的整库一致性快照，不会半截。
-  const reader = new DatabaseSync(dbPath, { readOnly: true })
+  const reader = openDatabase(dbPath, { readOnly: true })
   try {
     reader.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`)
   } finally {
@@ -150,7 +150,7 @@ export function applyToolout(dbPath, archiveRoot, plan, { stamp, log } = {}) {
   }
 
   // 3) 换指针（不 DELETE：新 content 行 + 改 messages.content_hash）
-  const db = new DatabaseSync(dbPath)
+  const db = openDatabase(dbPath)
   let savedChars = 0
   let savedTokens = 0
   try {
@@ -204,7 +204,7 @@ export function restoreFromExport(dbPath, exportFile) {
   const original = raw.slice(fence + '```text\n'.length, tail)
   const buffer = Buffer.from(original, 'utf8')
   const hash = sha256(buffer)
-  const db = new DatabaseSync(dbPath)
+  const db = openDatabase(dbPath)
   try {
     db.prepare('insert or ignore into content (hash, byte_len, refcount, algo, bytes) values (?,?,?,?,?)').run(
       hash,

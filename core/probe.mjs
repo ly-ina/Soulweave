@@ -4,7 +4,7 @@
  * 2026-11-19 解耦第 6 块：从 index.js 原样搬出，逻辑未改。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from '../io.mjs'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '../storage/index.mjs'
 
 import { join } from 'node:path'
 import { tableColumns } from './text.mjs'
@@ -59,7 +59,7 @@ export function pickProbeWords(dbPath, count, seed = 0) {
   if (!existsSync(dbPath) || count <= 0) return []
   let db
   try {
-    db = new DatabaseSync(dbPath, { readOnly: true })
+    db = openDatabase(dbPath, { readOnly: true })
     const pool = []
     for (const level of MEMORY_LEVELS) {
       const cols = tableColumns(db, level)
