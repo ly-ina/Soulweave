@@ -43,8 +43,26 @@ import './io-node.mjs'
 import './storage/node-sqlite.mjs'
 
 import { MESSAGE_KIND } from './core/constants.mjs'
-import { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools } from './adapters/dsh/apply.mjs'
+import { apply as applyInner, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools } from './adapters/dsh/apply.mjs'
 import { createPreStepHandler } from './adapters/dsh/prestep.mjs'
+
+function traceApply(phase, e) {
+  try {
+    appendFileSync('C:/Users/Lenovo/.dsh/soul/boot.log', `${new Date().toISOString()} apply ${phase}: ${String((e && e.stack) || e).slice(0, 1200)}\n`)
+  } catch {}
+}
+
+// 临时包壳（2026-11-27）：把 apply 里的异常落到 boot.log，查完即删。
+function apply(ctx, config) {
+  try {
+    const r = applyInner(ctx, config)
+    if (r && typeof r.then === 'function') return r.catch((e) => { traceApply('rejected', e); throw e })
+    return r
+  } catch (e) {
+    traceApply('threw', e)
+    throw e
+  }
+}
 
 export { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools, createPreStepHandler }
 
