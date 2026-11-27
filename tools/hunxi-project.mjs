@@ -25,7 +25,7 @@
 import '../io-node.mjs'
 import { configureStorage, openReadWrite, closeQuietly, storageStatus } from '../storage/index.mjs'
 import { sqliteDriver } from '../storage/driver.mjs'
-import { pairsOf, pairTerms, roomProfiles, classify, isArtifactTerm } from '../core/tree/matrix.mjs'
+import { pairsOf, pairTerms, roomProfiles, classify, cascade, isArtifactTerm } from '../core/tree/matrix.mjs'
 
 const BATCH = 500
 
@@ -387,43 +387,95 @@ console.log(
 )
 if (wrongSamples.length) console.log('错判样本：', wrongSamples.join(' | '))
 
-/* ---------- 4. 实验：更严的集合关系（只测量，不入库；--report 时跑） ---------- */
+/* ---------- 4. 多判据级联（--report 时跑） ---------- */
+// 判据一：本句的命题对命中该房 own（句内共现）
+// 判据二：本句整词集 ⊆ 某条该房证据句（同一条证据句给出这个房间）
+// 判据三：同源——本句所属 frag 里已有该房证据句（同源即突触）
+// 目标不是「判对每一句」，是「三判据同时成立的召回要少而准；
+// 两判据次之；只剩一条的当联想，不当判据」。
 if (args.report) {
-  const probe2 = db.prepare('select sent_id from sent order by random() limit 500').all()
-  const stats = { strictOnly: 0, strictMulti: 0, containOne: 0, containMany: 0, containNone: 0 }
-  const samples = { strict: [], contain: [] }
-  for (const { sent_id: sid } of probe2) {
-    const terms = [...new Set(termsOf(sid))].filter((t) => !isArtifactTerm(t))
-    const pairs = pairsOf(terms)
-    if (pairs.length) {
-      const rooms = []
-      for (const [room, p] of profiles) if (pairs.every((k) => p.own.has(k))) rooms.push(room)
-      if (rooms.length === 1) {
-        stats.strictOnly += 1
-        if (samples.strict.length < 6) samples.strict.push(`[${rooms[0]}] ${sentText(sid).slice(0, 70)}`)
-      } else if (rooms.length > 1) stats.strictMulti += 1
-    }
-    if (terms.length >= 2) {
-      let cand = null
-      for (const t of terms) {
-        const s = termPostings.get(t)
-        if (!s) { cand = null; break }
-        cand = cand ? new Set([...cand].filter((x) => s.has(x))) : new Set(s)
-        if (!cand.size) break
+  const fragRooms = new Map()
+  for (const [room, ids] of roomSets) {
+    for (const sid of ids) {
+      const hash = sid.indexOf('#')
+      const fid = hash < 0 ? sid : sid.slice(0, hash)
+      let s = fragRooms.get(fid)
+      if (!s) {
+        s = new Set()
+        fragRooms.set(fid, s)
       }
-      const rooms = new Set()
-      for (const ev of cand || []) for (const r of truth.get(ev) || []) rooms.add(r)
-      if (rooms.size === 1) {
-        stats.containOne += 1
-        if (samples.contain.length < 6) samples.contain.push(`[${[...rooms][0]}] ${sentText(sid).slice(0, 70)}`)
-      } else if (rooms.size > 1) stats.containMany += 1
-      else stats.containNone += 1
+      s.add(room)
     }
   }
-  console.log(`\n—— 实验：整句词集 ⊆ 某条证据句 / 对集 ⊆ 某房 own ——`)
-  console.log(JSON.stringify(stats))
-  for (const s of samples.strict) console.log('  strict ·', s)
-  for (const s of samples.contain) console.log('  contain ·', s)
+  const selFragOf = db.prepare('select frag_id as fid from sent where sent_id = ?')
+  const fragOf = (sid) => {
+    const r = selFragOf.get(sid)
+    if (r) return r.fid
+    const hash = sid.indexOf('#')
+    return hash < 0 ? sid : sid.slice(0, hash)
+  }
+  const selOff = db.prepare('select frag_id as fid, off as off from sent where sent_id = ?')
+  const selPrev = db.prepare('select sent_id from sent where frag_id = ? and off < ? order by off desc limit 1')
+  const selNext = db.prepare('select sent_id from sent where frag_id = ? and off > ? order by off asc limit 1')
+  const adjacentRooms = (sid) => {
+    const out = new Set()
+    const r = selOff.get(sid)
+    if (!r) return out
+    for (const q of [selPrev, selNext]) {
+      const row = q.get(r.fid, r.off)
+      if (row) for (const room of truth.get(row.sent_id) || []) out.add(room)
+    }
+    return out
+  }
+  const containRooms = (terms) => {
+    const rooms = new Set()
+    if (terms.length < 2) return rooms
+    let cand = null
+    for (const t of terms) {
+      const s = termPostings.get(t)
+      if (!s) return rooms
+      cand = cand ? new Set([...cand].filter((x) => s.has(x))) : new Set(s)
+      if (!cand.size) return rooms
+    }
+    for (const ev of cand) for (const r of truth.get(ev) || []) rooms.add(r)
+    return rooms
+  }
+
+  const N = 1000
+  const probe3 = db.prepare('select sent_id from sent order by random() limit ?').all(N)
+  const dist = { 3: 0, 2: 0, 1: 0, 0: 0 }
+  const fired = { pair: 0, contain: 0, source: 0 }
+  const samples = { 3: [], 2: [], 1: [] }
+  for (const { sent_id: sid } of probe3) {
+    const terms = [...new Set(termsOf(sid))].filter((t) => !isArtifactTerm(t))
+    const pairs = pairsOf(terms)
+    const cr = containRooms(terms)
+    const fr = adjacentRooms(sid)
+    if ([...profiles.values()].some((p) => pairs.some((k) => p.own.has(k)))) fired.pair += 1
+    if (cr.size) fired.contain += 1
+    if (fr.size) fired.source += 1
+    const hits = new Map()
+    for (const [room, p] of profiles) {
+      const c = new Set()
+      if (pairs.some((k) => p.own.has(k))) c.add('pair')
+      if (cr.has(room)) c.add('contain')
+      if (fr.has(room)) c.add('source')
+      if (c.size) hits.set(room, c)
+    }
+    const got = cascade(hits)
+    dist[got.level] += 1
+    if (got.level > 0 && samples[got.level] && samples[got.level].length < 8) {
+      samples[got.level].push(`[${got.rooms.join('+')}] ${sentText(sid).slice(0, 70)}`)
+    }
+  }
+  console.log(`\n—— 多判据级联（随机 ${N} 句）——`)
+  console.log(`单判据触发率：pair ${fired.pair} · contain ${fired.contain} · source ${fired.source} / ${N}`)
+  console.log(`三判据 ${dist[3]} · 两判据 ${dist[2]} · 单判据(联想) ${dist[1]} · 无 ${dist[0]}`)
+  for (const k of [3, 2, 1]) {
+    console.log(`\n== ${k} 判据样本 ==`)
+    for (const s of samples[k]) console.log('  ·', s)
+  }
 }
+
 console.log(`\n用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
 closeQuietly(db)

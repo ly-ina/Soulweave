@@ -226,3 +226,40 @@ export function explainPair(index, pair) {
   const set = index.postings.get(String(pair || '')) || new Set()
   return { pair, label: pairLabel(pair), df: set.size, ids: [...set] }
 }
+
+/**
+ * 多判据级联。
+ *
+ * 一条判据命中 = 联想，不是判据。判据要同时成立才算：
+ *   三条同时成立 → level 3，高置信，可以当归属
+ *   两条同时成立 → level 2，中置信
+ *   只剩一条      → level 1，只作联想，不当判据
+ *   一条都没有    → level 0，落底座（情景房），不猜
+ *
+ * 为什么要级联而不是加权：加权要调系数，一调就漂；级联只需要数「几条判据成立」，
+ * 而且天然满足「判据越多、召回越少」——这正是房间过滤该有的行为。
+ * 判据本身必须异源（句内共现 / 整句包含 / 同源），同一来源拆成两条不算两条。
+ *
+ * @param {Map<string, Set<string>>} hits room → 成立的判据名集合
+ * @returns {{level: 0|1|2|3, rooms: string[], associations: string[]}}
+ */
+export function cascade(hits) {
+  let level = 0
+  let rooms = []
+  const associations = []
+  for (const [room, set] of hits || new Map()) {
+    const n = set ? set.size : 0
+    if (n === 1) associations.push(room)
+    if (n === 0) continue
+    if (n > level) {
+      level = n
+      rooms = [room]
+    } else if (n === level) {
+      rooms.push(room)
+    }
+  }
+  rooms.sort()
+  associations.sort()
+  if (level <= 1) return { level: rooms.length ? 1 : 0, rooms, associations: rooms.slice() }
+  return { level, rooms, associations }
+}
