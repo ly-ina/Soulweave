@@ -82,23 +82,71 @@ export function routeByStructure(input = {}) {
 export function explainRoute(input = {}) {
   const text = String(input.text || '')
   const ev = {}
-  const p = text.match(PATH_RE)
-  if (p) ev.spatial = p[0]
-  else if (input.cwd || input.pathPattern) ev.spatial = input.cwd || input.pathPattern
-
-  const c = text.match(CMD_RE)
-  if (c) ev.procedural = c[0]
-  else if (input.tool) ev.procedural = `tool=${input.tool}`
-
-  const r = text.match(RULE_RE)
-  if (r) ev.executive = r[0]
-  else if (input.todo) ev.executive = 'todo'
-
-  const a = text.match(AFFECT_RE)
-  if (a) ev.salient = a[0]
-  else if (Number(input.importance) > 0) ev.salient = `importance=${input.importance}`
-
+  const collect = (re, room, hard) => {
+    const set = new Set()
+    const re2 = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+    for (const m of text.matchAll(re2)) { if (set.size >= 6) break; set.add(m[0]) }
+    if (!set.size && hard) set.add(hard)
+    if (set.size) ev[room] = [...set]
+  }
+  collect(PATH_RE, 'spatial', input.cwd || input.pathPattern)
+  collect(CMD_RE, 'procedural', input.tool ? `tool=${input.tool}` : '')
+  collect(RULE_RE, 'executive', input.todo ? 'todo' : '')
+  collect(AFFECT_RE, 'salient', Number(input.importance) > 0 ? `importance=${input.importance}` : '')
   return ev
+}
+
+/** 找到 index 附近的那一句（按 。！？；换行 切）。 */
+function sentenceAt(text, index, len) {
+  const BOUND = /[。！？；\n]/
+  let start = 0
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (BOUND.test(text[i])) { start = i + 1; break }
+  }
+  let end = text.length
+  for (let i = index + len; i < text.length; i += 1) {
+    if (BOUND.test(text[i])) { end = i; break }
+  }
+  return text.slice(start, end).trim()
+}
+
+/**
+ * 每间房**证据所在的那几句**。投影应该只记证据这一面，不抄整段。
+ * 自进化也只从这些句子里学。
+ *
+ * @returns {Record<string, string[]>} 房间 -> 证据句（去重）
+ */
+export function evidenceSentences(input = {}) {
+  const text = String(input.text || '')
+  const out = {}
+  const each = (re, room) => {
+    const re2 = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+    for (const m of text.matchAll(re2)) {
+      const s = sentenceAt(text, m.index, m[0].length)
+      if (!s) continue
+      const arr = out[room] || (out[room] = [])
+      if (!arr.includes(s)) arr.push(s)
+    }
+  }
+  each(PATH_RE, 'spatial')
+  each(CMD_RE, 'procedural')
+  each(RULE_RE, 'executive')
+  each(AFFECT_RE, 'salient')
+  return out
+}
+
+/**
+ * 强锚：同一间房在一段文本里有**两条以上独立证据**。
+ *
+ * 自进化只从强锚样本里学。理由：单条证据的样本里混着大量偶然词
+ * （实测：` ``` ` 这个单锚让程序房学到了一堆绘图提示词），
+ * 多重证据才说明这段确实属于这间房。
+ *
+ * @returns {string[]} 可用于学习的房间 id
+ */
+export function strongRooms(input = {}) {
+  const ev = explainRoute(input)
+  return Object.keys(ev).filter((r) => ev[r].length >= 2)
 }
 
 /** 除底座外，这段文本有多少间房落了证据。用来观察判据的区分力。 */
