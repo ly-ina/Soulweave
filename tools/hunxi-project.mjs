@@ -42,30 +42,52 @@ function defaultDb() {
   return `${home.replace(/\\/g, '/')}/.dsh/soulweave/soul-memory.db`
 }
 
-/* ---------- 结构脚手架（一次性，跑完退场） ----------
- * 语义按 2026-11-27 修正：
- *   空间房 = 位置关系（有路径 + 指向/存放动作），不是「字符串像路径」
- *   程序房 = 重复出现的做法序列（先…再…、遇到…就…、流程/步骤），不是命令行
- *   执行房 = 约束 + 对象（不许/必须/拉黑…）
- *   显著房 = 情绪项 + 它挂在哪件事上
+/* ---------- 结构脚手架 v2（一次性，跑完退场） ----------
+ * 2026-11-27 三条修正：
+ *   1. 路径是产物不是目标 → 空间房不按「像路径」落，按**位置关系命题**落
+ *   2. 证据落到句，不按整条 frag 落房
+ *   3. 按 role 分层：summary 只做定位器，不进任何非底座房；代码块不参与落房
+ * 语义仍按 2026-11-27 修正版：
+ *   空间房 = 在哪、指向哪（位置关系）
+ *   程序房 = 重复出现的做法序列，不是命令行
+ *   执行房 = 约束 + 对象
+ *   显著房 = 情绪项 + 挂在什么事上
  *   情景房 = 底座，全落
  */
-const PATHY = /[A-Za-z]:[\\/]|(?:^|[\s(（"'`])(?:\.[/\\]|\/)[\w.-]+[/\\]|[\w-]+\.(?:mjs|js|ts|tsx|json|md|txt|png|jpg|log|db|ps1|yml|yaml)\b|https?:\/\//i
-const POSITION = /(放在|放到|存到|位于|目录|路径|哪个|在哪|指向|挪到|放进|写进|文件)/i
-const SEGMENTED_PATH = /[A-Za-z]:[\\/][^\s]*[\\/]|[\\/][\w.-]+[\\/][\w.-]+/
-const SEQUENCE = /(先.{0,15}再|先.{0,15}然后|遇到.{0,15}就|每次.{0,15}都|通常.{0,10}(做|用|跑)|习惯|流程|步骤|跑一遍|怎么跑|做法|顺序)/i
-const CONSTRAINT = /(不许|必须|禁止|不能|记得要|规范|规则|要求|应该|不该|务必|一律|严禁|拉黑)/i
-const AFFECT = /(心疼|委屈|害怕|怕|喜欢|讨厌|难过|开心|生气|在意|骄傲|失望|舍不得|晚安|亲亲|抱抱)/i
+const SENT_SPLIT = /[。！？；\n]/
+const CODEY = /```|^\s*(?:const|let|var|function|import|export|class|def|return|\$ |PS |node |git |npm |pnpm|pip )/m
+const PLACE = /(目录|路径|文件|文件夹|磁盘|盘|库|仓库|服务器|桌面|输出|输入|文档|项目|家目录|工作区)/
+const RELATION = /(?:在|位于|放到|放在|存到|放进|写进|挪到|指向|通往|从.{1,12}(?:到|去))/
+const SEQUENCE = /(先.{0,15}再|先.{0,15}然后|遇到.{0,15}就|每次.{0,15}都|通常.{0,10}(?:做|用|跑)|习惯|流程|步骤|跑一遍|怎么跑|做法|顺序)/
+const CONSTRAINT = /(不许|必须|禁止|不能|记得要|规范|规则|要求|应该|不该|务必|一律|严禁|拉黑)/
+const AFFECT = /(心疼|委屈|害怕|怕|喜欢|讨厌|难过|开心|生气|在意|骄傲|失望|舍不得|晚安|亲亲|抱抱)/
 
-function scaffold(text) {
-  const t = String(text || '')
+function hitSentence(text, re) {
+  for (const raw of String(text || '').split(SENT_SPLIT)) {
+    const s = raw.trim()
+    if (s && re.test(s)) return s.slice(0, 80)
+  }
+  return ''
+}
+
+function scaffold(text, role) {
   const out = []
-  const spatial = PATHY.test(t) && (POSITION.test(t) || SEGMENTED_PATH.test(t))
-  if (spatial) out.push({ room: 'spatial', evidence: '位置关系' })
-  if (SEQUENCE.test(t)) out.push({ room: 'procedural', evidence: '做法序列' })
-  if (CONSTRAINT.test(t)) out.push({ room: 'executive', evidence: '约束' })
-  if (AFFECT.test(t)) out.push({ room: 'salient', evidence: '情绪项' })
-  out.push({ room: 'episode', evidence: '底座' })
+  const base = role === 'user' ? '伊纳说的' : role === 'assistant' ? '小汐说的' : '摘要'
+  out.push({ room: 'episode', evidence: base })
+  if (role === 'summary') return out // 摘要只做定位器，不做判据来源
+
+  const t = String(text || '')
+  if (!CODEY.test(t)) {
+    const place = hitSentence(t, PLACE)
+    const relation = hitSentence(t, RELATION)
+    if (place && relation) out.push({ room: 'spatial', evidence: relation })
+  }
+  const seq = hitSentence(t, SEQUENCE)
+  if (seq) out.push({ room: 'procedural', evidence: seq })
+  const con = hitSentence(t, CONSTRAINT)
+  if (con) out.push({ room: 'executive', evidence: con })
+  const aff = hitSentence(t, AFFECT)
+  if (aff) out.push({ room: 'salient', evidence: aff })
   return out
 }
 
@@ -109,9 +131,8 @@ if (!args.dryRun) {
       PRIMARY KEY (room, term)
     );
   `)
-  if (args.rebuild) {
-    db.exec('DELETE FROM room_projection; DELETE FROM room_profile;')
-  }
+  // 投影是派生数据：每次全量重写，避免旧脚手架的行残留
+  db.exec('DELETE FROM room_projection; DELETE FROM room_profile;')
 }
 
 /* ---------- 1. 结构脚手架 → 第一版投影 ---------- */
@@ -119,7 +140,7 @@ const t0 = Date.now()
 const insProj = args.dryRun ? null : db.prepare(
   'INSERT OR REPLACE INTO room_projection (frag_id, room, evidence, method) VALUES (?, ?, ?, ?)',
 )
-const selFrag = db.prepare('select id, text from frag where id > ? order by id limit ?')
+const selFrag = db.prepare('select id, text, role from frag where id > ? order by id limit ?')
 let cursor = ''
 let scanned = 0
 const roomSets = new Map()
@@ -132,7 +153,7 @@ while (scanned < want) {
   for (const row of batch) {
     cursor = row.id
     scanned += 1
-    for (const hit of scaffold(row.text)) {
+    for (const hit of scaffold(row.text, row.role)) {
       if (insProj) insProj.run(row.id, hit.room, hit.evidence, 'scaffold-structure')
       let set = roomSets.get(hit.room)
       if (!set) {

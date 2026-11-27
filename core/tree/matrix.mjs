@@ -16,6 +16,27 @@
  */
 
 /**
+ * 产物 vs 目标。
+ *
+ * 路径、文件名、命令、标识符、纯数字，都是**产物**：它们说明「刚做了什么」，
+ * 不说明「这件事在讲什么」。一条 frag 里出现 `E:\...\x.mjs`，是那次动作的落点，
+ * 不是这条记忆的主题。所以它们不能当投影的判据——判据只收承载意图与命题的词。
+ *
+ * 2026-11-27 伊纳的原话：「路径不应该作为投影，因为路径是产物不是目标。」
+ *
+ * 纯 ASCII 一律按产物处理：小汐的记忆是中文语料，代码与命令里的英文词
+ * 绝大多数是文本长相，不是她要记住的东西。真有只以英文存在的概念，
+ * 会以中文说法在别处复现；这一层宁可漏，不可脏。
+ */
+const ARTIFACT_RE = /[\\/]|:\/\/|^[A-Za-z0-9][A-Za-z0-9_.:-]*$|^\d+$/
+
+export function isArtifactTerm(term) {
+  const t = String(term || '').trim()
+  if (!t) return true
+  return ARTIFACT_RE.test(t)
+}
+
+/**
  * 建一个索引。
  * @param {Iterable<{id: string, terms: string[]}>} docs 每条原文的 id 与切好的词
  * @returns {{postings: Map<string, Set<string>>, df: Map<string, number>, docs: number}}
@@ -63,6 +84,7 @@ export function profileOf(index, ids, opts = {}) {
   const out = []
   for (const [term, set] of index.postings) {
     if (exclude.has(term)) continue
+    if (isArtifactTerm(term)) continue
     const hit = []
     for (const id of set) if (want.has(id)) hit.push(id)
     if (hit.length >= minDocs) out.push({ term, ids: hit })
