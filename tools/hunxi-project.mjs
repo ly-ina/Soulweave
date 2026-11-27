@@ -191,8 +191,8 @@ index.documents = scanned
 for (const [term, set] of postings) index.df.set(term, set.size)
 console.log(`\n矩阵：${postings.size} 项`)
 
-const profiles = roomProfiles(index, roomSets, { minDocs: 2 })
-console.log('\n—— 每房项 profile（复现≥2 条，跨房项已排除）——')
+const profiles = roomProfiles(index, roomSets)
+console.log('\n—— 每房项 profile（只设一道门槛：跨房项排除）——')
 for (const [room, p] of [...profiles].sort()) {
   console.log(`${room}: own ${p.own.size} · shared ${p.shared.size}`)
 }

@@ -66,20 +66,20 @@ export function buildIndex(docs) {
 }
 
 /**
- * 一组 frag 的 profile：在这组里「复现才成项」的 term。
+ * 一组 frag 的项集：在这组里出现过的 term（去掉产物词）。
  *
- * 「复现」不是阈值，是资格——同一共现只出现一次不算记忆，只能算一次偶遇。
- * 默认要求在 2 条不同 frag 里出现；调用方可以按房间语义传别的 minDocs。
+ * **没有「复现次数」门槛。**（2026-11-27 伊纳）
+ * 用复现次数当条件，分子分母是同一个计数：语料越大，命中自己就涨了，
+ * 等于不需要条件也会「通过」。条件只能设在真正会失效的地方——跨房。
  *
  * @param {{postings: Map<string, Set<string>>}} index
  * @param {Iterable<string>} ids
- * @param {{minDocs?: number, exclude?: Iterable<string>}} [opts]
+ * @param {{exclude?: Iterable<string>}} [opts]
  * @returns {{term: string, ids: string[]}[]} 按 term 字典序，稳定可复现
  */
 export function profileOf(index, ids, opts = {}) {
   const want = new Set(ids)
   if (want.size === 0) return []
-  const minDocs = Math.max(1, opts.minDocs ?? 2)
   const exclude = new Set(opts.exclude || [])
   const out = []
   for (const [term, set] of index.postings) {
@@ -87,7 +87,7 @@ export function profileOf(index, ids, opts = {}) {
     if (isArtifactTerm(term)) continue
     const hit = []
     for (const id of set) if (want.has(id)) hit.push(id)
-    if (hit.length >= minDocs) out.push({ term, ids: hit })
+    if (hit.length > 0) out.push({ term, ids: hit })
   }
   out.sort((a, b) => (a.term < b.term ? -1 : a.term > b.term ? 1 : 0))
   return out
@@ -102,19 +102,21 @@ export function profileOf(index, ids, opts = {}) {
  *
  * @param {{postings: Map<string, Set<string>>}} index
  * @param {Map<string, Set<string>>} roomSets room → frag id 集合
- * @param {{minDocs?: number, base?: string}} [opts]
+ * @param {{base?: string}} [opts]
  *   base = 底座房。它每条都沾，不是区分器；算「跨房」时必须把它排除，
  *   否则任何项都同时属于底座房和它的房，全部变成 shared。
  * @returns {Map<string, {own: Set<string>, shared: Set<string>, profile: {term:string,ids:string[]}[]}>}
  */
 export function roomProfiles(index, roomSets, opts = {}) {
-  const minDocs = Math.max(1, opts.minDocs ?? 2)
   const base = opts.base ?? 'episode'
-  /** term → 出现在哪几间（只算稳定复现的；底座房不算） */
+  /** term → 出现在哪几间（底座房不算） */
   const where = new Map()
+  const termsOf = new Map()
   for (const [room, ids] of roomSets) {
     if (room === base) continue
-    for (const item of profileOf(index, ids, { minDocs })) {
+    const list = profileOf(index, ids)
+    termsOf.set(room, list)
+    for (const item of list) {
       let set = where.get(item.term)
       if (!set) {
         set = new Set()
@@ -124,11 +126,10 @@ export function roomProfiles(index, roomSets, opts = {}) {
     }
   }
   const result = new Map()
-  for (const [room, ids] of roomSets) {
-    if (room === base) continue
+  for (const [room, list] of termsOf) {
     const own = new Set()
     const shared = new Set()
-    for (const item of profileOf(index, ids, { minDocs })) {
+    for (const item of list) {
       const rooms = where.get(item.term)
       if (rooms && rooms.size > 1) shared.add(item.term)
       else own.add(item.term)
@@ -136,7 +137,7 @@ export function roomProfiles(index, roomSets, opts = {}) {
     result.set(room, {
       own,
       shared,
-      profile: profileOf(index, ids, { minDocs, exclude: shared }),
+      profile: list.filter((item) => own.has(item.term)),
     })
   }
   return result
