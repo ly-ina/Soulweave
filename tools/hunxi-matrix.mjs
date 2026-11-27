@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 // Soulweave · © 2026 ly-ina · 专有许可（见 LICENSE）
 /**
- * tools/hunxi-matrix.mjs —— 第一刀第 1 步：建原文级矩阵 `frag × term`。
+ * tools/hunxi-matrix.mjs —— 第一刀第 1 步：建原文级矩阵 `sentence × term`。
  *
  * 现有的 kw_link 键是 (summary_id, kw_id)，共现建在 8 018 条摘要上，是二手矩阵。
  * 这一步直接扫 30 270 条 frag 原文，产出原文级词链接。零模型、可重跑。
+ *
+ * 2026-11-27 第五刀：**粒度从 frag 改成 sentence**。
+ *   原因：一条 frag 是一整轮对话，可能同时含位置、程序、约束、情绪。
+ *   frag 级共现等于「什么都和什么共现」，profile 里 90% 的项跨房——
+ *   这不是判据不准，是矩阵粒度错了。句级共现才对应命题。
+ *   同时 sent.off/len 直接当定位器：不复制原文，指得回去。
  *
  *   node tools/hunxi-matrix.mjs                # 全量重建写入 frag_term
  *   node tools/hunxi-matrix.mjs --dry-run      # 只统计不写库
@@ -67,24 +73,50 @@ console.log(`frag ${total} 条，本次扫 ${want} 条`)
 
 if (!args.dryRun) {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS frag_term (
+    CREATE TABLE IF NOT EXISTS sent (
+      sent_id TEXT PRIMARY KEY,
       frag_id TEXT NOT NULL,
+      off     INTEGER NOT NULL,
+      len     INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS sent_frag ON sent(frag_id);
+    CREATE TABLE IF NOT EXISTS sent_term (
+      sent_id TEXT NOT NULL,
       term    TEXT NOT NULL,
       tf      INTEGER NOT NULL DEFAULT 1,
-      PRIMARY KEY (frag_id, term)
+      PRIMARY KEY (sent_id, term)
     );
-    CREATE INDEX IF NOT EXISTS frag_term_term ON frag_term(term);
+    CREATE INDEX IF NOT EXISTS sent_term_term ON sent_term(term);
   `)
-  db.exec('DELETE FROM frag_term')
+  db.exec('DELETE FROM sent')
+  db.exec('DELETE FROM sent_term')
 }
 
-const insert = args.dryRun ? null : db.prepare('INSERT OR REPLACE INTO frag_term (frag_id, term, tf) VALUES (?, ?, ?)')
+const insertSent = args.dryRun ? null : db.prepare('INSERT OR REPLACE INTO sent (sent_id, frag_id, off, len) VALUES (?, ?, ?, ?)')
+const insert = args.dryRun ? null : db.prepare('INSERT OR REPLACE INTO sent_term (sent_id, term, tf) VALUES (?, ?, ?)')
 const page = db.prepare('select id, text from frag where id > ? order by id limit ?')
+
+const MIN_SENT = 4
+const SENT_RE = /[^。！？；\n]+/g
+
+function splitSentences(text) {
+  const out = []
+  SENT_RE.lastIndex = 0
+  let m
+  while ((m = SENT_RE.exec(text))) {
+    const raw = m[0]
+    const lead = raw.length - raw.trimStart().length
+    const body = raw.trim()
+    if (body.length >= MIN_SENT) out.push({ off: m.index + lead, text: body })
+  }
+  return out
+}
 
 let cursor = ''
 let scanned = 0
 let rows = 0
 let empty = 0
+let sents = 0
 const termDf = new Map()
 
 db.exec('BEGIN')
@@ -95,17 +127,24 @@ while (scanned < want) {
   for (const row of batch) {
     cursor = row.id
     scanned += 1
-    const terms = tokenizer.tokenize(row.text)
-    if (terms.length === 0) {
+    const parts = splitSentences(String(row.text || ''))
+    if (parts.length === 0) {
       empty += 1
       continue
     }
-    const tf = new Map()
-    for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1)
-    for (const [term, n] of tf) {
-      termDf.set(term, (termDf.get(term) || 0) + 1)
-      if (insert) insert.run(row.id, term, n)
-      rows += 1
+    for (const part of parts) {
+      const sentId = `${row.id}#${part.off}`
+      const terms = tokenizer.tokenize(part.text)
+      if (terms.length === 0) continue
+      if (insertSent) insertSent.run(sentId, row.id, part.off, part.text.length)
+      sents += 1
+      const tf = new Map()
+      for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1)
+      for (const [term, n] of tf) {
+        termDf.set(term, (termDf.get(term) || 0) + 1)
+        if (insert) insert.run(sentId, term, n)
+        rows += 1
+      }
     }
   }
   if (!args.dryRun && scanned % (BATCH * 10) === 0) {
@@ -122,16 +161,17 @@ db.exec('COMMIT')
 const reprised = [...termDf.values()].filter((n) => n >= 2).length
 const avg = scanned ? (rows / scanned).toFixed(1) : '0'
 console.log('\n—— 结果 ——')
-console.log(`扫 ${scanned} 条 frag，写入 ${rows} 行词链接（平均 ${avg} 词/条）`)
-console.log(`空词 ${empty} 条 · 不同 term ${termDf.size} 个 · 复现(≥2 条) ${reprised} 个`)
+console.log(`扫 ${scanned} 条 frag → ${sents} 句，写入 ${rows} 行词链接（平均 ${avg} 词/句）`)
+console.log(`空词 ${empty} 条 · 不同 term ${termDf.size} 个 · 复现(≥2 句) ${reprised} 个`)
 
 const top = [...termDf.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25)
 console.log('\n最高频 25 项：')
 console.log(top.map(([t, n]) => `${t}(${n})`).join('  '))
 
 if (!args.dryRun) {
-  const check = db.prepare('select count(*) c from frag_term').get().c
-  console.log(`\nfrag_term 现有 ${check} 行`)
+  const s = db.prepare('select count(*) c from sent').get().c
+  const t = db.prepare('select count(*) c from sent_term').get().c
+  console.log(`\nsent 现有 ${s} 行 · sent_term 现有 ${t} 行`)
 }
 console.log(`用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
 closeQuietly(db)
