@@ -11,8 +11,14 @@
  *   程序房 基底核   这类事通常怎么做
  *   显著房 杏仁核   多重要、多危险、对我意味着什么
  *
+ * 路由口径（2026-11-27 实测修正）：
+ *   词表路由不成立——frag 级落空 61%、summary 级落空 78–89%。
+ *   改为**结构判据**：看数据里有没有那个东西（路径 / 工具调用 / 规矩 / 时间 / 情绪）。
+ *   并且**情景房是底座**：每条 frag 天然是一次经历，永远落情景房；
+ *   其余四房只在有结构证据时落。判据要回答的是「除底座外还多了哪几间」。
+ *
  * 丘脑不是房间。它做两件事，**互不干扰**：
- *   1. 路由：这段输入投到哪几间房（只看触发词）
+ *   1. 路由：这段输入投到哪几间房（结构判据优先，词表补充）
  *   2. 情绪偏好：在这几间房里，先想起哪类条目（只看条目标签）
  *
  * 为什么情绪不关房间：情绪不会让某个脑区停工。生气时海马体照样记得
@@ -25,7 +31,7 @@ import { existsSync, readFileSync } from '../../io.mjs'
 
 /** 五间房。顺序即展示顺序。 */
 export const ROOMS = Object.freeze([
-  Object.freeze({ id: 'episode',    brain: '海马体', name: '情景房', asks: '那次发生了什么' }),
+  Object.freeze({ id: 'episode',    brain: '海马体', name: '情景房', asks: '那次发生了什么', base: true }),
   Object.freeze({ id: 'executive',  brain: '前额叶', name: '执行房', asks: '我该做什么／不许什么' }),
   Object.freeze({ id: 'spatial',    brain: '顶叶',   name: '空间房', asks: '在哪儿／哪个文件' }),
   Object.freeze({ id: 'procedural', brain: '基底核', name: '程序房', asks: '这类事通常怎么做' }),
@@ -34,8 +40,76 @@ export const ROOMS = Object.freeze([
 
 export const ROOM_IDS = Object.freeze(ROOMS.map((r) => r.id))
 
+/** 底座房：每条经历都落。 */
+export const BASE_ROOM = 'episode'
+
+// ── 结构判据（不靠词表；只判断「有没有那个东西」）─────────────────────────
+
+/** 盘符路径 / 目录 / 带扩展名的文件 / URL */
+const PATH_RE = /[A-Za-z]:[\\/]|(?:^|[\s(（"'`])(?:\.[/\\]|\/)[\w.-]+[/\\]|[\w-]+\.(?:mjs|js|ts|tsx|json|md|txt|png|jpg|jpeg|log|db|ps1|yml|yaml)\b|https?:\/\//i
+
+/** 代码块 / 命令行动词 */
+const CMD_RE = /```|(?:^|[\s(（])(?:node|npm|pnpm|yarn|git|pwsh|powershell|python|pip|curl|cd|ls|dir|Get-[A-Za-z]+|Select-Object|Set-[A-Za-z]+|Remove-[A-Za-z]+)\b/
+
+/** 规矩 / 约束 / 目标 */
+const RULE_RE = /(不许|必须|禁止|不能|记得要|规范|规则|要求|应该|不该|务必|一律|严禁)/
+
+/** 时间指代（情景房的显式证据；没有也只是没有显式证据，仍在底座） */
+const TIME_RE = /(昨天|前天|上次|那次|当时|后来|刚才|之前|以后|曾经|原来|记得|早上|晚上|凌晨|今天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2})/
+
+/** 情绪 / 显著 */
+const AFFECT_RE = /(重要|要紧|慌|怕|担心|喜欢|爱|讨厌|生气|难过|开心|珍藏|禁忌|烦|累|心疼|委屈|骄傲|失望|舍不得)/
+
 /**
- * 种子触发词：只为把五间房点着，之后靠数据自己归位（见 syncTriggers）。
+ * 结构路由。情景房恒在底座，其余四房按证据。
+ *
+ * @param {{
+ *   text?:string, role?:string, cwd?:string, pathPattern?:string,
+ *   tool?:string, todo?:boolean, importance?:number, hasTime?:boolean
+ * }} input
+ * @returns {string[]} 房间 id，恒以 episode 开头
+ */
+export function routeByStructure(input = {}) {
+  return [BASE_ROOM, ...Object.keys(explainRoute(input))]
+}
+
+/**
+ * 每个落点的证据：为什么落这间房。
+ * 这是阶段 1 的验收口径——解释不出的落点，就是判据错了。
+ *
+ * @returns {Record<string, string>} 房间 id -> 证据片段
+ */
+export function explainRoute(input = {}) {
+  const text = String(input.text || '')
+  const ev = {}
+  const p = text.match(PATH_RE)
+  if (p) ev.spatial = p[0]
+  else if (input.cwd || input.pathPattern) ev.spatial = input.cwd || input.pathPattern
+
+  const c = text.match(CMD_RE)
+  if (c) ev.procedural = c[0]
+  else if (input.tool) ev.procedural = `tool=${input.tool}`
+
+  const r = text.match(RULE_RE)
+  if (r) ev.executive = r[0]
+  else if (input.todo) ev.executive = 'todo'
+
+  const a = text.match(AFFECT_RE)
+  if (a) ev.salient = a[0]
+  else if (Number(input.importance) > 0) ev.salient = `importance=${input.importance}`
+
+  return ev
+}
+
+/** 除底座外，这段文本有多少间房落了证据。用来观察判据的区分力。 */
+export function extraRooms(rooms) {
+  return rooms.filter((r) => r !== BASE_ROOM)
+}
+
+// ── 词表（补充，不是主判据）────────────────────────────────────────────
+
+/**
+ * 种子触发词：只为补充结构判据漏掉的表达，之后靠数据自己归位（见 syncTriggers）。
  * 不放人名、不放「小汐」——它们跨房，本来就该撤出。
  */
 export const SEED_TRIGGERS = Object.freeze({
@@ -46,7 +120,7 @@ export const SEED_TRIGGERS = Object.freeze({
   salient: ['重要', '要紧', '慌', '怕', '担心', '喜欢', '爱', '讨厌', '生气', '难过', '开心', '珍藏', '禁忌'],
 })
 
-/** 路由：命中哪几间房的触发词。可同时投多间房。 */
+/** 词表路由（补充用）。命中哪几间房的触发词。 */
 export function pickRooms(terms, triggers = SEED_TRIGGERS) {
   const hit = new Set()
   for (const room of ROOM_IDS) {
@@ -58,6 +132,19 @@ export function pickRooms(terms, triggers = SEED_TRIGGERS) {
   }
   return [...hit]
 }
+
+/**
+ * 路由总入口：结构判据为主，词表为补充，合并去重。
+ * 情景房恒在（底座）。
+ */
+export function route(input = {}, terms = [], triggers = SEED_TRIGGERS) {
+  const out = new Set(routeByStructure(input))
+  for (const r of pickRooms(terms, triggers)) out.add(r)
+  out.add(BASE_ROOM)
+  return ROOM_IDS.filter((r) => out.has(r))
+}
+
+// ── 丘脑 ──────────────────────────────────────────────────────────────
 
 /** 情绪类别。判不出 → 'unknown'（不设偏好）。 */
 export function normalizeAffect(x) {
@@ -71,11 +158,11 @@ export function normalizeAffect(x) {
  *   prefer —— 房内先想起哪类条目（标签集合；null = 不设偏好）
  *   suppress— 房内暂时压住哪类条目
  *
- * @param {{terms:string[], triggers?:object, affect?:string}} input
+ * @param {{text?:string, terms?:string[], triggers?:object, affect?:string,
+ *          cwd?:string, tool?:string, todo?:boolean, importance?:number}} input
  */
 export function thalamus(input = {}) {
-  const terms = input.terms || []
-  const rooms = pickRooms(terms, input.triggers || SEED_TRIGGERS)
+  const rooms = route(input, input.terms || [], input.triggers || SEED_TRIGGERS)
   const affect = normalizeAffect(input.affect)
   const pref = AFFECT_PREFERENCE[affect] || AFFECT_PREFERENCE.unknown
   return { rooms, affect, prefer: pref.prefer, suppress: pref.suppress }
@@ -110,9 +197,6 @@ export const AFFECT_PREFERENCE = Object.freeze({
 /**
  * 按情绪偏好给条目排序：prefer 命中靠前，suppress 命中靠后。
  * 不打分——只分三档：偏好 / 中性 / 压住。档内保持原有顺序。
- *
- * @param {Array<{tags?:string[]}>} items
- * @param {{prefer:string[]|null, suppress:string[]}} pref
  */
 export function rankByAffect(items, pref) {
   if (!pref || !pref.prefer) return items
@@ -130,12 +214,11 @@ export function rankByAffect(items, pref) {
     .map((x) => x.it)
 }
 
+// ── 触发词归位 ────────────────────────────────────────────────────────
+
 /**
  * 触发词自动归位：只在某房出现的词进该房；多房出现的撤出。
  * 纯集合判断——信息量来自区分能力，不是出现频率。
- *
- * @param {Record<string, Set<string>>} roomTerms  房间 -> 该房落点里出现过的词
- * @param {Record<string, string[]>} [extra]       额外种子，合并进结果
  */
 export function syncTriggers(roomTerms, extra = {}) {
   const all = new Map() // term -> rooms[]
