@@ -26,11 +26,12 @@ import '../io-node.mjs'
 import { configureStorage, openReadWrite, closeQuietly, storageStatus } from '../storage/index.mjs'
 import { sqliteDriver } from '../storage/driver.mjs'
 import { pairsOf, pairTerms, roomProfiles, classify, cascade, isArtifactTerm } from '../core/tree/matrix.mjs'
+import { createTokenizer } from '../core/tree/terms.mjs'
 
 const BATCH = 500
 
 function parseArgs(argv) {
-  const out = { db: '', limit: 0, dryRun: false, report: false, samples: 0 }
+  const out = { db: '', limit: 0, dryRun: false, report: false, samples: 0, queries: 0 }
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]
     if (a === '--dry-run') out.dryRun = true
@@ -38,6 +39,7 @@ function parseArgs(argv) {
     else if (a === '--db') out.db = argv[(i += 1)] || ''
     else if (a === '--limit') out.limit = Number(argv[(i += 1)] || 0) || 0
     else if (a === '--samples') out.samples = Number(argv[(i += 1)] || 0) || 0
+    else if (a === '--queries') out.queries = Number(argv[(i += 1)] || 0) || 0
     else if (a === '--help' || a === '-h') out.help = true
   }
   return out
@@ -309,6 +311,38 @@ if (args.report) {
   }
 }
 
+// 判据二：与某条证据句至少共享两个词（命题最小载体：两个词）
+// 「整词集 ⊆ 证据句」对短查询太严，查询几乎不可能全包含，所以退到「共享一个命题」。
+const overlap2Rooms = (terms) => {
+  const rooms = new Set()
+  if (terms.length < 2) return rooms
+  const count = new Map()
+  for (const t of terms) {
+    const s = termPostings.get(t)
+    if (!s) continue
+    for (const sid of s) count.set(sid, (count.get(sid) || 0) + 1)
+  }
+  for (const [sid, n] of count) {
+    if (n < 2) continue
+    for (const r of truth.get(sid) || []) rooms.add(r)
+  }
+  return rooms
+}
+// 判据二：整词集 ⊆ 某条证据句 → 那条证据句的房间
+const containRooms = (terms) => {
+  const rooms = new Set()
+  if (terms.length < 2) return rooms
+  let cand = null
+  for (const t of terms) {
+    const s = termPostings.get(t)
+    if (!s) return rooms
+    cand = cand ? new Set([...cand].filter((x) => s.has(x))) : new Set(s)
+    if (!cand.size) return rooms
+  }
+  for (const ev of cand) for (const r of truth.get(ev) || []) rooms.add(r)
+  return rooms
+}
+
 /* ---------- 3. 回判 ---------- */
 const selTerms = db.prepare('select term from sent_term where sent_id = ?')
 const termsOf = (sid) => selTerms.all(sid).map((r) => r.term)
@@ -394,26 +428,6 @@ if (wrongSamples.length) console.log('错判样本：', wrongSamples.join(' | ')
 // 目标不是「判对每一句」，是「三判据同时成立的召回要少而准；
 // 两判据次之；只剩一条的当联想，不当判据」。
 if (args.report) {
-  const fragRooms = new Map()
-  for (const [room, ids] of roomSets) {
-    for (const sid of ids) {
-      const hash = sid.indexOf('#')
-      const fid = hash < 0 ? sid : sid.slice(0, hash)
-      let s = fragRooms.get(fid)
-      if (!s) {
-        s = new Set()
-        fragRooms.set(fid, s)
-      }
-      s.add(room)
-    }
-  }
-  const selFragOf = db.prepare('select frag_id as fid from sent where sent_id = ?')
-  const fragOf = (sid) => {
-    const r = selFragOf.get(sid)
-    if (r) return r.fid
-    const hash = sid.indexOf('#')
-    return hash < 0 ? sid : sid.slice(0, hash)
-  }
   const selOff = db.prepare('select frag_id as fid, off as off from sent where sent_id = ?')
   const selPrev = db.prepare('select sent_id from sent where frag_id = ? and off < ? order by off desc limit 1')
   const selNext = db.prepare('select sent_id from sent where frag_id = ? and off > ? order by off asc limit 1')
@@ -427,19 +441,7 @@ if (args.report) {
     }
     return out
   }
-  const containRooms = (terms) => {
-    const rooms = new Set()
-    if (terms.length < 2) return rooms
-    let cand = null
-    for (const t of terms) {
-      const s = termPostings.get(t)
-      if (!s) return rooms
-      cand = cand ? new Set([...cand].filter((x) => s.has(x))) : new Set(s)
-      if (!cand.size) return rooms
-    }
-    for (const ev of cand) for (const r of truth.get(ev) || []) rooms.add(r)
-    return rooms
-  }
+
 
   const N = 1000
   const probe3 = db.prepare('select sent_id from sent order by random() limit ?').all(N)
@@ -477,5 +479,40 @@ if (args.report) {
   }
 }
 
+/* ---------- 5. 查询侧：拿真实 user 消息当查询（--queries N） ---------- */
+// 查询没有 frag、没有相邻句，最多只能有两条判据成立 → 查询侧的门是「两判据同时成立」。
+if (args.queries) {
+  const tokenizer = createTokenizer()
+  const N = args.queries
+  const rows = db.prepare("select id, text from frag where role = 'user' order by id desc limit ?").all(N)
+  const dist = { 2: 0, 1: 0, 0: 0 }
+  const roomCount = {}
+  const samples = []
+  for (const row of rows) {
+    const terms = [...new Set(tokenizer.tokenize(String(row.text || '')))].filter((t) => !isArtifactTerm(t))
+    const pairs = pairsOf(terms)
+    const cr = overlap2Rooms(terms)
+    const hits = new Map()
+    for (const [room, p] of profiles) {
+      const c = new Set()
+      if (pairs.some((k) => p.own.has(k))) c.add('pair')
+      if (cr.has(room)) c.add('contain')
+      if (c.size) hits.set(room, c)
+    }
+    const got = cascade(hits)
+    dist[got.level >= 2 ? 2 : got.level] += 1
+    for (const r of got.rooms) roomCount[r] = (roomCount[r] || 0) + 1
+    if (samples.length < 16) {
+      samples.push(`[L${got.level} ${got.rooms.join('+') || '-'}] ${String(row.text || '').replace(/\s+/g, ' ').slice(0, 64)}`)
+    }
+  }
+  console.log(`\n—— 查询侧：最近 ${rows.length} 条 user 消息 ——`)
+  console.log(`两判据同时成立 ${dist[2]} · 单判据 ${dist[1]} · 无门 ${dist[0]}`)
+  console.log(
+    '开门：',
+    Object.entries(roomCount).sort((a, b) => b[1] - a[1]).map(([r, n]) => `${r}:${n}`).join(' ') || '-'
+  )
+  for (const s of samples) console.log('  ·', s)
+}
 console.log(`\n用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
 closeQuietly(db)
