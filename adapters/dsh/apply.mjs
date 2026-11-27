@@ -1108,15 +1108,7 @@ export function createSoulIndexSyncTrigger(options = {}) {
 
 export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?? console
   const baseStateDir = asText(config?.stateDir) || join(PLUGIN_DIR, '.state')
-  // 临时排障（2026-11-27）：apply 分阶段打点，定位装配停在哪一步。查完删。
-  const tick = (stage, extra = '') => {
-    try {
-      appendFileSync(join(baseStateDir, 'boot.log'), `${new Date().toISOString()} apply ${stage}${extra ? ' ' + extra : ''}\n`)
-    } catch {}
-  }
-  tick('start', `tools=${typeof ctx?.tools} on=${typeof ctx?.on}`)
   const normalized = normalizeConfig(applyOverride(config, baseStateDir))
-  tick('normalized', `log=${normalized.logPath} split=${normalized.soulSplitInjection}`)
   // 2026-11-24：数据落点迁移回退必须留痕——用旧路径不是错，但用户要能在 soul.log 看见为什么。
   if (Array.isArray(normalized.pathNotes) && normalized.pathNotes.length > 0) {
     for (const note of normalized.pathNotes) appendLog(normalized.logPath, logLine(Date.now(), 'path-migrate', note))
@@ -1125,26 +1117,7 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
   const disposers = []
   // 2026-11-26：这个返回值以前没接住 → 每次 HMR reload / apply 都多挂一个 pre-step
   // handler，而且 dispose 永远摘不掉它。stress-lifecycle.mjs 就是照这个漏点写的。
-  // 临时排障（2026-11-27）：确认 agent/pre-step 是否真的打进来、是否静默抛错。查完删。
-  const tracedPreStep = async (payload, next) => {
-    try {
-      const r = await handler(payload, next)
-      appendFileSync(
-        normalized.logPath,
-        logLine(Date.now(), 'pre-step', `ok turn=${Number(payload?.turn ?? 0)} step=${Number(payload?.step ?? 0)} in=${(payload?.messages ?? []).length} out=${(r?.messages ?? []).length}`)
-      )
-      return r
-    } catch (e) {
-      appendFileSync(
-        normalized.logPath,
-        logLine(Date.now(), 'pre-step-error', String((e && e.stack) || e).slice(0, 800))
-      )
-      throw e
-    }
-  }
-  tick('handler-built')
-  const offPreStep = ctx.on('agent/pre-step', tracedPreStep, { prepend: true })
-  tick('prestep-on', `off=${typeof offPreStep}`)
+  const offPreStep = ctx.on('agent/pre-step', handler, { prepend: true })
   if (typeof offPreStep === 'function') disposers.push(offPreStep)
   /**
    * 2026-11-04：压缩会真的把稳定段从模型上下文里删掉，但本进程的 `stableSent`
@@ -1182,9 +1155,8 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
   } catch (error) {
     logger.warn?.(`dsh-soul: sessions 服务拿不到（soul_surface 会不可用）：${String(error?.message ?? error)}`)
   }
-  let toolCount = 0
   if (typeof ctx.tools?.register === 'function') {
-    for (const tool of createTools(normalized, { getSessions: () => sessionsRef, logger })) { disposers.push(ctx.tools.register(tool)); toolCount++ }
+    for (const tool of createTools(normalized, { getSessions: () => sessionsRef, logger })) disposers.push(ctx.tools.register(tool))
   } else {
     logger.warn?.('dsh-soul: tools 服务不可用，soul_recall / soul_persist / soul_cue / soul_toolout / soul_capabilities / soul_surface 未注册')
   }
@@ -1253,7 +1225,6 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
     }),
   )
 
-  tick('applied', `tools=${toolCount}`)
   return () => {
     for (const dispose of disposers) {
       try {

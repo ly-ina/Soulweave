@@ -8,13 +8,6 @@
  */
 export const name = 'soulweave'
 
-// 临时哨兵（2026-11-27 排查「插件静默不加载」）：确认模块有没有被 import。
-// 查完即删。
-import { appendFileSync } from 'node:fs'
-try {
-  appendFileSync('C:/Users/Lenovo/.dsh/soul/boot.log', `${new Date().toISOString()} imported\n`)
-} catch {}
-
 /** §9.4：需要动 `ctx.tools` 就必须经 inject 声明。 */
 /**
  * DSH / cordis 约定：设置面板看到的默认配置。
@@ -22,7 +15,7 @@ try {
  * 派生项（stateDir、sqlite 驱动、预算换算）不在这里，运行时仍以 normalizeConfig 为准。
  * 其它宿主（MCP / SDK）不会读这个导出，忽略即可。
  */
-export const Config = Object.freeze({
+export const DEFAULT_CONFIG = Object.freeze({
   soulPath: '',
   autoInitSoul: true,
   memoryBackend: 'builtin',
@@ -36,7 +29,24 @@ export const Config = Object.freeze({
   hybridSearch: false,
 })
 
-export const inject = ['tools']
+/**
+ * 2026-11-27：cordis 的 `resolveConfig` 只认 standard-schema（`Config['~standard'].validate`）。
+ * 以前这里导出的是一个普通对象，宿主拿到模块后先 `Config['~standard']` 取不到 → TypeError
+ * → apply 根本不会被调用，插件静默消失（魂引一整天零注入就是这个）。
+ * 现在给一个合法的 standard-schema：原样收下用户配置，默认值仍由 normalizeConfig 补。
+ */
+export const Config = Object.freeze({
+  '~standard': Object.freeze({
+    version: 1,
+    vendor: 'soulweave',
+    validate(value) {
+      return { value: value ?? {} }
+    },
+  }),
+})
+
+/** 面板注册要 `ctx.webServer`，cordis 会按 inject 校验属性访问，漏声明就直接抛。 */
+export const inject = ['tools', 'webServer']
 
 // 宿主装配：Node 的 IO 与 sqlite 驱动。必须排在其它 import 之前（ESM 按声明顺序求值）。
 import './io-node.mjs'
@@ -46,26 +56,8 @@ import { MESSAGE_KIND } from './core/constants.mjs'
 import { apply as applyInner, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools } from './adapters/dsh/apply.mjs'
 import { createPreStepHandler } from './adapters/dsh/prestep.mjs'
 
-function traceApply(phase, e) {
-  try {
-    appendFileSync('C:/Users/Lenovo/.dsh/soul/boot.log', `${new Date().toISOString()} apply ${phase}: ${String((e && e.stack) || e).slice(0, 1200)}\n`)
-  } catch {}
-}
-
-// 临时包壳（2026-11-27）：把 apply 里的异常落到 boot.log，查完即删。
-function apply(ctx, config) {
-  try {
-    const r = applyInner(ctx, config)
-    if (r && typeof r.then === 'function') return r.catch((e) => { traceApply('rejected', e); throw e })
-    return r
-  } catch (e) {
-    traceApply('threw', e)
-    throw e
-  }
-}
-
-export { apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools, createPreStepHandler }
+export { applyInner as apply, createCapabilities, createSoulIndexSyncTrigger, createTier, createTools, createPreStepHandler }
 
 export * from './sdk.mjs'
 
-export default { name, inject, Config, apply, MESSAGE_KIND }
+export default { name, inject, Config, DEFAULT_CONFIG, apply: applyInner, MESSAGE_KIND }
