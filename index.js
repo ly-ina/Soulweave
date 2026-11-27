@@ -8,6 +8,13 @@
  */
 export const name = 'soulweave'
 
+// 临时哨兵（2026-11-27 排查「插件静默不加载」）：确认模块有没有被 import。
+// 查完即删。
+import { appendFileSync } from 'node:fs'
+try {
+  appendFileSync('C:/Users/Lenovo/.dsh/soul/boot.log', `${new Date().toISOString()} imported\n`)
+} catch {}
+
 /** §9.4：需要动 `ctx.tools` 就必须经 inject 声明。 */
 /**
  * DSH / cordis 约定：设置面板看到的默认配置。
