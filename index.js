@@ -29,7 +29,7 @@ export const Config = Object.freeze({
   hybridSearch: false,
 })
 
-export const inject = ['tools', 'webServer']
+export const inject = ['tools']
 
 // 宿主装配：Node 的 IO 与 sqlite 驱动。必须排在其它 import 之前（ESM 按声明顺序求值）。
 import './io-node.mjs'
