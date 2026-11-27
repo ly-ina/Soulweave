@@ -1117,7 +1117,24 @@ export function apply(ctx, config = {}) {  const logger = ctx.logger?.('soul') ?
   const disposers = []
   // 2026-11-26：这个返回值以前没接住 → 每次 HMR reload / apply 都多挂一个 pre-step
   // handler，而且 dispose 永远摘不掉它。stress-lifecycle.mjs 就是照这个漏点写的。
-  const offPreStep = ctx.on('agent/pre-step', handler, { prepend: true })
+  // 临时排障（2026-11-27）：确认 agent/pre-step 是否真的打进来、是否静默抛错。查完删。
+  const tracedPreStep = async (payload) => {
+    try {
+      const r = await handler(payload)
+      appendFileSync(
+        normalized.logPath,
+        logLine(Date.now(), 'pre-step', `ok turn=${Number(payload?.turn ?? 0)} step=${Number(payload?.step ?? 0)}`)
+      )
+      return r
+    } catch (e) {
+      appendFileSync(
+        normalized.logPath,
+        logLine(Date.now(), 'pre-step-error', String((e && e.stack) || e).slice(0, 800))
+      )
+      throw e
+    }
+  }
+  const offPreStep = ctx.on('agent/pre-step', tracedPreStep, { prepend: true })
   if (typeof offPreStep === 'function') disposers.push(offPreStep)
   /**
    * 2026-11-04：压缩会真的把稳定段从模型上下文里删掉，但本进程的 `stableSent`
