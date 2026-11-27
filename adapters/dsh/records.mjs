@@ -13,7 +13,7 @@
  *     需要排查时把 dumpReasoning 打开（那时 row.reasoning 是命中的正文全文）。
  *
  * 卸载：attachRecords 返回 dispose，会把两个 ctx.on 都摘掉。
- */import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+ */import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { extractRecords, DEFAULT_TRIGGER } from '../../core/record-extract.mjs'
 // 落库走 soulweave 的纯 memory 层（零宿主依赖），不走它的插件入口。
@@ -41,7 +41,24 @@ function expandTemplate(tpl, vars) {
   return String(tpl).replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (m, key) => (key in vars ? String(vars[key] ?? '') : m))
 }
 
+let activeDispose = null
+
+// 2026-11-27：同一事件会被重载/多实例各写一次；落盘前按 (sessionId, seq) 去重。
+function alreadyWritten(file, row) {
+  try {
+    if (!file || !existsSync(file)) return false
+    const key = `${row.sessionId}\u0000${row.seq}`
+    return readFileSync(file, 'utf8').trimEnd().split('\n').slice(-60).some((line) => {
+      try {
+        const o = JSON.parse(line)
+        return `${o.sessionId}\u0000${o.seq}` === key
+      } catch { return false }
+    })
+  } catch { return false }
+}
+
 export function attachRecords(ctx, config = {}) {
+  try { activeDispose?.() } catch {}
   // 并入魂织后的契约：返回一个 dispose 函数，apply 侧负责推进 disposers。
   // 原 dsh-memprobe 的 ctx.on 返回值没接，卸载不掉；这里统一走 on() 包装。
   // ctx.logger 是工厂函数（apply 侧写的是 ctx.logger?.('soul')），不是对象。
@@ -269,6 +286,7 @@ export function attachRecords(ctx, config = {}) {
           }
         }
 
+        if (alreadyWritten(outPath, row)) continue
         write(row)
 
         if (r.records.length > 0 && targets.length > 0) {
@@ -298,8 +316,11 @@ export function attachRecords(ctx, config = {}) {
   const targetDesc = targets.length === 0 ? '无（只写 JSONL）' : targets.map((t) => t.path).join(' · ')
   try { logger.info?.(`records: 已挂载，触发词「${triggerLabel}」，日志 ${outPath}，定向 ${targetDesc}`) } catch {}
 
-  return () => {
+  const dispose = () => {
     for (const off of disposers) try { off?.() } catch {}
+    if (activeDispose === dispose) activeDispose = null
   }
+  activeDispose = dispose
+  return dispose
 }
 
