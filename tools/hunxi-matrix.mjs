@@ -97,7 +97,7 @@ const insert = args.dryRun ? null : db.prepare('INSERT OR REPLACE INTO sent_term
 const page = db.prepare('select id, text from frag where id > ? order by id limit ?')
 
 const MIN_SENT = 4
-const SENT_RE = /[^。！？；\n]+/g
+const SENT_RE = /[^。！？；，,、\n]+/g
 
 function splitSentences(text) {
   const out = []

@@ -10,9 +10,9 @@
  * 顺序：
  *   1. 逐 frag 重新切句（与 hunxi-matrix.mjs 同一套规则），对**每一句**跑命题形态脚手架
  *      → 写 room_projection(sent_id, frag_id, room, evidence, method)
- *   2. 用句级矩阵（sent_term）反推每房 profile
- *      → 写 room_profile(room, term, kind=own|shared, df)
- *   3. 随机抽取句子用 profile 回判，看 verdict 分布；并打印每房证据样本供肉眼判断
+ *   2. 用句级矩阵（sent_term）反推每房 profile：单位是**命题对**，来源是**证据句**
+ *      → 写 room_profile(room, pair_a, pair_b, sent_id, kind=own|shared)
+ *   3. 随机抽取句子用 profile 回判；再用证据句本身回判（in-sample），看能不能落回自己那间
  *
  * 脚手架是临时脚手架，不是判据。跑完这版投影就该退场（见 HUNXI-ROADMAP §十一）。
  *
@@ -25,7 +25,7 @@
 import '../io-node.mjs'
 import { configureStorage, openReadWrite, closeQuietly, storageStatus } from '../storage/index.mjs'
 import { sqliteDriver } from '../storage/driver.mjs'
-import { buildIndex, roomProfiles, classify } from '../core/tree/matrix.mjs'
+import { pairsOf, pairTerms, roomProfiles, classify, isArtifactTerm } from '../core/tree/matrix.mjs'
 
 const BATCH = 500
 
@@ -77,7 +77,7 @@ const AFFECT = /(心疼|委屈|害怕|怕|喜欢|讨厌|难过|开心|生气|在
 const PERSON = /(我|让我|使我|搞得我|心里|胸口|眼眶|有点|特别|真的|忽然|突然)/
 
 const MIN_SENT = 4
-const SENT_RE = /[^。！？；\n]+/g
+const SENT_RE = /[^。！？；，,、\n]+/g
 
 function splitSentences(text) {
   const out = []
@@ -143,13 +143,16 @@ if (!args.dryRun) {
       PRIMARY KEY (sent_id, room)
     );
     CREATE INDEX IF NOT EXISTS room_projection_frag ON room_projection(frag_id);
-    CREATE TABLE IF NOT EXISTS room_profile (
-      room TEXT NOT NULL,
-      term TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      df   INTEGER NOT NULL,
-      PRIMARY KEY (room, term)
+    DROP TABLE IF EXISTS room_profile;
+    CREATE TABLE room_profile (
+      room    TEXT NOT NULL,
+      pair_a  TEXT NOT NULL,
+      pair_b  TEXT NOT NULL,
+      sent_id TEXT NOT NULL,          -- 这个对是哪条证据句给出的
+      kind    TEXT NOT NULL,          -- own / shared
+      PRIMARY KEY (room, pair_a, pair_b, sent_id)
     );
+    CREATE INDEX IF NOT EXISTS room_profile_room ON room_profile(room, kind);
   `)
   db.exec('DELETE FROM room_profile')
 }
@@ -212,68 +215,130 @@ if (args.samples) {
   }
 }
 
-/* ---------- 2. 句级矩阵反推 profile ---------- */
-const postings = new Map()
+/* ---------- 2. 从投影反推 profile：单位是命题对，来源是证据句 ---------- */
+// profile 不是全库统计。全库一起建出来的是语料分布（哪对常见），不是房间判据。
+// 所以只拿**证据句**的 sent_term 建索引，并让每个 pair 记住来源句。
+const evIds = new Set()
+for (const ids of roomSets.values()) for (const id of ids) evIds.add(id)
+
+const pairPostings = new Map()
+const termPostings = new Map() // term → 证据句集合，给「整句包含」实验用
+const evTerms = new Map()      // 证据句 → 词集
 {
-  const sel = db.prepare('select sent_id, term from sent_term order by term')
+  db.exec('CREATE TEMP TABLE IF NOT EXISTS ev (sent_id TEXT PRIMARY KEY)')
+  db.exec('DELETE FROM ev')
+  const insEv = db.prepare('INSERT OR IGNORE INTO ev (sent_id) VALUES (?)')
+  db.exec('BEGIN')
+  for (const id of evIds) insEv.run(id)
+  db.exec('COMMIT')
+
+  const sel = db.prepare(
+    'select st.sent_id as sid, st.term as term from sent_term st join ev on ev.sent_id = st.sent_id order by st.sent_id'
+  )
   let cur = ''
-  let set = null
-  for (const row of sel.iterate()) {
-    if (row.term !== cur) {
-      cur = row.term
-      set = new Set()
-      postings.set(cur, set)
+  let buf = []
+  const flush = () => {
+    if (!cur) return
+    const kept = buf.filter((t) => !isArtifactTerm(t))
+    evTerms.set(cur, new Set(kept))
+    for (const t of kept) {
+      let s = termPostings.get(t)
+      if (!s) { s = new Set(); termPostings.set(t, s) }
+      s.add(cur)
     }
-    set.add(row.sent_id)
+    for (const key of pairsOf(buf)) {
+      let set = pairPostings.get(key)
+      if (!set) {
+        set = new Set()
+        pairPostings.set(key, set)
+      }
+      set.add(cur)
+    }
   }
+  for (const row of sel.iterate()) {
+    if (row.sid !== cur) {
+      flush()
+      cur = row.sid
+      buf = []
+    }
+    buf.push(row.term)
+  }
+  flush()
 }
-const index = buildIndex([])
-index.postings = postings
-index.documents = sentCount
-for (const [term, set] of postings) index.df.set(term, set.size)
-console.log(`\n矩阵：${postings.size} 项 · ${sentCount} 句`)
+const index = { postings: pairPostings, docs: evIds.size }
+console.log(`\n命题对矩阵：${pairPostings.size} 对 · ${evIds.size} 条证据句`)
 
 const profiles = roomProfiles(index, roomSets)
-console.log('\n—— 每房项 profile（只设一道门槛：跨房项排除）——')
+console.log('\n—— 每房命题对 profile（唯一门槛：跨房项排除）——')
 for (const [room, p] of [...profiles].sort()) {
   console.log(`${room}: own ${p.own.size} · shared ${p.shared.size}`)
 }
 
 const insProf = args.dryRun
   ? null
-  : db.prepare('INSERT OR REPLACE INTO room_profile (room, term, kind, df) VALUES (?, ?, ?, ?)')
+  : db.prepare('INSERT OR REPLACE INTO room_profile (room, pair_a, pair_b, sent_id, kind) VALUES (?, ?, ?, ?, ?)')
 if (insProf) {
   db.exec('BEGIN')
   for (const [room, p] of profiles) {
-    for (const term of p.own) insProf.run(room, term, 'own', index.df.get(term) || 0)
-    for (const term of p.shared) insProf.run(room, term, 'shared', index.df.get(term) || 0)
+    for (const item of p.profile) {
+      const [a, b] = pairTerms(item.pair)
+      for (const sid of item.ids) insProf.run(room, a, b, sid, 'own')
+    }
+    for (const pair of p.shared) {
+      const ids = index.postings.get(pair) || new Set()
+      const sid = ids.values().next().value || ''
+      const [a, b] = pairTerms(pair)
+      insProf.run(room, a, b, sid, 'shared')
+    }
   }
   db.exec('COMMIT')
 }
 
 if (args.report) {
+  const nSent = (pair) => (index.postings.get(pair) || new Set()).size
+  const shown = (pair) => {
+    const [a, b] = pairTerms(pair)
+    return `${a}·${b}(${nSent(pair)})`
+  }
   for (const [room, p] of [...profiles].sort()) {
-    const own = [...p.own].sort((a, b) => (index.df.get(b) || 0) - (index.df.get(a) || 0)).slice(0, 40)
-    const shared = [...p.shared].sort((a, b) => (index.df.get(b) || 0) - (index.df.get(a) || 0)).slice(0, 12)
+    const own = [...p.own].sort((a, b) => nSent(b) - nSent(a)).slice(0, 40)
+    const shared = [...p.shared].sort((a, b) => nSent(b) - nSent(a)).slice(0, 12)
     console.log(`\n## ${room}`)
-    console.log('own   :', own.map((t) => `${t}(${index.df.get(t)})`).join(' '))
-    console.log('shared:', shared.map((t) => `${t}(${index.df.get(t)})`).join(' '))
+    console.log('own   :', own.map(shown).join(' '))
+    console.log('shared:', shared.map(shown).join(' '))
   }
 }
 
-/* ---------- 3. 拿 profile 回判随机句 ---------- */
-const probe = db.prepare('select sent_id from sent order by random() limit 500').all()
+/* ---------- 3. 回判 ---------- */
+const selTerms = db.prepare('select term from sent_term where sent_id = ?')
+const termsOf = (sid) => selTerms.all(sid).map((r) => r.term)
+
+const PROBE = 500
+const probe = db.prepare('select sent_id from sent order by random() limit ?').all(PROBE)
 const verdict = { only: 0, multi: 0, none: 0 }
 const roomCount = {}
+const selSent = db.prepare('select frag_id as fid, off as off, len as len from sent where sent_id = ?')
+const selFragText = db.prepare('select text from frag where id = ?')
+const sentText = (sid) => {
+  const r = selSent.get(sid)
+  if (!r) return ''
+  const f = selFragText.get(r.fid)
+  return f ? String(f.text).slice(r.off, r.off + r.len) : ''
+}
+const hitSamples = []
 for (const { sent_id: sid } of probe) {
-  const terms = []
-  for (const [term, set] of postings) if (set.has(sid)) terms.push(term)
-  const got = classify(terms, profiles)
+  const got = classify(pairsOf(termsOf(sid)), profiles)
   verdict[got.verdict] += 1
   for (const r of got.rooms) roomCount[r] = (roomCount[r] || 0) + 1
+  if (got.verdict !== 'none' && hitSamples.length < 14) {
+    const room = got.rooms[0]
+    const ev = (got.evidence[room] || []).slice(0, 3).join(' ')
+    hitSamples.push(`[${got.verdict}:${room}] ${sentText(sid).slice(0, 80)}  ← ${ev}`)
+  }
 }
-console.log('\n—— 随机 500 句回判（拿 profile 反推，看项是否可分）——')
+console.log(`\n—— 随机 ${PROBE} 句回判（整库抽样）——`)
 console.log(`only ${verdict.only} · multi ${verdict.multi} · none ${verdict.none}`)
+for (const s of hitSamples) console.log('  ·', s)
 console.log(
   '落到的房：',
   Object.entries(roomCount)
@@ -282,5 +347,83 @@ console.log(
     .join(' ')
 )
 
+// in-sample：拿证据句回判，看能不能落回自己那间。乐观估计（判据就是从这些句子长的），
+// 但能回答一个关键问题：profile 到底记住了「命题」，还是只记住了「稀有词」。
+const truth = new Map()
+for (const [room, ids] of roomSets) {
+  for (const id of ids) {
+    let set = truth.get(id)
+    if (!set) {
+      set = new Set()
+      truth.set(id, set)
+    }
+    set.add(room)
+  }
+}
+const evList = [...evIds]
+const evProbe = []
+for (let i = 0; i < Math.min(PROBE, evList.length); i += 1) {
+  evProbe.push(evList[Math.floor(Math.random() * evList.length)])
+}
+const self = { onlyRight: 0, onlyWrong: 0, multiHasOwn: 0, multiMissOwn: 0, none: 0 }
+const wrongSamples = []
+for (const sid of evProbe) {
+  const got = classify(pairsOf(termsOf(sid)), profiles)
+  const own = truth.get(sid) || new Set()
+  const hit = got.rooms.some((r) => own.has(r))
+  if (got.verdict === 'none') self.none += 1
+  else if (got.verdict === 'only') {
+    if (hit) self.onlyRight += 1
+    else {
+      self.onlyWrong += 1
+      if (wrongSamples.length < 10) wrongSamples.push(`${got.rooms[0]} ← 真 ${[...own].join('+')}`)
+    }
+  } else if (hit) self.multiHasOwn += 1
+  else self.multiMissOwn += 1
+}
+console.log(`\n—— 证据句回判（in-sample，${evProbe.length} 条）——`)
+console.log(
+  `只中一间且对 ${self.onlyRight} · 只中一间但错 ${self.onlyWrong} · 多间含自己 ${self.multiHasOwn} · 多间漏自己 ${self.multiMissOwn} · 无命中 ${self.none}`
+)
+if (wrongSamples.length) console.log('错判样本：', wrongSamples.join(' | '))
+
+/* ---------- 4. 实验：更严的集合关系（只测量，不入库；--report 时跑） ---------- */
+if (args.report) {
+  const probe2 = db.prepare('select sent_id from sent order by random() limit 500').all()
+  const stats = { strictOnly: 0, strictMulti: 0, containOne: 0, containMany: 0, containNone: 0 }
+  const samples = { strict: [], contain: [] }
+  for (const { sent_id: sid } of probe2) {
+    const terms = [...new Set(termsOf(sid))].filter((t) => !isArtifactTerm(t))
+    const pairs = pairsOf(terms)
+    if (pairs.length) {
+      const rooms = []
+      for (const [room, p] of profiles) if (pairs.every((k) => p.own.has(k))) rooms.push(room)
+      if (rooms.length === 1) {
+        stats.strictOnly += 1
+        if (samples.strict.length < 6) samples.strict.push(`[${rooms[0]}] ${sentText(sid).slice(0, 70)}`)
+      } else if (rooms.length > 1) stats.strictMulti += 1
+    }
+    if (terms.length >= 2) {
+      let cand = null
+      for (const t of terms) {
+        const s = termPostings.get(t)
+        if (!s) { cand = null; break }
+        cand = cand ? new Set([...cand].filter((x) => s.has(x))) : new Set(s)
+        if (!cand.size) break
+      }
+      const rooms = new Set()
+      for (const ev of cand || []) for (const r of truth.get(ev) || []) rooms.add(r)
+      if (rooms.size === 1) {
+        stats.containOne += 1
+        if (samples.contain.length < 6) samples.contain.push(`[${[...rooms][0]}] ${sentText(sid).slice(0, 70)}`)
+      } else if (rooms.size > 1) stats.containMany += 1
+      else stats.containNone += 1
+    }
+  }
+  console.log(`\n—— 实验：整句词集 ⊆ 某条证据句 / 对集 ⊆ 某房 own ——`)
+  console.log(JSON.stringify(stats))
+  for (const s of samples.strict) console.log('  strict ·', s)
+  for (const s of samples.contain) console.log('  contain ·', s)
+}
 console.log(`\n用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`)
 closeQuietly(db)

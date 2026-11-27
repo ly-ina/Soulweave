@@ -2,15 +2,20 @@
 /**
  * core/tree/matrix.mjs —— 原文级记忆矩阵（第一刀的地基）。
  *
- * 只做三件事，全部是集合运算，不引入分数、阈值、相似度：
- *   1. 建索引：term → 出现在哪些 frag（postings）
- *   2. 取 profile：一组 frag 里「复现才成项」的那些 term
- *   3. 判归属：一个 frag 的项集与某 profile 是「只在这间 / 几间都有 / 没有」
+ * 单位不是「词」，是「命题对」：同一句里同时出现的两个词。
+ * 2026-11-27 实测（docs/HUNXI-ROADMAP.md §十二）：
+ *   - 词不分房间，命题才分；own-term profile 只是在测词的稀有度。
+ *   - 单跳（单个词）无信息；两跳（共现对）有 18–22× 信号。
+ * 所以 profile 的原子从 term 换成 pair。pair 同时保留来源句 sent_id——
+ * 判据要能被看见：这条为什么在空间房，能指回是哪几句给出这个对。
  *
- * 为什么不在这里算权重：
- *   魂织的既有阻尼、势能机是量化的，保留不动；魂汐这一层按 2026-11-27 的
- *   第二条硬约束尽量不量化。归属先做资格判断（有无、是否唯一），排序交给
- *   字典序（先房间、再锚、再时间），不掺加权求和。
+ * 只做集合运算，不引入分数、阈值、相似度：
+ *   1. 建索引：pair → 出现在哪些句（postings）
+ *   2. 取 profile：一组句子里出现过的 pair（去掉产物词）
+ *   3. 判归属：一个句子的 pair 集与某 profile 是「只在这间 / 几间都有 / 没有」
+ *
+ * 唯一的门槛是跨房：一个 pair 在两间以上房间都出现，就不属于任何一间——
+ * 它不是判据，是共性。房间一变多，共性项自动全部出局，不需要调参。
  *
  * 零依赖：不 import node:，也不 import io.mjs —— 纯函数，输入输出都是普通对象。
  */
@@ -37,36 +42,76 @@ export function isArtifactTerm(term) {
 }
 
 /**
- * 建一个索引。
- * @param {Iterable<{id: string, terms: string[]}>} docs 每条原文的 id 与切好的词
- * @returns {{postings: Map<string, Set<string>>, df: Map<string, number>, docs: number}}
+ * 命题对的内部键。只在内存里用，不落库——
+ * 落库拆成 pair_a / pair_b 两列，避免分隔符与 SQLite 的 NUL 问题。
  */
-export function buildIndex(docs) {
+export function pairKey(a, b) {
+  return a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`
+}
+
+export function pairTerms(key) {
+  const s = String(key || '')
+  const i = s.indexOf('\u0000')
+  if (i < 0) return [s, '']
+  return [s.slice(0, i), s.slice(i + 1)]
+}
+
+export function pairLabel(key) {
+  const [a, b] = pairTerms(key)
+  return `${a}·${b}`
+}
+
+/**
+ * 一句的命题对集合：句内两两无序对。
+ * 先过滤产物词，再去重——同一句里重复出现不产生新对。
+ *
+ * @param {Iterable<string>} terms
+ * @param {{exclude?: Iterable<string>}} [opts]
+ * @returns {string[]} 已排序的 pair key，稳定可复现
+ */
+export function pairsOf(terms, opts = {}) {
+  const exclude = new Set(opts.exclude || [])
+  const seen = new Set()
+  for (const raw of terms || []) {
+    const t = String(raw || '').trim()
+    if (!t || seen.has(t)) continue
+    if (exclude.has(t)) continue
+    if (isArtifactTerm(t)) continue
+    seen.add(t)
+  }
+  const list = [...seen].sort()
+  const out = []
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) out.push(pairKey(list[i], list[j]))
+  }
+  return out
+}
+
+/**
+ * 建一个命题对索引。
+ * @param {Iterable<{id: string, terms: string[]}>} docs 每条原文/句子的 id 与切好的词
+ * @returns {{postings: Map<string, Set<string>>, docs: number}}
+ */
+export function buildPairIndex(docs) {
   const postings = new Map()
   let n = 0
   for (const doc of docs) {
     if (!doc || !doc.id) continue
     n += 1
-    const seen = new Set()
-    for (const raw of doc.terms || []) {
-      const term = String(raw || '').trim()
-      if (!term || seen.has(term)) continue
-      seen.add(term)
-      let set = postings.get(term)
+    for (const key of pairsOf(doc.terms)) {
+      let set = postings.get(key)
       if (!set) {
         set = new Set()
-        postings.set(term, set)
+        postings.set(key, set)
       }
       set.add(doc.id)
     }
   }
-  const df = new Map()
-  for (const [term, set] of postings) df.set(term, set.size)
-  return { postings, df, docs: n }
+  return { postings, docs: n }
 }
 
 /**
- * 一组 frag 的项集：在这组里出现过的 term（去掉产物词）。
+ * 一组句子的项集：在这些句子里出现过的命题对。
  *
  * **没有「复现次数」门槛。**（2026-11-27 伊纳）
  * 用复现次数当条件，分子分母是同一个计数：语料越大，命中自己就涨了，
@@ -75,97 +120,96 @@ export function buildIndex(docs) {
  * @param {{postings: Map<string, Set<string>>}} index
  * @param {Iterable<string>} ids
  * @param {{exclude?: Iterable<string>}} [opts]
- * @returns {{term: string, ids: string[]}[]} 按 term 字典序，稳定可复现
+ * @returns {{pair: string, ids: string[]}[]} 按 pair 字典序，稳定可复现
  */
 export function profileOf(index, ids, opts = {}) {
   const want = new Set(ids)
   if (want.size === 0) return []
   const exclude = new Set(opts.exclude || [])
   const out = []
-  for (const [term, set] of index.postings) {
-    if (exclude.has(term)) continue
-    if (isArtifactTerm(term)) continue
+  for (const [pair, set] of index.postings) {
+    if (exclude.has(pair)) continue
     const hit = []
     for (const id of set) if (want.has(id)) hit.push(id)
-    if (hit.length > 0) out.push({ term, ids: hit })
+    if (hit.length > 0) out.push({ pair, ids: hit })
   }
-  out.sort((a, b) => (a.term < b.term ? -1 : a.term > b.term ? 1 : 0))
+  out.sort((a, b) => (a.pair < b.pair ? -1 : a.pair > b.pair ? 1 : 0))
   return out
 }
 
 /**
- * 每间房各自独占的 term。
+ * 每间房各自独占的命题对。
  *
- * 一个 term 如果在两间以上房间都稳定出现，就**不属于任何一间**——
+ * 一个 pair 如果在两间以上房间都出现，就**不属于任何一间**——
  * 它不是判据，是共性。这比「算一个区分度分数再砍阈值」更不容易漂：
  * 房间一变多，共性项自动全部出局，不需要调参。
  *
  * @param {{postings: Map<string, Set<string>>}} index
- * @param {Map<string, Set<string>>} roomSets room → frag id 集合
+ * @param {Map<string, Set<string>>} roomSets room → sent id 集合
  * @param {{base?: string}} [opts]
  *   base = 底座房。它每条都沾，不是区分器；算「跨房」时必须把它排除，
  *   否则任何项都同时属于底座房和它的房，全部变成 shared。
- * @returns {Map<string, {own: Set<string>, shared: Set<string>, profile: {term:string,ids:string[]}[]}>}
+ * @returns {Map<string, {own: Set<string>, shared: Set<string>, profile: {pair:string,ids:string[]}[]}>}
  */
 export function roomProfiles(index, roomSets, opts = {}) {
   const base = opts.base ?? 'episode'
-  /** term → 出现在哪几间（底座房不算） */
+  /** pair → 出现在哪几间（底座房不算） */
   const where = new Map()
-  const termsOf = new Map()
+  const pairsOfRoom = new Map()
   for (const [room, ids] of roomSets) {
     if (room === base) continue
     const list = profileOf(index, ids)
-    termsOf.set(room, list)
+    pairsOfRoom.set(room, list)
     for (const item of list) {
-      let set = where.get(item.term)
+      let set = where.get(item.pair)
       if (!set) {
         set = new Set()
-        where.set(item.term, set)
+        where.set(item.pair, set)
       }
       set.add(room)
     }
   }
   const result = new Map()
-  for (const [room, list] of termsOf) {
+  for (const [room, list] of pairsOfRoom) {
     const own = new Set()
     const shared = new Set()
     for (const item of list) {
-      const rooms = where.get(item.term)
-      if (rooms && rooms.size > 1) shared.add(item.term)
-      else own.add(item.term)
+      const rooms = where.get(item.pair)
+      if (rooms && rooms.size > 1) shared.add(item.pair)
+      else own.add(item.pair)
     }
     result.set(room, {
       own,
       shared,
-      profile: list.filter((item) => own.has(item.term)),
+      profile: list.filter((item) => own.has(item.pair)),
     })
   }
   return result
 }
 
 /**
- * 判一个 frag 的项集落在哪间房。返回集合关系，不返回分数。
+ * 判一句的命题对落在哪间房。返回集合关系，不返回分数。
  *
  * verdict:
  *   'only'   只与一间房的 profile 重叠 → 落这间（+底座房）
  *   'multi'  与多间重叠 → 按字典序取第一间，其余记进 evidence 供解释
  *   'none'   谁都不沾 → 只落底座房（情景房），不做兜底猜测
  *
- * @param {Iterable<string>} terms
+ * @param {Iterable<string>} pairs 本句的命题对
  * @param {Map<string, {own: Set<string>}>} profiles
  * @returns {{verdict: 'only'|'multi'|'none', rooms: string[], evidence: Record<string,string[]>}}
  */
-export function classify(terms, profiles) {
+export function classify(pairs, profiles) {
   const evidence = {}
   const rooms = []
-  for (const term of new Set(terms || [])) {
+  for (const pair of new Set(pairs || [])) {
     for (const [room, p] of profiles) {
-      if (!p || !p.own || !p.own.has(term)) continue
+      if (!p || !p.own || !p.own.has(pair)) continue
       if (!evidence[room]) {
         evidence[room] = []
         rooms.push(room)
       }
-      evidence[room].push(term)
+      evidence[room].push(pairLabel(pair))
     }
   }
   // 字典序：先按命中项数？不——按项数就是量化。按房间 id 字典序，稳定且可解释。
@@ -175,10 +219,10 @@ export function classify(terms, profiles) {
 }
 
 /**
- * 解释一个 term：它在哪些 frag 里出现过、出现几次房间。
+ * 解释一个命题对：它在哪些句子里出现过。
  * 只给事实，不做判断——判断留给调用方（或人）。
  */
-export function explainTerm(index, term) {
-  const set = index.postings.get(String(term || '')) || new Set()
-  return { term, df: set.size, ids: [...set] }
+export function explainPair(index, pair) {
+  const set = index.postings.get(String(pair || '')) || new Set()
+  return { pair, label: pairLabel(pair), df: set.size, ids: [...set] }
 }
